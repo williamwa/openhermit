@@ -1,5 +1,9 @@
 # Architecture Decision Records (ADR)
 
+These ADRs include both v0.1 decisions and deferred future direction.
+
+For implementation scope, `README.md`, `docs/architecture.md`, and `docs/plan.md` define the current v0.1 contract. If an ADR discusses a feature outside that contract, treat it as deferred work rather than current scope.
+
 ---
 
 ## ADR-001: Agent runs on host, containers are tools

@@ -1,585 +1,294 @@
 # System Architecture
 
+## Scope
+
+This document defines the implementation contract for v0.1.
+
+v0.1 is intentionally narrow. It exists to prove one reliable vertical slice:
+
+1. A user sends a task through the CLI
+2. The agent reads and writes only inside its workspace
+3. The agent can write code or data into `files/`
+4. The agent can run that artifact in an ephemeral Docker container
+5. The result is returned and logged
+
+In scope for v0.1:
+
+- One host-run agent process
+- CLI transport only
+- One workspace per agent
+- File-based memory and session logs
+- Secrets and autonomy policy outside the workspace
+- Four tools only: `read_file`, `write_file`, `list_files`, `container_run`
+- Ephemeral Docker containers only
+
+Out of scope for v0.1:
+
+- Telegram, Discord, HTTP, WebSocket, or background daemons
+- Service containers and host port bindings
+- Heartbeat / scheduled runs
+- Tailscale Funnel
+- Multi-agent orchestration
+- Custom hook handlers
+- Web UI
+
+Anything outside this list is deferred until after the first end-to-end slice works reliably.
+
 ## Core Concept
 
-**Agent runs on the host. Docker containers are tools the agent controls.**
+The agent runs on the host. Docker containers are tools the agent controls.
 
-The agent process itself lives on the host machine. It has one dedicated workspace directory where all its state, memory, files, and container data live. The agent never touches anything outside this workspace (except binding container ports to the host network for services).
+The agent process is persistent for the lifetime of the CLI session. When it needs to execute code, it launches an ephemeral container, mounts the workspace `files/` directory into that container, captures the result, and removes the container.
 
-When the agent needs to run code, install dependencies, or provide a service — it launches a Docker container, mounts the relevant subdirectory from its own workspace, and interacts with it. Containers are disposable; the agent and its workspace are persistent.
-
----
+The security boundary is the workspace plus typed tools. The agent does not get raw host shell access.
 
 ## High-Level Diagram
 
-```
-                    ┌─────────────────────┐
-  Telegram user ───►│  Telegram Bot API   │
-                    └──────────┬──────────┘
-                               │ long-poll
-  CLI user ────────────────────┤
-  (stdin/stdout)               │
-                               ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│ HOST MACHINE — Agent Process                                         │
-│                                                                      │
-│  ┌───────────────────────────────────────────────────────────────┐   │
-│  │  Channel Manager                                              │   │
-│  │  CLI Channel · Telegram Channel · (future: HTTP, Discord…)   │   │
-│  └───────────────────────┬───────────────────────────────────────┘   │
-│          InboundMessage  │  OutboundEvent                            │
-│                          ▼                                           │
-│  ┌──────────────┐  ┌──────────────┐  ┌───────────────────────────┐  │
-│  │  LLM Core    │  │  Memory Mgr  │  │  Container Mgr            │  │
-│  │ (pi-agent-   │  │ (file-based) │  │  (Dockerode)              │  │
-│  │  core)       │  │              │  │                           │  │
-│  └──────┬───────┘  └──────┬───────┘  └─────────────┬─────────────┘  │
-│         │                 │                        │                │
-│  ┌──────┴─────────────────┴────────────────────────┴───────────┐    │
-│  │  Hook System                                                │    │
-│  │  onSessionStart/End · beforeToolCall · afterToolCall        │    │
-│  │  beforeInbound · beforeOutbound · onHeartbeat · onError     │    │
-│  └─────────────────────────────────────────────────────────────┘    │
-│                                                                      │
-│  ┌────────────────────────────────────────────────────────────────┐  │
-│  │  Heartbeat Engine  (timer → heartbeat.md → mini session)      │  │
-│  └────────────────────────────────────────────────────────────────┘  │
-│                                      │                               │
-│                              ┌───────▼────────┐                      │
-│                              │   Workspace    │                      │
-│                              │  (filesystem)  │                      │
-│                              └───────┬────────┘                      │
-└──────────────────────────────────────┼───────────────────────────────┘
-                                       │
-                            ┌──────────▼──────────┐
-                            │    Docker Daemon     │
-                            └───┬──────────────┬───┘
-                                │              │
-                    ┌───────────▼──┐    ┌───────▼──────────┐
-                    │  Ephemeral   │    │  Service         │
-                    │  Container   │    │  Container       │──► port:host
-                    │  (run+rm)    │    │  (long-running)  │    binding
-                    └──────────────┘    └──────────────────┘
+```text
+CLI user
+   |
+   v
++-------------------------------+
+| AgentRunner (host process)    |
+|                               |
+| - session lifecycle           |
+| - context injection           |
+| - tool registration           |
+| - approval flow               |
++----+---------------+----------+
+     |               |
+     v               v
++-----------+   +----------------+
+| Workspace  |   | ContainerRun   |
+| Manager    |   | (Dockerode)    |
++-----+------+   +--------+-------+
+      |                   |
+      v                   v
+ workspace files      ephemeral Docker
+ and logs             container
 ```
 
----
+## Workspace Layout
 
-## Workspace Structure
+Each agent has two roots:
 
-Every agent gets one workspace directory. Everything the agent owns lives here.
+- `~/.cloudmind/{agent-id}/` for autonomy policy and secrets
+- `{workspace_root}/` for everything the agent is allowed to read and write
 
-```
-~/.cloudmind/{agent-id}/                 # ← OUTSIDE workspace (agent cannot read/modify)
-├── security.json                        # autonomy_level + require_approval_for (tamper-resistant)
-└── secrets.json                         # API keys, tokens, passwords (values NEVER exposed to LLM)
+```text
+~/.cloudmind/{agent-id}/
+|- security.json
+`- secrets.json
 
-{workspace_root}/                        # e.g., ~/cloudmind/agents/{agent-id}/
-│
-├── config.json                          # Agent identity, model, heartbeat, hooks config
-│
-├── identity/                            # Who the agent is (agent reads; user edits)
-│   ├── IDENTITY.md                      # Agent's name, role, backstory
-│   ├── SOUL.md                          # Core personality, values, communication style
-│   ├── USER.md                          # Who the agent is helping (user profile)
-│   └── AGENTS.md                        # Behavior guidelines and operating rules
-│
-├── memory/
-│   ├── working.md                       # Rolling context summary (what agent "has in mind" right now)
-│   ├── heartbeat.md                     # Periodic task checklist, maintained by the agent itself
-│   ├── episodic/
-│   │   ├── 2026-03.jsonl                # Append-only event log, split by month
-│   │   └── 2026-04.jsonl
-│   └── notes/                           # Long-term knowledge, one markdown file per topic
-│       ├── facts.md
-│       ├── user-preferences.md
-│       └── {topic}.md
-│
-├── sessions/
-│   └── {YYYY-MM-DD}-{session-id}.jsonl  # Per-session conversation log (messages + tool calls)
-│
-├── containers/
-│   ├── registry.jsonl                   # Record of all containers ever created by this agent
-│   └── {container-name}/
-│       └── data/                        # Files to be mounted into this container (agent writes here, container reads)
-│
-├── files/                               # Agent's general working files (code, docs, artifacts)
-│
-├── hooks/
-│   └── hooks.json                       # Custom hook handler declarations (optional)
-│
-└── logs/
-    └── {YYYY-MM-DD}.log                 # Agent runtime logs
+{workspace_root}/
+|- config.json
+|- identity/
+|  |- IDENTITY.md
+|  |- SOUL.md
+|  |- USER.md
+|  `- AGENTS.md
+|- memory/
+|  |- working.md
+|  |- episodic/
+|  |  `- 2026-03.jsonl
+|  `- notes/
+|- sessions/
+|  `- 2026-03-07-s1.jsonl
+|- files/
+`- logs/
 ```
 
-**Note on `~/.cloudmind/{agent-id}/`**: This directory is intentionally stored **outside the workspace**. The agent has `write_file` access to its workspace — if security policy or secrets lived inside, the agent could modify its own permission boundaries or read credential values directly. Both files in this directory are read by the agent process at startup but never written to by the agent. Only the user (or deployment scripts) should edit them.
+Notes:
 
-### Key Principles
-- The agent **only reads and writes within its workspace**
-- Container mounts **only point to subdirs under `containers/{name}/data/`**
-- All paths go through three-layer validation before use (see Security Policy §5)
-- Sessions are immutable once written (append-only)
-- Memory files are the only files the agent actively mutates over time
-- Security policy and secrets live **outside** the workspace and are never writable by the agent
-- The LLM sees secret **names** only, never values — values are injected into containers at runtime
+- `security.json` and `secrets.json` live outside the workspace so the agent cannot modify its own autonomy rules or read secret values through `read_file`.
+- `identity/` is user-authored in v0.1. The agent reads it but does not rewrite it.
+- `files/` is the only directory mounted into containers in v0.1.
+- There is no `containers/registry.jsonl` in v0.1 because service container lifecycle is deferred.
 
----
+## Runtime Components
 
-## Components
+### 1. CLI Interface
 
-### 1. Agent Process (Host)
+v0.1 supports only local CLI entry points:
 
-The agent is a long-running process on the host. It:
-- Exposes a simple interface (CLI or local API) for sending messages
-- Delegates LLM calls and loop management to `pi-agent-core`
-- Provides all custom tools (container, memory, workspace, etc.)
-- Reads/writes memory files via the Memory Manager
-- Calls the Docker SDK to manage containers via Dockerode
-- Streams output back to the caller via pi-agent-core's event system
+- `cloudmind chat --agent <id>`
+- `cloudmind run --agent <id> "..."`
 
-It does **not** run inside Docker. It is a plain Node.js process.
+There are no asynchronous transports in v0.1, so approval requests can be handled synchronously in the terminal.
 
-### 2. LLM Core (pi-ai + pi-agent-core)
+### 2. AgentRunner
 
-CloudMind does **not** implement its own ReAct loop. It uses two libraries from the `pi-mono` ecosystem:
+CloudMind should wrap `@mariozechner/pi-agent-core` behind a thin `AgentRunner` class.
 
-```
-@mariozechner/pi-ai          — unified multi-provider LLM API
-@mariozechner/pi-agent-core  — stateful agent loop with tool execution + events
-```
+`AgentRunner` owns:
 
-#### Layer diagram
+- session creation and session IDs
+- loading `identity/*.md`
+- injecting `memory/working.md`
+- registering the v0.1 tool set
+- translating internal events into session and episodic logs
+- interactive approval prompts for protected tools
 
-```
-CloudMind Tool Handlers
-  (container_run, memory_note, read_file, …)
-           │ implements AgentTool[]
-           ▼
-  @mariozechner/pi-agent-core
-  ┌──────────────────────────────────────────┐
-  │  Agent { state, prompt(), subscribe() }  │
-  │  • multi-turn tool-calling loop          │
-  │  • streaming events                      │
-  │  • transformContext() → inject memory    │
-  │  • abort / resume / model-switch         │
-  └──────────────┬───────────────────────────┘
-                 │ calls stream() / complete()
-                 ▼
-  @mariozechner/pi-ai
-  ┌──────────────────────────────────────────┐
-  │  getModel(provider, model)               │
-  │  Anthropic · OpenAI · Google · Mistral   │
-  │  Groq · Bedrock · OpenRouter · Ollama …  │
-  │  TypeBox tool schemas · cost tracking    │
-  └──────────────────────────────────────────┘
-```
+This wrapper exists so CloudMind does not spread direct `pi-agent-core` assumptions across the codebase.
 
-#### How pi-agent-core events map to CloudMind hooks
+### 3. Workspace Manager
 
-| pi-agent-core event | CloudMind hook point |
-|--------------------|---------------------|
-| `agent_start` | `onSessionStart` |
-| `agent_end` | `onSessionEnd` |
-| `tool_execution_start` | `beforeToolCall` |
-| `tool_execution_end` | `afterToolCall` |
-| *(subscriber pre-prompt)* | `beforeInbound` |
-| *(subscriber pre-agent_end)* | `beforeOutbound` |
-| *(error in subscriber)* | `onError` |
+The workspace manager is the main safety boundary for file access.
 
-Hook handlers subscribe to pi-agent-core events; CloudMind's hook runner fires from those subscriptions.
+Responsibilities:
 
-#### Context injection via `transformContext`
+- scaffold a new workspace
+- read and validate `config.json`
+- resolve relative paths safely
+- perform atomic writes for mutable files
 
-pi-agent-core's `transformContext` callback runs before every LLM turn. CloudMind uses it to:
-1. Inject `identity/*.md` files into the system prompt (once per session)
-2. Inject `memory/working.md` as a system context block
-3. Trim / summarise history if approaching token budget
+All reads and writes go through the same path validation pipeline:
 
-```typescript
-const agent = new Agent({
-  initialState: { model: getModel('anthropic', 'claude-opus-4-5'), tools },
-  transformContext: async (messages) =>
-    injectWorkingMemory(await injectIdentity(messages)),
-})
-```
+1. Reject null bytes
+2. Resolve against `workspace_root`
+3. Reject paths that escape the workspace root
+4. On reads, compare the target `realpath` against the workspace root
+5. On writes to new files, compare the nearest existing parent directory `realpath` against the workspace root
 
-#### Multi-provider and model switching
+That fifth rule is required because `realpathSync` on a new file path will fail if the file does not exist yet.
 
-```typescript
-// Switch provider mid-session (e.g. fallback on rate-limit)
-agent.setModel(getModel('openai', 'gpt-4o'))
+### 4. Memory Manager
 
-// Use local Ollama
-agent.setModel(getModel('openai-compatible', 'llama3.1', {
-  baseUrl: 'http://localhost:11434/v1',
-}))
+v0.1 keeps memory simple and file-based:
 
-// Heartbeat uses a cheaper/faster model
-const heartbeatAgent = new Agent({
-  initialState: { model: getModel('anthropic', 'claude-haiku-4-5'), tools: heartbeatTools },
-})
-```
+- `memory/working.md`: short rolling context
+- `memory/notes/*.md`: durable user or project notes
+- `memory/episodic/{YYYY-MM}.jsonl`: append-only event log
+- `sessions/{date}-{id}.jsonl`: append-only session transcript
 
-#### Tool definition format (TypeBox via pi-ai)
+Requirements:
 
-```typescript
-import { Type } from '@mariozechner/pi-ai'
-import type { AgentTool } from '@mariozechner/pi-agent-core'
+- writes to `working.md` and notes are atomic
+- JSONL appends are serialized through a single writer queue or lock
+- old monthly episodic files are read-only archives
 
-const containerRunTool: AgentTool = {
-  name: 'container_run',
-  description: 'Run a command in an ephemeral Docker container',
-  parameters: Type.Object({
-    image:   Type.String({ description: 'Docker image, e.g. python:3.12-slim' }),
-    command: Type.String({ description: 'Shell command to execute' }),
-    mount:   Type.Optional(Type.String({ description: 'Workspace subdir to mount' })),
-  }),
-  execute: async (args) => {
-    security.checkCommand(args.command)          // CloudMind security layer
-    return containerManager.runEphemeral(args)   // CloudMind container module
-  },
-}
-```
+### 5. Ephemeral Container Runner
 
-Built-in tools available to agent:
+v0.1 implements one execution primitive: `container_run`.
 
-| Tool | Description |
-|------|-------------|
-| `read_file` | Read a file within workspace |
-| `write_file` | Write a file within workspace |
-| `list_files` | List files in a workspace directory |
-| `container_run` | Spin up an ephemeral container, run a command, return stdout/stderr/exitCode |
-| `container_start` | Start a long-term service container |
-| `container_stop` | Stop a service container |
-| `container_exec` | Exec a command in a running container |
-| `container_status` | List containers and their status |
-| `memory_note` | Write/update a note in memory/notes/{topic}.md |
-| `memory_recall` | Read one or more memory note files |
-| `web_fetch` | Fetch a URL and return content |
-| `tailscale_funnel` | Enable/disable Tailscale Funnel for a port (runs `tailscale funnel`, no sudo needed) |
-| `agent_doctor` | Run self-diagnostics: check process health, containers, memory files, config validity |
+Behavior:
 
-### 3. Memory Manager (File-based)
+- create an ephemeral container
+- mount `{workspace_root}/files` at `/workspace`
+- run a command
+- capture `stdout`, `stderr`, exit code, and duration
+- remove the container after completion
 
-Three layers, all stored as plain files in the workspace:
+Safety defaults:
 
-#### Working Memory — `memory/working.md`
-- A markdown file the agent rewrites as context shifts
-- Contains: current task/goal, key facts relevant right now, recent decisions
-- Kept short (< 1000 tokens) — agent summarizes and updates it explicitly
+- CPU and memory limits are always set
+- execution timeout is always set
+- network is disabled by default
+- images must match an allowlist from `config.json`
 
-#### Episodic Memory — `memory/episodic/{YYYY-MM}.jsonl`
-- Append-only JSONL log, one event per line, **split by month** to avoid unbounded file growth
-- Events: `message_received`, `tool_called`, `tool_result`, `session_started`, `session_ended`, `note_updated`, `heartbeat_run`, `hook_fired`
-- Used for reviewing history, understanding what happened and when
-- Format: `{"ts": "ISO8601", "type": "...", "session": "...", "data": {...}}`
-- Current month file is active; older files are read-only archives
+If network access is needed later, it should be an explicit opt-in design change, not an accidental default.
 
-#### Long-term Notes — `memory/notes/*.md`
-- Agent explicitly creates and updates these
-- Human-readable markdown, organized by topic
-- Agent uses `memory_note` tool to write and `memory_recall` to read
-- Examples: `user-preferences.md`, `project-status.md`, `important-facts.md`
+## Tool Surface
 
-#### Session Log — `sessions/{date}-{id}.jsonl`
-- Full message history for a single conversation session
-- Each line: `{"role": "user|assistant|tool", "ts": "...", "content": "..."}`
-- Written during session, read-only after
+Only these tools exist in v0.1.
 
-### 4. Container Manager (Docker SDK)
+### `read_file(path)`
 
-Manages two container types:
+- Reads a file within the workspace
+- Intended for `files/`, `memory/`, and `identity/`
+- Never reads `~/.cloudmind/{agent-id}/`
 
-#### Ephemeral Containers (short-term)
-- Purpose: run code, install and test something, one-off computation
-- Lifecycle: created → runs command → returns output → auto-removed (`--rm`)
-- Mount: `workspace/containers/{name}/data/` → `/workspace` inside container
-- No port bindings
-- Resource limits: CPU + memory caps
-- Example use: "run this Python script", "compile this code", "check if this npm package works"
+### `write_file(path, content)`
 
-#### Service Containers (long-term)
-- Purpose: provide a running service (web server, database, background worker)
-- Lifecycle: created → running → paused/resumed → explicitly stopped by agent
-- Mount: `workspace/containers/{name}/data/` → `/data` inside container
-- Port bindings: container port → host port (the one place host is affected)
-- Recorded in `containers/registry.jsonl` with status + metadata
-- Example use: "run a local Postgres for this project", "serve this web app on port 3000"
+- Writes only inside these writable roots:
+  - `files/`
+  - `memory/working.md`
+  - `memory/notes/`
+- Cannot modify `config.json`
+- Cannot modify `identity/`
 
-#### Sentinel Markers for Output Parsing
+### `list_files(dir)`
 
-Container stdout can contain noise (package install logs, warnings, etc.). Structured output uses sentinel markers so the host can reliably extract just the result:
+- Lists workspace files under an allowed directory
+- Used to inspect `files/`, `memory/notes/`, or similar workspace subtrees
 
-```
----CLOUDMIND_OUTPUT_START---
-{"result": "...", "exitCode": 0}
----CLOUDMIND_OUTPUT_END---
-```
+### `container_run({ image, command, workdir?, env_secrets? })`
 
-Scripts that need to return structured data to the agent write to stdout between these markers. Raw stdout/stderr outside the markers is still captured and available for debugging.
+- Runs an ephemeral container
+- Mounts `files/` to `/workspace`
+- `workdir` is relative to `/workspace`
+- `env_secrets` contains secret names only
+- Secret values are resolved by the host process and injected into the container at runtime
 
-#### IPC via Filesystem (for long-running containers)
+There is no `container_start`, `container_stop`, `container_exec`, `web_fetch`, `tailscale_funnel`, or `agent_doctor` in v0.1.
 
-Service containers communicate back to the agent by writing JSON files into a shared IPC directory:
+## Security Model
 
-```
-containers/{name}/data/ipc/out/   ← container writes here
-containers/{name}/data/ipc/in/    ← agent writes here (commands to container)
-```
+### Autonomy Policy
 
-The agent polls `ipc/out/` on a configurable interval. This avoids the need for any ports or sockets just for agent↔container communication.
+Autonomy policy is stored at `~/.cloudmind/{agent-id}/security.json`.
 
-#### Container Registry — `containers/registry.jsonl`
-```jsonl
-{"id": "abc123", "name": "pg-project-x", "image": "postgres:16", "type": "service", "status": "running", "ports": {"5432": 5432}, "mount": "containers/pg-project-x/data", "created": "2026-03-07T10:00:00Z"}
-{"id": "def456", "name": "run-20260307-1", "image": "python:3.12", "type": "ephemeral", "status": "removed", "created": "2026-03-07T10:05:00Z"}
-```
+v0.1 keeps the existing three-level model:
 
-### 5. Security Policy
+- `readonly`
+- `supervised`
+- `full`
 
-The architecture already provides the primary security boundary: the agent only speaks to the host via typed tools (no raw Bash), and all file tools are hard-coded to operate within the workspace via three-layer path validation. This means there is no meaningful "host escape" surface to configure away with a list of blocked paths.
+Default for v0.1 is `supervised`.
 
-The security config (`~/.cloudmind/{agent-id}/security.json`) therefore focuses exclusively on **autonomy policy** — *what the agent is allowed to do on its own*, not *what the host allows*. It lives outside the workspace so the agent cannot modify its own permission boundaries.
+Because v0.1 is CLI-only, `require_approval_for` can block synchronously in the terminal. There is no background approval queue in this milestone.
 
-#### Autonomy Levels
-
-Three levels control how much the agent can act without asking the user:
-
-| Level | Behaviour |
-|-------|-----------|
-| `readonly` | Can read files and check status, cannot write, execute, or start containers. Used for heartbeat runs and audit sessions. |
-| `supervised` | Normal operation. Executes tools freely, but `require_approval_for` tools pause for user confirmation. **Default.** |
-| `full` | Executes everything without prompting. Use only for trusted batch jobs. |
-
-The heartbeat engine always runs at `readonly` or `supervised` (configurable per agent), never `full`.
-
-#### Path Validation — Three Layers (hardcoded, not configurable)
-
-Every path passed to `read_file`, `write_file`, `list_files`, or any container mount goes through all three checks in order. This is not a setting — it always runs:
-
-```
-1. Null byte check         path.includes('\0') → reject immediately
-2. Workspace boundary      resolve(workspaceRoot, path) must start with workspaceRoot
-3. Symlink escape check    fs.realpathSync(resolved) must also start with workspaceRoot
-```
-
-Layer 3 catches symlink attacks: a symlink inside the workspace pointing to `/etc/passwd` would pass layer 2 but fail layer 3 after resolution.
-
-Because this boundary is architectural (not policy-driven), a separate `forbidden_paths` list would be redundant — the agent simply cannot reach `/etc`, `~/.ssh`, or any other host path regardless of configuration.
-
-#### Container Command Safety
-
-Commands run inside containers via `container_exec` or `container_run` execute inside Docker, not on the host. The container only has access to its mounted `containers/{name}/data/` subdirectory. Since code inside a container cannot reach host-sensitive paths, a command whitelist is an operational preference rather than a security control.
-
-The default `container_defaults` in `config.json` sets memory + CPU caps on all containers. Commands passed to containers are logged in the episodic memory for auditability.
-
-#### `~/.cloudmind/{agent-id}/security.json`
-
-Only the fields that genuinely need tamper-resistance live here:
+Suggested default:
 
 ```json
 {
   "autonomy_level": "supervised",
-  "require_approval_for": ["container_start", "tailscale_funnel"]
+  "require_approval_for": ["container_run"]
 }
 ```
 
-| Field | Purpose |
-|-------|---------|
-| `autonomy_level` | `readonly \| supervised \| full` — controls whether the agent acts freely or requests confirmation |
-| `require_approval_for` | List of tool names that always trigger the `require-approval` hook, regardless of autonomy level |
+### Secrets
 
-Everything else (container resource limits, command preferences) lives in `config.json` inside the workspace — it's operational config, not a security boundary.
+Secrets are stored at `~/.cloudmind/{agent-id}/secrets.json`, outside the workspace.
 
-#### `~/.cloudmind/{agent-id}/secrets.json`
+The LLM never sees secret values. It only sees secret names, for example:
 
-Sensitive credentials the agent's containers may need at runtime. The LLM **never sees the values** — only the key names, which are injected into the system prompt as a reference list.
-
-```json
-{
-  "OPENAI_API_KEY": "sk-...",
-  "DISCORD_BOT_TOKEN": "...",
-  "DATABASE_PASSWORD": "...",
-  "GITHUB_TOKEN": "ghp_..."
-}
+```text
+Available secrets: OPENAI_API_KEY, GITHUB_TOKEN
 ```
 
-**How it works**:
-1. At session start, the agent process reads `secrets.json` into memory (never logs it, never passes it to the LLM)
-2. The system prompt includes only the **key names**: `"Available secrets: OPENAI_API_KEY, DISCORD_BOT_TOKEN, DATABASE_PASSWORD, GITHUB_TOKEN"`
-3. The LLM can reference a secret by name in a tool call: `container_run({ ..., env_secrets: ["OPENAI_API_KEY"] })`
-4. The tool handler resolves the actual value from the in-memory secrets map and passes it as a Docker `--env` flag
-5. The tool result returned to the LLM confirms the env var was set, but never echoes the value
+Credential flow:
 
-This means credentials flow: `secrets.json → agent memory → Docker env var → container process`. They are never part of any message in the LLM conversation.
-
----
-
-### 6. Lifecycle Hook System
-
-A lightweight event bus that fires at fixed points in the agent's execution. Hooks let cross-cutting concerns (logging, safety checks, memory updates, approvals) be defined separately from the core loop logic.
-
-#### Hook Points
-
-| Hook | Fires when | Can block? |
-|------|-----------|------------|
-| `onSessionStart` | A new session begins | No |
-| `onSessionEnd` | A session ends (normal or error) | No |
-| `beforeInbound` | A user message is received, before LLM sees it | Yes |
-| `beforeToolCall` | LLM has chosen a tool, before execution | Yes |
-| `afterToolCall` | Tool has returned its result | No |
-| `beforeOutbound` | Agent is about to send its final answer | Yes |
-| `onHeartbeat` | Heartbeat timer fires | No |
-| `onError` | An unhandled error occurs in the loop | No |
-
-"Can block" means the hook handler can throw an error to abort the current operation (e.g., a safety hook blocking a dangerous tool call).
-
-#### Built-in Hook Handlers
-
-| Handler | Hook points | What it does |
-|---------|------------|--------------|
-| `log` | all | Writes event to episodic memory (this is how all episodic events are recorded) |
-| `require-approval` | `beforeToolCall` | Pauses execution and asks user to confirm before proceeding |
-
-#### Custom Hook Handlers — `hooks/hooks.json`
-
-Users can declare custom hooks. Each entry maps a hook point to a list of handlers:
-
-```json
-{
-  "beforeToolCall": ["require-approval"],
-  "afterToolCall": ["log"],
-  "onSessionEnd": ["log"]
-}
+```text
+secrets.json -> agent process memory -> Docker env var -> container process
 ```
 
-In the future, custom handlers can be JS files in `hooks/` that export an async handler function.
+Secret values never appear in:
 
-#### How hooks integrate with the ReAct loop
+- `read_file` output
+- tool results returned to the LLM
+- session logs
+- episodic logs
 
-```
-user message arrives
-      │
-  [beforeInbound hooks]
-      │
-  LLM generates tool call
-      │
-  [beforeToolCall hooks]  ← can block here (e.g., require-approval)
-      │
-  tool executes
-      │
-  [afterToolCall hooks]   ← log result, scan for secrets
-      │
-  LLM generates final answer
-      │
-  [beforeOutbound hooks]
-      │
-  answer sent to user
-      │
-  [onSessionEnd hooks]    ← write session summary to memory
-```
+### Container Safety
 
----
+Containers are still a risk surface even if they do not touch the host filesystem.
 
-### 7. Heartbeat Engine
+For v0.1, the minimum policy should be:
 
-The heartbeat makes the agent **proactive** — it wakes up on a timer and does useful background work without waiting for a user message.
+- image allowlist
+- resource limits
+- timeout
+- network disabled by default
+- explicit logging of image, command, duration, and exit code
 
-#### How it works
+That is a better safety baseline than relying on command whitelists.
 
-```
-Timer fires (e.g., every 1 hour)
-      │
-  [onHeartbeat hooks]
-      │
-  Load memory/heartbeat.md
-      │
-  Run a mini ReAct session with prompt:
-  "You are running a scheduled heartbeat. Here is your checklist:
-   {heartbeat.md contents}. Check what needs doing and do it."
-      │
-  Agent executes tools as needed (check containers, update memory, etc.)
-      │
-  Log heartbeat run to episodic memory
-      │
-  Agent updates heartbeat.md with timestamps of last run
-```
+## Persistence and Logging
 
-#### `memory/heartbeat.md` — agent-maintained checklist
+`config.json` is read by the runtime but not modified by the agent through tool calls in v0.1.
 
-The agent itself writes and maintains this file. It's a markdown checklist where each task has a cadence and a last-run timestamp. Example:
-
-```markdown
-# Heartbeat Checklist
-
-## Hourly
-- [ ] Verify all service containers are running — last checked: 2026-03-07 09:00
-- [ ] Flush episodic buffer if > 500 events
-
-## Daily
-- [ ] Summarise today's episodic log into memory/notes/daily-summary.md — last run: 2026-03-06
-- [ ] Clean up ephemeral container records older than 7 days from registry
-
-## Weekly
-- [ ] Archive sessions older than 30 days
-- [ ] Review memory/notes/ for stale or contradictory facts
-```
-
-#### Heartbeat config in `config.json`
-
-```json
-"heartbeat": {
-  "enabled": true,
-  "interval_minutes": 60,
-  "max_iterations": 10,
-  "tools_allowed": ["read_file", "write_file", "container_status", "memory_note"]
-}
-```
-
-- `interval_minutes`: how often the heartbeat fires
-- `max_iterations`: cap on ReAct loop turns per heartbeat run (keep it short)
-- `tools_allowed`: restrict which tools the heartbeat session can use (safety)
-
-#### Key design decisions
-- Heartbeat runs in its own isolated mini-session (separate session ID, logged separately)
-- It uses the same ReAct loop and tool system as normal sessions
-- If a heartbeat run is already in progress when the timer fires again, skip (no overlapping runs)
-- Heartbeat does not stream output to any user — results go only to episodic memory
-
----
-
-## Host System Impact
-
-The agent is designed to be minimally invasive to the host. Here is the complete list of ways the host system is affected:
-
-### Unavoidable (by design)
-| Impact | Details |
-|--------|---------|
-| **Port bindings** | Service containers bind ports to the host. Agent tracks which ports are in use in registry. |
-| **Docker daemon** | Must be running on host. Agent connects via `/var/run/docker.sock`. |
-
-### Potentially needed (case-by-case)
-| Impact | Details |
-|--------|---------|
-| **Firewall rules** | If a service container needs to be reachable from outside, UFW/iptables may need a rule opened. Agent can note this but cannot do it automatically (requires root). |
-| **Tailscale Funnel** | Agent can directly run `tailscale funnel <port>` via the `tailscale_funnel` tool — no sudo needed. Agent tracks which ports are funneled in its config. |
-| **Secrets / env vars** | API keys or credentials that containers need. Agent stores these in `config.json` within workspace and injects them as container env vars at launch time. Never written to container images. |
-| **Docker networks** | Agent may create named Docker networks for multi-container setups. These are Docker-managed, not host-level. |
-| **DNS** | If containers need to resolve custom hostnames, may need `/etc/hosts` entries on the host. Edge case. |
-| **GPU access** | If a container needs GPU, host must have nvidia-container-toolkit. Not needed for v1. |
-| **Auto-start on boot** | If the agent should restart on reboot, needs a systemd unit or equivalent on the host. Optional. |
-
-### Never touched by agent
-- Host filesystem outside workspace
-- Host packages (apt, brew, etc.)
-- Host environment variables
-- Host network interfaces (except port bindings via Docker)
-- Other processes on the host
-
----
-
-## Config File — `config.json`
-
-**`{workspace}/config.json`** — agent reads and can write (non-security fields only)
+Example `config.json`:
 
 ```json
 {
@@ -588,70 +297,67 @@ The agent is designed to be minimally invasive to the host. Here is the complete
   "created": "2026-03-07T00:00:00Z",
   "model": {
     "provider": "anthropic",
-    "model": "claude-opus-4-5",
+    "model": "claude-sonnet-4-5",
     "max_tokens": 8192
   },
   "identity": {
-    "files": ["identity/IDENTITY.md", "identity/SOUL.md", "identity/USER.md", "identity/AGENTS.md"]
+    "files": [
+      "identity/IDENTITY.md",
+      "identity/SOUL.md",
+      "identity/USER.md",
+      "identity/AGENTS.md"
+    ]
   },
   "container_defaults": {
+    "image_allowlist": ["python:3.12-slim", "node:22-slim"],
     "memory_limit": "512m",
     "cpu_shares": 512,
-    "network": "bridge"
-  },
-  "port_registry": {
-    "used": [3000, 5432],
-    "funneled": [3000]
-  },
-  "hooks": {
-    "beforeToolCall": ["log"],
-    "afterToolCall": ["log"],
-    "onSessionStart": ["log"],
-    "onSessionEnd": ["log"],
-    "onHeartbeat": ["log"]
-  },
-  "heartbeat": {
-    "enabled": true,
-    "interval_minutes": 60,
-    "max_iterations": 10,
-    "autonomy": "readonly",
-    "tools_allowed": ["read_file", "write_file", "container_status", "memory_note", "memory_recall"]
+    "timeout_seconds": 120,
+    "network": "disabled"
   }
 }
 ```
 
-**`~/.cloudmind/{agent-id}/security.json`** — user only, agent cannot write
+Example session log line format:
 
-```json
-{
-  "autonomy_level": "supervised",
-  "require_approval_for": ["container_start", "tailscale_funnel"]
-}
+```jsonl
+{"ts":"2026-03-07T10:00:05Z","role":"user","content":"Write a fibonacci script"}
+{"ts":"2026-03-07T10:00:08Z","role":"tool_call","name":"write_file","args":{"path":"files/fib.py"}}
+{"ts":"2026-03-07T10:00:14Z","role":"tool_result","name":"container_run","content":{"exitCode":0}}
 ```
 
-**`~/.cloudmind/{agent-id}/secrets.json`** — user only, agent reads at startup but never logs or passes to LLM
+Example episodic log line format:
 
-```json
-{
-  "OPENAI_API_KEY": "sk-...",
-  "DISCORD_BOT_TOKEN": "...",
-  "DATABASE_PASSWORD": "...",
-  "GITHUB_TOKEN": "ghp_..."
-}
+```jsonl
+{"ts":"2026-03-07T10:00:00Z","session":"s1","type":"session_started","data":{}}
+{"ts":"2026-03-07T10:00:14Z","session":"s1","type":"tool_result","data":{"tool":"container_run","exitCode":0}}
+{"ts":"2026-03-07T10:00:15Z","session":"s1","type":"session_ended","data":{"turns":2}}
 ```
 
----
+## Deferred After v0.1
+
+These are valid future directions, but they are intentionally not part of the initial contract:
+
+- service containers
+- host port allocation
+- Docker networks
+- heartbeat sessions
+- custom hook handlers
+- model switching at runtime
+- Telegram or other IM transports
+- web UI
+- multi-agent registry and lifecycle management
+- Tailscale Funnel integration
+
+Those features should be added only after the single-agent CLI path is stable.
 
 ## Tech Stack
 
 | Component | Technology |
-|-----------|-----------|
+|-----------|------------|
 | Agent runtime | Node.js + TypeScript |
-| LLM provider abstraction | `@mariozechner/pi-ai` (Anthropic, OpenAI, Google, Ollama, OpenRouter…) |
-| Agent loop | `@mariozechner/pi-agent-core` (multi-turn, tool calling, streaming events) |
-| Tool schemas | TypeBox (via pi-ai) |
-| Container management | Dockerode (Docker SDK for Node) |
-| Memory / sessions | Plain files: `.md` + `.jsonl` |
-| Database | None in v1. SQLite optional later. |
-| API interface | Local HTTP (Hono) or CLI |
-| Deployment | Single host process (systemd or pm2) |
+| Agent loop wrapper | `AgentRunner` |
+| LLM abstraction | `@mariozechner/pi-ai` |
+| Tool loop | `@mariozechner/pi-agent-core` |
+| Container management | Dockerode |
+| Persistence | Markdown + JSONL + JSON |
