@@ -1,0 +1,13 @@
+{
+  "name": "cloudmind",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Host-run AI agent runtime with Docker as a tool surface.",
+  "engines": {
+    "node": ">=18.15.0"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}
