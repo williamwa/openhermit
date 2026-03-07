@@ -2,10 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { appendFile, mkdir, rename, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 
-const writeQueues = new Map();
+const writeQueues = new Map<string, Promise<unknown>>();
 
-export function enqueueFileWrite(filePath, task) {
-  const previous = writeQueues.get(filePath) ?? Promise.resolve();
+export function enqueueFileWrite<T>(filePath: string, task: () => Promise<T>): Promise<T> {
+  const previous = writeQueues.get(filePath) ?? Promise.resolve<unknown>(undefined);
   const next = previous.catch(() => {}).then(task);
 
   writeQueues.set(filePath, next);
@@ -18,7 +18,7 @@ export function enqueueFileWrite(filePath, task) {
   return next;
 }
 
-export function writeTextAtomic(filePath, contents) {
+export function writeTextAtomic(filePath: string, contents: string): Promise<void> {
   return enqueueFileWrite(filePath, async () => {
     await mkdir(dirname(filePath), { recursive: true });
 
@@ -32,11 +32,11 @@ export function writeTextAtomic(filePath, contents) {
   });
 }
 
-export function writeJsonAtomic(filePath, value) {
+export function writeJsonAtomic(filePath: string, value: unknown): Promise<void> {
   return writeTextAtomic(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-export function appendJsonl(filePath, value) {
+export function appendJsonl(filePath: string, value: string | unknown): Promise<void> {
   return enqueueFileWrite(filePath, async () => {
     await mkdir(dirname(filePath), { recursive: true });
 

@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
+import type { TestContext } from 'node:test';
+
 import {
   appendJsonl,
   describeResolvedSecrets,
@@ -18,9 +20,9 @@ import {
   resolveReadPath,
   resolveSecrets,
   resolveWritePath,
-} from '../src/index.js';
+} from '../src/index.ts';
 
-async function createSandbox(t) {
+async function createSandbox(t: TestContext): Promise<string> {
   const sandboxRoot = await mkdtemp(join(tmpdir(), 'cloudmind-test-'));
   t.after(() => rm(sandboxRoot, { recursive: true, force: true }));
   return sandboxRoot;

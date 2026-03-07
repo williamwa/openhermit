@@ -1,17 +1,19 @@
 import { access, mkdir } from 'node:fs/promises';
 
-import { getAgentDirectory, getSecretsFilePath } from './agent-paths.js';
-import { writeJsonAtomic } from './io.js';
-import { readJsonFile } from './json.js';
+import { getAgentDirectory, getSecretsFilePath } from './agent-paths.ts';
+import { writeJsonAtomic } from './io.ts';
+import { readJsonFile } from './json.ts';
 
-function validateSecrets(value) {
+import type { AgentPathOptions, SecretsMap } from './types.ts';
+
+function validateSecrets(value: unknown): SecretsMap {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Secrets config must be an object');
   }
 
-  const result = {};
+  const result: SecretsMap = {};
 
-  for (const [name, secretValue] of Object.entries(value)) {
+  for (const [name, secretValue] of Object.entries(value as Record<string, unknown>)) {
     if (typeof secretValue !== 'string') {
       throw new Error(`Secret "${name}" must be a string`);
     }
@@ -22,7 +24,7 @@ function validateSecrets(value) {
   return result;
 }
 
-export async function initSecrets(agentId, options = {}) {
+export async function initSecrets(agentId: string, options: AgentPathOptions = {}): Promise<string> {
   const agentDirectory = getAgentDirectory(agentId, options);
   const secretsPath = getSecretsFilePath(agentId, options);
 
@@ -36,21 +38,24 @@ export async function initSecrets(agentId, options = {}) {
   return secretsPath;
 }
 
-export async function loadSecrets(agentId, options = {}) {
-  return validateSecrets(await readJsonFile(getSecretsFilePath(agentId, options)));
+export async function loadSecrets(
+  agentId: string,
+  options: AgentPathOptions = {},
+): Promise<SecretsMap> {
+  return validateSecrets(await readJsonFile<unknown>(getSecretsFilePath(agentId, options)));
 }
 
-export function listSecretNames(secrets) {
+export function listSecretNames(secrets: unknown): string[] {
   return Object.keys(validateSecrets(secrets)).sort();
 }
 
-export function resolveSecrets(secrets, names) {
+export function resolveSecrets(secrets: unknown, names: string[]): SecretsMap {
   if (!Array.isArray(names)) {
     throw new Error('names must be an array');
   }
 
   const validatedSecrets = validateSecrets(secrets);
-  const resolved = {};
+  const resolved: SecretsMap = {};
 
   for (const name of names) {
     if (typeof name !== 'string' || name.length === 0) {
@@ -67,7 +72,7 @@ export function resolveSecrets(secrets, names) {
   return resolved;
 }
 
-export function describeResolvedSecrets(names) {
+export function describeResolvedSecrets(names: string[]): string {
   if (!Array.isArray(names) || names.length === 0) {
     return 'env vars set: none';
   }

@@ -1,10 +1,12 @@
 import { access, lstat, mkdir, realpath } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
-import { writeJsonAtomic, writeTextAtomic } from './io.js';
-import { readJsonFile } from './json.js';
+import { writeJsonAtomic, writeTextAtomic } from './io.ts';
+import { readJsonFile } from './json.ts';
 
-const DEFAULT_IDENTITY_FILES = {
+import type { WorkspaceConfig } from './types.ts';
+
+const DEFAULT_IDENTITY_FILES: Record<string, string> = {
   'IDENTITY.md': '# Identity\n\nName: CloudMind Agent\n',
   'SOUL.md': '# Soul\n\n- Be precise.\n- Be pragmatic.\n- Be safe.\n',
   'USER.md': '# User\n\nUnknown.\n',
@@ -12,13 +14,13 @@ const DEFAULT_IDENTITY_FILES = {
 };
 
 const WRITABLE_PREFIXES = ['files/', 'memory/notes/'];
-const WRITABLE_EXACT_PATHS = new Set(['files', 'memory/working.md', 'memory/notes']);
+const WRITABLE_EXACT_PATHS = new Set<string>(['files', 'memory/working.md', 'memory/notes']);
 
-function toPosixPath(value) {
+function toPosixPath(value: string): string {
   return value.split(sep).join('/');
 }
 
-function isWithinPath(rootPath, candidatePath) {
+function isWithinPath(rootPath: string, candidatePath: string): boolean {
   if (candidatePath === rootPath) {
     return true;
   }
@@ -27,7 +29,7 @@ function isWithinPath(rootPath, candidatePath) {
   return candidatePath.startsWith(normalizedRoot);
 }
 
-function assertSafeRelativePath(relativePath) {
+function assertSafeRelativePath(relativePath: string): void {
   if (typeof relativePath !== 'string' || relativePath.length === 0) {
     throw new Error('Path must be a non-empty string');
   }
@@ -41,7 +43,7 @@ function assertSafeRelativePath(relativePath) {
   }
 }
 
-function assertWritableRelativePath(relativePath) {
+function assertWritableRelativePath(relativePath: string): void {
   if (WRITABLE_EXACT_PATHS.has(relativePath)) {
     return;
   }
@@ -53,7 +55,7 @@ function assertWritableRelativePath(relativePath) {
   throw new Error(`Writes are not allowed for "${relativePath}"`);
 }
 
-async function pathExists(filePath) {
+async function pathExists(filePath: string): Promise<boolean> {
   try {
     await access(filePath);
     return true;
@@ -62,11 +64,11 @@ async function pathExists(filePath) {
   }
 }
 
-async function resolveWorkspaceRoot(workspaceRoot) {
+async function resolveWorkspaceRoot(workspaceRoot: string): Promise<string> {
   return realpath(resolve(workspaceRoot));
 }
 
-async function findNearestExistingParent(candidatePath, rootPath) {
+async function findNearestExistingParent(candidatePath: string, rootPath: string): Promise<string> {
   let currentPath = candidatePath;
 
   while (true) {
@@ -87,7 +89,7 @@ async function findNearestExistingParent(candidatePath, rootPath) {
   }
 }
 
-function createDefaultConfig(agentId) {
+function createDefaultConfig(agentId: string): WorkspaceConfig {
   return {
     agent_id: agentId,
     name: 'My Agent',
@@ -115,23 +117,25 @@ function createDefaultConfig(agentId) {
   };
 }
 
-function validateConfig(config) {
+function validateConfig(config: unknown): WorkspaceConfig {
   if (!config || typeof config !== 'object' || Array.isArray(config)) {
     throw new Error('Workspace config must be an object');
   }
 
-  if (typeof config.agent_id !== 'string' || config.agent_id.length === 0) {
+  const candidate = config as Partial<WorkspaceConfig>;
+
+  if (typeof candidate.agent_id !== 'string' || candidate.agent_id.length === 0) {
     throw new Error('config.agent_id must be a non-empty string');
   }
 
-  if (typeof config.name !== 'string' || config.name.length === 0) {
+  if (typeof candidate.name !== 'string' || candidate.name.length === 0) {
     throw new Error('config.name must be a non-empty string');
   }
 
-  return config;
+  return config as WorkspaceConfig;
 }
 
-export async function initWorkspace(agentId, workspaceRoot) {
+export async function initWorkspace(agentId: string, workspaceRoot: string): Promise<string> {
   const resolvedWorkspaceRoot = resolve(workspaceRoot);
 
   await mkdir(resolvedWorkspaceRoot, { recursive: true });
@@ -173,11 +177,13 @@ export async function initWorkspace(agentId, workspaceRoot) {
   return resolvedWorkspaceRoot;
 }
 
-export async function readConfig(workspaceRoot) {
-  return validateConfig(await readJsonFile(join(resolve(workspaceRoot), 'config.json')));
+export async function readConfig(workspaceRoot: string): Promise<WorkspaceConfig> {
+  return validateConfig(
+    await readJsonFile<unknown>(join(resolve(workspaceRoot), 'config.json')),
+  );
 }
 
-export async function resolveReadPath(workspaceRoot, relativePath) {
+export async function resolveReadPath(workspaceRoot: string, relativePath: string): Promise<string> {
   assertSafeRelativePath(relativePath);
 
   const rootPath = await resolveWorkspaceRoot(workspaceRoot);
@@ -195,7 +201,7 @@ export async function resolveReadPath(workspaceRoot, relativePath) {
   return realTargetPath;
 }
 
-export async function resolveWritePath(workspaceRoot, relativePath) {
+export async function resolveWritePath(workspaceRoot: string, relativePath: string): Promise<string> {
   assertSafeRelativePath(relativePath);
 
   const rootPath = await resolveWorkspaceRoot(workspaceRoot);
