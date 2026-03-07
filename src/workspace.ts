@@ -132,6 +132,50 @@ function validateConfig(config: unknown): WorkspaceConfig {
     throw new Error('config.name must be a non-empty string');
   }
 
+  if (!candidate.model || typeof candidate.model !== 'object') {
+    throw new Error('config.model must be an object');
+  }
+
+  if (!candidate.identity || typeof candidate.identity !== 'object') {
+    throw new Error('config.identity must be an object');
+  }
+
+  if (!Array.isArray(candidate.identity.files)) {
+    throw new Error('config.identity.files must be an array');
+  }
+
+  if (!candidate.container_defaults || typeof candidate.container_defaults !== 'object') {
+    throw new Error('config.container_defaults must be an object');
+  }
+
+  if (!Array.isArray(candidate.container_defaults.image_allowlist)) {
+    throw new Error('config.container_defaults.image_allowlist must be an array');
+  }
+
+  if (typeof candidate.container_defaults.memory_limit !== 'string') {
+    throw new Error('config.container_defaults.memory_limit must be a string');
+  }
+
+  if (
+    typeof candidate.container_defaults.cpu_shares !== 'number'
+    || !Number.isFinite(candidate.container_defaults.cpu_shares)
+    || candidate.container_defaults.cpu_shares <= 0
+  ) {
+    throw new Error('config.container_defaults.cpu_shares must be a positive number');
+  }
+
+  if (
+    typeof candidate.container_defaults.timeout_seconds !== 'number'
+    || !Number.isFinite(candidate.container_defaults.timeout_seconds)
+    || candidate.container_defaults.timeout_seconds <= 0
+  ) {
+    throw new Error('config.container_defaults.timeout_seconds must be a positive number');
+  }
+
+  if (candidate.container_defaults.network !== 'disabled') {
+    throw new Error('config.container_defaults.network must be "disabled" in v0.1');
+  }
+
   return config as WorkspaceConfig;
 }
 

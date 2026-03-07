@@ -31,3 +31,50 @@ export interface WorkspaceConfig {
     network: 'disabled';
   };
 }
+
+export interface ProcessRunOptions {
+  cwd?: string;
+  env?: Record<string, string | undefined>;
+  timeoutMs?: number;
+  onTimeout?: () => void | Promise<void>;
+}
+
+export interface ProcessResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  signal: string | null;
+  durationMs: number;
+}
+
+export type ProcessRunner = (
+  command: string,
+  args: string[],
+  options?: ProcessRunOptions,
+) => Promise<ProcessResult>;
+
+export interface ContainerRunOptions {
+  image: string;
+  command: string;
+  workdir?: string;
+  env?: Record<string, string>;
+}
+
+export interface ContainerRunPlan {
+  image: string;
+  command: string;
+  containerName: string;
+  hostFilesPath: string;
+  containerWorkdir: string;
+  env: Record<string, string>;
+  timeoutMs: number;
+  args: string[];
+}
+
+export interface ContainerRunResult extends ProcessResult {
+  image: string;
+  command: string;
+  containerName: string;
+  hostFilesPath: string;
+  containerWorkdir: string;
+}
