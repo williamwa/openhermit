@@ -12,7 +12,8 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "tsc -b",
+    "clean:build": "node scripts/clean-build.mjs",
+    "build": "npm run clean:build && tsc -b",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run build && node --import tsx --test apps/agent/test/*.test.ts apps/cli/test/*.test.ts",
     "dev:agent": "tsx apps/agent/src/index.ts",

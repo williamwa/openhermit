@@ -239,7 +239,8 @@ export const createAgentApp = (
 
   app.onError((error, c) => {
     if (error instanceof OpenHermitError) {
-      return c.json(jsonError(error), error.statusCode);
+      const openHermitError = error as OpenHermitError;
+      return c.json(jsonError(openHermitError), openHermitError.statusCode);
     }
 
     console.error('[openhermit-agent] unhandled error', error);
