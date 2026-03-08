@@ -425,6 +425,12 @@ export class AgentRunner implements SessionRuntime {
     gate: ApprovalGate,
   ): ApprovalCallback {
     return async (toolName, toolCallId, args) => {
+      const session = this.sessions.get(sessionId);
+
+      if (session) {
+        await this.recordApprovalRequested(session, toolName, toolCallId, args);
+      }
+
       await this.events.publish({
         type: 'tool_approval_required',
         sessionId,
@@ -433,8 +439,78 @@ export class AgentRunner implements SessionRuntime {
         ...(args !== undefined ? { args } : {}),
       });
 
-      return gate.request(toolCallId);
+      const decision = await gate.request(toolCallId);
+
+      if (session) {
+        await this.recordApprovalResolved(session, toolName, toolCallId, decision);
+      }
+
+      return decision;
     };
+  }
+
+  private async recordApprovalRequested(
+    session: RunnerSession,
+    toolName: string,
+    toolCallId: string,
+    args: unknown,
+  ): Promise<void> {
+    const ts = new Date().toISOString();
+
+    await this.queueSideEffect(session, async () => {
+      await Promise.all([
+        this.logWriter.appendSession(session.sessionLogRelativePath, {
+          ts,
+          role: 'system',
+          type: 'tool_approval_requested',
+          toolName,
+          toolCallId,
+          ...(args !== undefined ? { args } : {}),
+        }),
+        this.logWriter.appendEpisodic(session.episodicRelativePath, {
+          ts,
+          session: session.spec.sessionId,
+          type: 'tool_approval_requested',
+          data: {
+            toolName,
+            toolCallId,
+            ...(args !== undefined ? { args } : {}),
+          },
+        }),
+      ]);
+    });
+  }
+
+  private async recordApprovalResolved(
+    session: RunnerSession,
+    toolName: string,
+    toolCallId: string,
+    decision: ApprovalDecision,
+  ): Promise<void> {
+    const ts = new Date().toISOString();
+
+    await this.queueSideEffect(session, async () => {
+      await Promise.all([
+        this.logWriter.appendSession(session.sessionLogRelativePath, {
+          ts,
+          role: 'system',
+          type: 'tool_approval_resolved',
+          toolName,
+          toolCallId,
+          decision,
+        }),
+        this.logWriter.appendEpisodic(session.episodicRelativePath, {
+          ts,
+          session: session.spec.sessionId,
+          type: 'tool_approval_resolved',
+          data: {
+            toolName,
+            toolCallId,
+            decision,
+          },
+        }),
+      ]);
+    });
   }
 
   private async createAgent(

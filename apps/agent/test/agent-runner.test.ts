@@ -469,6 +469,51 @@ test('AgentRunner pauses on require_approval_for and resumes after respondToAppr
   );
   const fileContent = await workspace.readFile('files/out.txt');
   assert.equal(fileContent, 'approved content');
+
+  const sessionEntries = await readJsonl(
+    (relativePath) => workspace.readFile(relativePath),
+    runner.getSessionLogRelativePath('cli:approval-session'),
+  );
+  const episodicEntries = await readJsonl(
+    (relativePath) => workspace.readFile(relativePath),
+    runner.getEpisodicLogRelativePath('cli:approval-session'),
+  );
+
+  assert.ok(
+    sessionEntries.some(
+      (entry) =>
+        entry.type === 'tool_approval_requested' &&
+        entry.toolName === 'write_file',
+    ),
+  );
+  assert.ok(
+    sessionEntries.some(
+      (entry) =>
+        entry.type === 'tool_approval_resolved' &&
+        entry.toolName === 'write_file' &&
+        entry.decision === 'approved',
+    ),
+  );
+  assert.ok(
+    episodicEntries.some(
+      (entry) =>
+        entry.type === 'tool_approval_requested' &&
+        entry.data &&
+        typeof entry.data === 'object' &&
+        'toolName' in entry.data &&
+        entry.data.toolName === 'write_file',
+    ),
+  );
+  assert.ok(
+    episodicEntries.some(
+      (entry) =>
+        entry.type === 'tool_approval_resolved' &&
+        entry.data &&
+        typeof entry.data === 'object' &&
+        'decision' in entry.data &&
+        entry.data.decision === 'approved',
+    ),
+  );
 });
 
 test('AgentRunner rejects tool call when respondToApproval sends false', async (t) => {
@@ -542,6 +587,41 @@ test('AgentRunner rejects tool call when respondToApproval sends false', async (
       ? toolResult.event.text
       : '',
     /rejected by the user/,
+  );
+
+  const sessionEntries = await readJsonl(
+    (relativePath) => workspace.readFile(relativePath),
+    runner.getSessionLogRelativePath('cli:deny-session'),
+  );
+  const episodicEntries = await readJsonl(
+    (relativePath) => workspace.readFile(relativePath),
+    runner.getEpisodicLogRelativePath('cli:deny-session'),
+  );
+
+  assert.ok(
+    sessionEntries.some(
+      (entry) =>
+        entry.type === 'tool_approval_requested' &&
+        entry.toolName === 'write_file',
+    ),
+  );
+  assert.ok(
+    sessionEntries.some(
+      (entry) =>
+        entry.type === 'tool_approval_resolved' &&
+        entry.toolName === 'write_file' &&
+        entry.decision === 'rejected',
+    ),
+  );
+  assert.ok(
+    episodicEntries.some(
+      (entry) =>
+        entry.type === 'tool_approval_resolved' &&
+        entry.data &&
+        typeof entry.data === 'object' &&
+        'decision' in entry.data &&
+        entry.data.decision === 'rejected',
+    ),
   );
 });
 
