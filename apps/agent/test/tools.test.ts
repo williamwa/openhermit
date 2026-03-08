@@ -62,6 +62,35 @@ const registerService = async (
   });
 };
 
+type FetchImpl = typeof fetch;
+
+const makeFetchMock = (
+  status: number,
+  body: string,
+  headers: Record<string, string> = { 'content-type': 'text/plain' },
+): FetchImpl =>
+  (async (_url, _init) => {
+    const encoder = new TextEncoder();
+    return new Response(encoder.encode(body), { status, headers });
+  }) as FetchImpl;
+
+const makeFetchError = (message: string): FetchImpl =>
+  (async (_url, _init) => {
+    throw new Error(message);
+  }) as FetchImpl;
+
+const withMockFetch = async (mockFetch: FetchImpl, fn: () => Promise<void>): Promise<void> => {
+  const globals = globalThis as typeof globalThis & { fetch: FetchImpl };
+  const original = globals.fetch;
+  globals.fetch = mockFetch;
+
+  try {
+    await fn();
+  } finally {
+    globals.fetch = original;
+  }
+};
+
 test('withApproval forwards signal and onUpdate to the wrapped tool', async (t) => {
   const { security } = await createSecurityFixture(t, {
     security: {
@@ -216,6 +245,241 @@ test('withApproval distinguishes timeout from explicit rejection', async (t) => 
   });
   assert.deepEqual(requestedCalls, ['dangerous_tool', 'dangerous_tool']);
   assert.deepEqual(startedCalls, []);
+});
+
+test('web_fetch returns status headers and body for a successful GET', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+  });
+  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tool = findTool(tools, 'web_fetch');
+
+  await withMockFetch(
+    makeFetchMock(200, 'Hello, world!', { 'content-type': 'text/plain' }),
+    async () => {
+      const result = await tool.execute('call-web-1', {
+        url: 'https://example.com/',
+      });
+
+      const text = getFirstText(result);
+      assert.match(text, /HTTP 200/);
+      assert.match(text, /Hello, world!/);
+
+      const details = result.details as Record<string, unknown>;
+      assert.equal(details.status, 200);
+      assert.equal(details.method, 'GET');
+      assert.equal(details.url, 'https://example.com/');
+      assert.equal(details.body, 'Hello, world!');
+      assert.equal(details.bodyBytes, 13);
+      assert.equal(details.truncated, undefined);
+    },
+  );
+});
+
+test('web_fetch is still wrapped by approval callbacks in createBuiltInTools', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+    security: {
+      autonomy_level: 'supervised',
+      require_approval_for: ['web_fetch'],
+    },
+  });
+  await security.load();
+
+  const approvalCalls: Array<{ toolName: string; toolCallId: string; args: unknown }> = [];
+  const requestedCalls: Array<{ toolName: string; toolCallId: string; args: unknown }> = [];
+  const startedCalls: Array<{ toolName: string; toolCallId: string; args: unknown }> = [];
+
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+  });
+  const tools = createBuiltInTools({
+    workspace,
+    security,
+    containerManager,
+    approvalCallback: async (toolName, toolCallId, args) => {
+      approvalCalls.push({ toolName, toolCallId, args });
+      return 'approved';
+    },
+    onToolRequested: async (toolName, toolCallId, args) => {
+      requestedCalls.push({ toolName, toolCallId, args });
+    },
+    onToolStarted: async (toolName, toolCallId, args) => {
+      startedCalls.push({ toolName, toolCallId, args });
+    },
+  });
+  const tool = findTool(tools, 'web_fetch');
+
+  await withMockFetch(makeFetchMock(200, 'ok'), async () => {
+    const result = await tool.execute('call-web-2', {
+      url: 'https://example.com/approved',
+    });
+    assert.match(getFirstText(result), /HTTP 200/);
+  });
+
+  const expectedCall = {
+    toolName: 'web_fetch',
+    toolCallId: 'call-web-2',
+    args: { url: 'https://example.com/approved' },
+  };
+  assert.deepEqual(approvalCalls, [expectedCall]);
+  assert.deepEqual(requestedCalls, [expectedCall]);
+  assert.deepEqual(startedCalls, [expectedCall]);
+});
+
+test('web_fetch truncates large responses at max_bytes', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  const bigBody = 'x'.repeat(500);
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+  });
+  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tool = findTool(tools, 'web_fetch');
+
+  await withMockFetch(makeFetchMock(200, bigBody), async () => {
+    const result = await tool.execute('call-web-3', {
+      url: 'https://example.com/big',
+      max_bytes: 100,
+    });
+
+    const details = result.details as Record<string, unknown>;
+    assert.equal(details.truncated, true);
+    assert.equal(details.bodyBytes, 500);
+    assert.equal(details.returnedBytes, 100);
+    assert.equal(String(details.body).length, 100);
+    assert.match(getFirstText(result), /truncated/i);
+  });
+});
+
+test('web_fetch caps max_bytes at the hard 200 KB limit', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+  });
+  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tool = findTool(tools, 'web_fetch');
+
+  await withMockFetch(makeFetchMock(200, 'small body'), async () => {
+    const result = await tool.execute('call-web-4', {
+      url: 'https://example.com/',
+      max_bytes: 999_999_999,
+    });
+
+    const details = result.details as Record<string, unknown>;
+    assert.equal(details.truncated, undefined);
+    assert.equal(details.body, 'small body');
+  });
+});
+
+test('web_fetch rejects non-http/https URLs', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+  });
+  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tool = findTool(tools, 'web_fetch');
+
+  await assert.rejects(
+    () => tool.execute('call-web-5', { url: 'ftp://example.com/file' }),
+    ValidationError,
+  );
+});
+
+test('web_fetch rejects malformed URLs', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+  });
+  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tool = findTool(tools, 'web_fetch');
+
+  await assert.rejects(() => tool.execute('call-web-6', { url: 'not a url at all' }));
+});
+
+test('web_fetch rejects non-positive max_bytes', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+  });
+  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tool = findTool(tools, 'web_fetch');
+
+  await assert.rejects(
+    () => tool.execute('call-web-7', { url: 'https://example.com/', max_bytes: 0 }),
+    ValidationError,
+  );
+});
+
+test('web_fetch surfaces network errors as thrown exceptions', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+  });
+  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tool = findTool(tools, 'web_fetch');
+
+  await withMockFetch(makeFetchError('ECONNREFUSED'), async () => {
+    await assert.rejects(
+      () => tool.execute('call-web-8', { url: 'https://localhost:9/' }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /ECONNREFUSED/);
+        return true;
+      },
+    );
+  });
+});
+
+test('web_fetch returns non-200 status without throwing', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+  });
+  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tool = findTool(tools, 'web_fetch');
+
+  await withMockFetch(makeFetchMock(404, 'Not Found'), async () => {
+    const result = await tool.execute('call-web-9', {
+      url: 'https://example.com/missing',
+    });
+
+    const details = result.details as Record<string, unknown>;
+    assert.equal(details.status, 404);
+    assert.match(getFirstText(result), /HTTP 404/);
+  });
 });
 
 test('container_start launches a service container and returns entry details', async (t) => {
