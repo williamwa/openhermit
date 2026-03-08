@@ -207,6 +207,7 @@ test('createAgentApp lists sessions with filters and sorting', async () => {
       },
       createdAt: runtime.getSession('cli:test-session')?.createdAt,
       lastActivityAt: runtime.getSession('cli:test-session')?.updatedAt,
+      lastEventId: runtime.events.getBacklog('cli:test-session').at(-1)?.id ?? 0,
       messageCount: 2,
       lastMessagePreview: 'CloudMind agent scaffold received a cli message: hello list',
       status: 'idle',

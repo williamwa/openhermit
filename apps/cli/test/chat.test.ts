@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import type { SessionSummary } from '@cloudmind/protocol';
 import type { AgentLocalClient } from '@cloudmind/sdk';
 
 import {
+  formatSessionList,
   parseChatCliArgs,
+  parseSlashCommand,
   parseSseFrames,
   resolveWorkspaceRoot,
   waitForAssistantTurn,
@@ -36,6 +39,61 @@ test('parseChatCliArgs falls back to default dev workspace', () => {
 
   assert.equal(parsed.agentId, 'agent-dev');
   assert.equal(parsed.workspaceRoot, '/repo/.cloudmind-dev/agent-dev');
+});
+
+test('parseSlashCommand parses session control commands', () => {
+  assert.deepEqual(parseSlashCommand('/new'), { type: 'new' });
+  assert.deepEqual(parseSlashCommand('/sessions'), { type: 'sessions' });
+  assert.deepEqual(parseSlashCommand('/resume cli:123'), {
+    type: 'resume',
+    sessionId: 'cli:123',
+  });
+  assert.equal(parseSlashCommand('hello'), null);
+});
+
+test('parseSlashCommand validates command usage', () => {
+  assert.throws(() => parseSlashCommand('/resume'), /Usage: \/resume <sessionId>/);
+  assert.throws(() => parseSlashCommand('/sessions 10'), /Usage: \/sessions/);
+});
+
+test('formatSessionList highlights current session and truncates previews', () => {
+  const sessions: SessionSummary[] = [
+    {
+      sessionId: 'cli:current',
+      source: {
+        kind: 'cli',
+        interactive: true,
+      },
+      createdAt: '2026-03-08T00:00:00.000Z',
+      lastActivityAt: '2026-03-08T01:00:00.000Z',
+      lastEventId: 7,
+      messageCount: 4,
+      lastMessagePreview:
+        'This is a very long assistant preview that should be trimmed down for compact CLI display.',
+      status: 'idle',
+    },
+    {
+      sessionId: 'cli:older',
+      source: {
+        kind: 'cli',
+        interactive: true,
+      },
+      createdAt: '2026-03-08T00:00:00.000Z',
+      lastActivityAt: '2026-03-08T00:30:00.000Z',
+      lastEventId: 3,
+      messageCount: 2,
+      lastMessagePreview: 'Short preview',
+      status: 'awaiting_approval',
+    },
+  ];
+
+  const output = formatSessionList(sessions, 'cli:current');
+
+  assert.match(output, /CLI sessions \(most recent first\):/);
+  assert.match(output, /\* cli:current \[idle\] 2026-03-08T01:00:00.000Z messages=4/);
+  assert.match(output, /This is a very long assistant preview/);
+  assert.match(output, /\.\.\./);
+  assert.match(output, /  cli:older \[awaiting_approval\] 2026-03-08T00:30:00.000Z messages=2 Short preview/);
 });
 
 test('parseSseFrames parses multiple frames and preserves incomplete remainder', () => {

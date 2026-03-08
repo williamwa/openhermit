@@ -6,6 +6,7 @@ import { createInterface } from 'node:readline/promises';
 import { stdin, stdout, stderr } from 'node:process';
 
 import { AgentLocalClient } from '@cloudmind/sdk';
+import type { SessionSummary } from '@cloudmind/protocol';
 import { runtimeFiles } from '@cloudmind/shared';
 
 interface ChatCliOptions {
@@ -20,12 +21,22 @@ interface SseFrame {
   data: string;
 }
 
+type CliCommand =
+  | { type: 'exit' }
+  | { type: 'help' }
+  | { type: 'new' }
+  | { type: 'sessions' }
+  | { type: 'resume'; sessionId: string };
+
 const HELP_TEXT = [
   'Usage: npm run chat:agent -- [--agent-id <id>] [--workspace <path>] [--session <sessionId>]',
   '',
   'Commands:',
-  '  /exit   End the chat session',
-  '  /help   Show this help message',
+  '  /new              Create and switch to a new CLI session',
+  '  /sessions         List recent CLI sessions',
+  '  /resume <id>      Switch to an existing CLI session',
+  '  /exit             End the chat session',
+  '  /help             Show this help message',
 ].join('\n');
 
 const parseFlagValue = (
@@ -97,6 +108,99 @@ export const parseChatCliArgs = (
 
 const createSessionId = (): string =>
   `cli:${new Date().toISOString().slice(0, 10)}-${randomUUID().slice(0, 8)}`;
+
+const CLI_SESSION_LIMIT = 20;
+
+const createCliSessionSpec = (sessionId: string) => ({
+  sessionId,
+  source: {
+    kind: 'cli' as const,
+    interactive: true,
+  },
+});
+
+const truncateSingleLine = (value: string, maxLength = 72): string => {
+  const singleLine = value.replace(/\s+/g, ' ').trim();
+
+  if (singleLine.length <= maxLength) {
+    return singleLine;
+  }
+
+  return `${singleLine.slice(0, maxLength - 3)}...`;
+};
+
+export const parseSlashCommand = (input: string): CliCommand | null => {
+  const trimmed = input.trim();
+
+  if (!trimmed.startsWith('/')) {
+    return null;
+  }
+
+  const [command, ...args] = trimmed.split(/\s+/);
+
+  switch (command) {
+    case '/exit':
+      if (args.length > 0) {
+        throw new Error('Usage: /exit');
+      }
+
+      return { type: 'exit' };
+
+    case '/help':
+      if (args.length > 0) {
+        throw new Error('Usage: /help');
+      }
+
+      return { type: 'help' };
+
+    case '/new':
+      if (args.length > 0) {
+        throw new Error('Usage: /new');
+      }
+
+      return { type: 'new' };
+
+    case '/sessions':
+      if (args.length > 0) {
+        throw new Error('Usage: /sessions');
+      }
+
+      return { type: 'sessions' };
+
+    case '/resume':
+      if (args.length !== 1) {
+        throw new Error('Usage: /resume <sessionId>');
+      }
+
+      return {
+        type: 'resume',
+        sessionId: args[0]!,
+      };
+
+    default:
+      throw new Error(`Unknown command: ${command}\n\n${HELP_TEXT}`);
+  }
+};
+
+export const formatSessionList = (
+  sessions: SessionSummary[],
+  currentSessionId?: string,
+): string => {
+  if (sessions.length === 0) {
+    return 'No CLI sessions found.';
+  }
+
+  const lines = sessions.map((session) => {
+    const marker = session.sessionId === currentSessionId ? '*' : ' ';
+    const preview = session.lastMessagePreview
+      ? ` ${truncateSingleLine(session.lastMessagePreview)}`
+      : '';
+
+    return `${marker} ${session.sessionId} [${session.status}] ${session.lastActivityAt} messages=${session.messageCount}${preview}`;
+  });
+
+  return ['CLI sessions (most recent first):', ...lines].join('\n');
+};
 
 export const parseSseFrames = (
   buffer: string,
@@ -373,27 +477,51 @@ export const waitForAssistantTurn = async (
   throw new Error('SSE stream ended before the assistant produced a final event.');
 };
 
+const listCliSessions = async (
+  client: AgentLocalClient,
+  limit = CLI_SESSION_LIMIT,
+): Promise<SessionSummary[]> =>
+  client.listSessions({
+    kind: 'cli',
+    limit,
+  });
+
+const findCliSession = async (
+  client: AgentLocalClient,
+  sessionId: string,
+): Promise<SessionSummary | undefined> => {
+  const sessions = await client.listSessions({ kind: 'cli' });
+  return sessions.find((session) => session.sessionId === sessionId);
+};
+
 export const main = async (): Promise<void> => {
   const options = parseChatCliArgs(process.argv.slice(2));
   const port = await readRuntimeValue(options.workspaceRoot, runtimeFiles.apiPort);
   const token = await readRuntimeValue(options.workspaceRoot, runtimeFiles.apiToken);
-  const sessionId = options.sessionId ?? createSessionId();
   const client = new AgentLocalClient({
     baseUrl: `http://127.0.0.1:${port}`,
     token,
   });
+  const knownEventIds = new Map<string, number>();
+  let currentSessionId = options.sessionId ?? createSessionId();
 
-  await client.openSession({
-    sessionId,
-    source: {
-      kind: 'cli',
-      interactive: true,
-    },
-  });
+  if (options.sessionId) {
+    const existing = await findCliSession(client, options.sessionId);
+
+    if (existing) {
+      knownEventIds.set(existing.sessionId, existing.lastEventId);
+    }
+  }
+
+  await client.openSession(createCliSessionSpec(currentSessionId));
+  knownEventIds.set(
+    currentSessionId,
+    knownEventIds.get(currentSessionId) ?? 0,
+  );
 
   stdout.write(`Connected to agent ${options.agentId}\n`);
   stdout.write(`Workspace: ${options.workspaceRoot}\n`);
-  stdout.write(`Session: ${sessionId}\n`);
+  stdout.write(`Session: ${currentSessionId}\n`);
   stdout.write('Type /help for commands.\n\n');
 
   const rl = createInterface({
@@ -410,18 +538,58 @@ export const main = async (): Promise<void> => {
         continue;
       }
 
-      if (input === '/exit') {
-        break;
-      }
+      const command = parseSlashCommand(input);
 
-      if (input === '/help') {
-        stdout.write(`${HELP_TEXT}\n\n`);
-        continue;
+      if (command) {
+        if (command.type === 'exit') {
+          break;
+        }
+
+        if (command.type === 'help') {
+          stdout.write(`${HELP_TEXT}\n\n`);
+          continue;
+        }
+
+        if (command.type === 'new') {
+          currentSessionId = createSessionId();
+          await client.openSession(createCliSessionSpec(currentSessionId));
+          knownEventIds.set(currentSessionId, 0);
+          stdout.write(`[session] Switched to ${currentSessionId}\n\n`);
+          continue;
+        }
+
+        if (command.type === 'sessions') {
+          const sessions = await listCliSessions(client);
+          stdout.write(`${formatSessionList(sessions, currentSessionId)}\n\n`);
+          continue;
+        }
+
+        if (command.type === 'resume') {
+          const existing = await findCliSession(client, command.sessionId);
+
+          if (!existing) {
+            stderr.write(`[error] CLI session not found: ${command.sessionId}\n\n`);
+            continue;
+          }
+
+          currentSessionId = existing.sessionId;
+          await client.openSession(createCliSessionSpec(currentSessionId));
+          knownEventIds.set(
+            currentSessionId,
+            Math.max(
+              knownEventIds.get(currentSessionId) ?? 0,
+              existing.lastEventId,
+            ),
+          );
+          stdout.write(`[session] Resumed ${currentSessionId}\n\n`);
+          continue;
+        }
       }
 
       stdout.write('agent> ');
-      await client.postMessage(sessionId, { text: input });
-      lastEventId = await waitForAssistantTurn(client, token, sessionId, lastEventId, {
+      const currentLastEventId = knownEventIds.get(currentSessionId) ?? 0;
+      await client.postMessage(currentSessionId, { text: input });
+      lastEventId = await waitForAssistantTurn(client, token, currentSessionId, currentLastEventId, {
         onApprovalRequired: async () => {
           const answer = await rl.question('Approve? [y/N]: ');
           const approved = answer.trim().toLowerCase() === 'y';
@@ -429,6 +597,7 @@ export const main = async (): Promise<void> => {
           return approved;
         },
       });
+      knownEventIds.set(currentSessionId, lastEventId);
       stdout.write('\n');
     }
   } finally {

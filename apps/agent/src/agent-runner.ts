@@ -421,6 +421,8 @@ export class AgentRunner implements SessionRuntime {
         source: session.spec.source,
         createdAt: session.createdAt,
         lastActivityAt: session.updatedAt,
+        lastEventId:
+          this.events.getBacklog(session.spec.sessionId).at(-1)?.id ?? 0,
         messageCount: session.messageCount,
         ...(session.lastMessagePreview
           ? { lastMessagePreview: session.lastMessagePreview }
