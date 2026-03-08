@@ -1,0 +1,26 @@
+{
+  "name": "cloudmind",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "apps/*",
+    "apps/channels/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false",
+    "dev:agent": "tsx apps/agent/src/index.ts",
+    "dev:gateway": "tsx apps/gateway/src/index.ts",
+    "dev:telegram": "tsx apps/channels/telegram/src/index.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}

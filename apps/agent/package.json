@@ -1,0 +1,19 @@
+{
+  "name": "@cloudmind/agent",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@cloudmind/protocol": "0.1.0",
+    "@cloudmind/shared": "0.1.0",
+    "@hono/node-server": "^1.14.0",
+    "hono": "^4.7.2"
+  }
+}

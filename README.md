@@ -10,16 +10,20 @@ A host-based autonomous agent platform with persistent workspaces and memory, us
 - **API-first**: All agent operations exposed via a clean HTTP + SSE API
 - **Cloud-native**: Deployable on any VPS/cloud, orchestrated via Docker Compose or Kubernetes
 
-## Project Structure
+## Repository Structure
 
-```
+```text
 cloudmind/
-├── agent/          # Agent core logic, LLM integration, tool execution
-├── sandbox/        # Docker sandbox management, filesystem isolation
-├── memory/         # Memory subsystems (working, episodic, long-term)
-├── api/            # HTTP + SSE API server
-├── infra/          # Docker Compose, Kubernetes configs, deployment scripts
-└── docs/           # Architecture, planning, ADRs
+├── apps/
+│   ├── agent/                # Current focus: single-agent runtime (Hono + session API)
+│   ├── gateway/              # Future control plane for multi-agent management
+│   └── channels/
+│       └── telegram/         # Future IM bridge example
+├── packages/
+│   ├── protocol/             # Shared session/event contracts and route constants
+│   ├── sdk/                  # Thin client for agent-local API calls
+│   └── shared/               # Errors, runtime file constants, small shared helpers
+└── docs/                     # Architecture, planning, ADRs
 ```
 
 ## Quick Start

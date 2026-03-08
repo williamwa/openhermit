@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "dist/.tsbuildinfo"
+  },
+  "references": [
+    { "path": "../../packages/protocol" },
+    { "path": "../../packages/shared" }
+  ],
+  "include": [
+    "src"
+  ]
+}

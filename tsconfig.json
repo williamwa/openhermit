@@ -1,0 +1,11 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/protocol" },
+    { "path": "./packages/shared" },
+    { "path": "./packages/sdk" },
+    { "path": "./apps/agent" },
+    { "path": "./apps/gateway" },
+    { "path": "./apps/channels/telegram" }
+  ]
+}
