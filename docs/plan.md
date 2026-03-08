@@ -96,7 +96,6 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
   - `container_exec(name, command)` — exec in running container
   - `container_status()` — list containers + status
   - `web_fetch(url)` — HTTP GET, return body as text
-  - `tailscale_funnel(port, enable)` — run `tailscale funnel {port}` or `tailscale funnel --bg {port}`
   - `agent_doctor()` — self-diagnostics (see Phase 5)
 
 ### 2.3 Hook System
@@ -109,14 +108,21 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 - [ ] Load hook config from `config.json` at agent startup
 - [ ] Custom hooks: load user-defined handler files from `hooks/` directory (Phase 6+, skip for now)
 
-### 2.4 Basic Interface
-- [ ] CLI: `cloudmind chat --agent <id>` — interactive REPL (stream pi-agent-core events to terminal)
-- [ ] Single-shot: `cloudmind run --agent <id> "do this task"` → output + exit
+### 2.4 Agent HTTP API + CLI Client
+- [ ] Define `InboundMessage` type: `{ sessionId, text, attachments? }` — no `channelId` needed; the `sessionId` prefix carries channel information
+- [ ] Define `OutboundEvent` SSE types: `text_delta | text_final | tool_start | error`
+- [ ] Implement Hono HTTP server inside the agent process:
+  - `POST /agents/{id}/messages` — validates bearer token, queues `InboundMessage`, returns `{ sessionId }`
+  - `GET /agents/{id}/events?sessionId=xxx` — SSE stream, pushes `OutboundEvent`s as the agent processes the session
+- [ ] Runtime API token: generate on startup, write to `runtime/api.token` (create `runtime/` dir, add to `.gitignore`)
+- [ ] Dynamic port binding: try `config.http_api.preferred_port` first; if taken, bind to port `0` (OS assigns free port); write actual port to `runtime/api.port` — guarantees zero conflicts when multiple agents run on the same host
+- [ ] CLI client (`cloudmind chat --agent <id>`): reads `runtime/api.port` and `runtime/api.token`, generates session ID `cli:{YYYY-MM-DD}-{nanoid}`, POSTs message, subscribes to SSE stream, streams `text_delta` to stdout
+- [ ] `cloudmind run --agent <id> "task"` — same as above but single-shot (no readline loop)
 - [ ] `cloudmind models` — list all available models across providers
 - [ ] `cloudmind model set <agent-id> <model>` — switch model at runtime via `agent.setModel()`
 - [ ] `cloudmind model get <agent-id>` — show current model
 
-**Deliverable**: "Write a Python script that generates the first 20 Fibonacci numbers, run it, and show me the output." → agent writes file → spawns container → runs script → `beforeToolCall` hook fires (logs tool call) → returns result → `afterToolCall` hook fires (logs result). Run the same task with a different provider (`--model gpt-4o`) to verify multi-provider works.
+**Deliverable**: "Write a Python script that generates the first 20 Fibonacci numbers, run it, and show me the output." → agent writes file → spawns container → runs script → hooks fire → result streams to terminal via SSE. Run the same task with a different provider (`--model gpt-4o`) to verify multi-provider works.
 
 ---
 
@@ -207,7 +213,7 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 ### 5.3 Config Management
 - [ ] `cloudmind config set <agent-id> <key> <value>` — update config.json
 - [ ] `cloudmind security edit <agent-id>` — open `~/.config/cloudmind/{id}.security.json` in $EDITOR
-- [ ] Secret handling: secrets stored in config.json under `secrets`, never logged or streamed
+- [ ] Secret handling: secrets stored in `~/.cloudmind/{agent-id}/secrets.json`, never logged or streamed
 - [ ] Port registry: track which host ports are claimed across all agents to avoid conflicts
 
 ### 5.4 Doctor Command
@@ -215,7 +221,7 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
   - Agent process: running / stopped / crashed
   - Security config: present, valid JSON, no unknown keys
   - Workspace: all expected directories exist, no permission errors
-  - Config: valid, model reachable (ping Claude API)
+  - Config: valid, configured LLM provider reachable (ping with a test request)
   - Memory: working.md exists, episodic current month file writable
   - Containers: cross-reference registry.jsonl with live Docker state, flag drift
   - Heartbeat: last run timestamp, next scheduled run
@@ -226,9 +232,9 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 
 ---
 
-## Phase 6 — Service Containers + Port Management
+## Phase 6 — Service Containers + Telegram Channel
 
-**Goal**: Agent can reliably run long-term services, expose them to the network, and manage them across restarts.
+**Goal**: Agent can reliably run long-term services and be reached via Telegram.
 
 ### 6.1 Service Container Reliability
 - [ ] Auto-restart policy for service containers (`--restart unless-stopped`)
@@ -241,18 +247,20 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 - [ ] `container_status()` shows port mappings
 - [ ] Warn user when binding a port (note: firewall/Tailscale config may be needed)
 
-### 6.3 Tailscale Integration
-- [ ] `tailscale_funnel(port, enable)` tool — directly runs `tailscale funnel` (no sudo needed, ordinary user command)
-- [ ] `tailscale_funnel_status()` tool — reads current funnel config via `tailscale funnel status --json`
-- [ ] On `container_start` with port binding: suggest running `tailscale_funnel` if user may want external access
-- [ ] Track funneled ports in `config.port_registry.funneled` array
-
-### 6.4 Docker Networks
+### 6.3 Docker Networks
 - [ ] Agent can create a named Docker network per "project"
 - [ ] Multiple containers in same project share a network (can talk to each other by container name)
 - [ ] Network config stored in registry.jsonl
 
-**Deliverable**: Agent starts a Postgres + web app pair on the same Docker network, exposes the web app on port 10001, advises user to run `tailscale funnel 10001`.
+### 6.4 Telegram Bridge Container
+- [ ] Document bridge container spec: reads `TELEGRAM_BOT_TOKEN`, `CLOUDMIND_API_URL`, `CLOUDMIND_API_KEY`, `CLOUDMIND_AGENT_ID` from environment; long-polls Telegram Bot API; for each message generates `sessionId: "telegram:{chat_id}"` and POSTs to agent HTTP API; subscribes to SSE stream; calls Telegram `sendMessage` with the final response
+- [ ] Agent starts bridge via `container_start`: inject `TELEGRAM_BOT_TOKEN` from `secrets.json` as `env_secrets`; read actual port from `runtime/api.port` and inject `CLOUDMIND_API_URL=http://host.docker.internal:{port}`, `CLOUDMIND_AGENT_ID`, and `CLOUDMIND_API_KEY` (from `runtime/api.token`) as plain env vars
+- [ ] `config.channels.telegram_bridge.enabled` toggle — false by default, user opts in
+- [ ] `config.channels.telegram_bridge.allowed_chat_ids` — allowlist enforced by the bridge; empty list rejects all messages (safe default)
+- [ ] Session ID format: bridge generates `telegram:{chat_id}` before each POST to the agent HTTP API
+- [ ] Bridge container can be in any language; no Telegram or grammy code exists in the agent process
+
+**Deliverable**: Agent starts a Postgres + web app pair on the same Docker network, exposes the web app on port 10001, and tells the user to run `tailscale funnel 10001` themselves if they want external access. Separately: user sends a message to the Telegram bot, bridge POSTs to the agent HTTP API, agent responds, bridge sends the result back to the Telegram chat.
 
 ---
 
@@ -260,7 +268,7 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 
 **Goal**: Better DX, observability, optional database upgrade.
 
-- [ ] Web UI: simple local dashboard showing agent status, memory, containers, session history
+- [ ] Web UI: simple local dashboard showing agent status, memory, containers, session history — can connect directly to the agent's HTTP API (already available from Phase 2); no additional protocol work needed
 - [ ] SQLite upgrade: migrate episodic.jsonl and session logs to SQLite for faster querying
 - [ ] Sub-agent support: agent can spawn another agent as a tool call
 - [ ] Tool permissions: config-driven allow/deny list per tool

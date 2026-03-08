@@ -13,53 +13,45 @@ When the agent needs to run code, install dependencies, or provide a service —
 ## High-Level Diagram
 
 ```
-                    ┌─────────────────────┐
-  Telegram user ───►│  Telegram Bot API   │
-                    └──────────┬──────────┘
-                               │ long-poll
-  CLI user ────────────────────┤
-  (stdin/stdout)               │
-                               ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│ HOST MACHINE — Agent Process                                         │
-│                                                                      │
-│  ┌───────────────────────────────────────────────────────────────┐   │
-│  │  Channel Manager                                              │   │
-│  │  CLI Channel · Telegram Channel · (future: HTTP, Discord…)   │   │
-│  └───────────────────────┬───────────────────────────────────────┘   │
-│          InboundMessage  │  OutboundEvent                            │
-│                          ▼                                           │
-│  ┌──────────────┐  ┌──────────────┐  ┌───────────────────────────┐  │
-│  │  LLM Core    │  │  Memory Mgr  │  │  Container Mgr            │  │
-│  │ (pi-agent-   │  │ (file-based) │  │  (Dockerode)              │  │
-│  │  core)       │  │              │  │                           │  │
-│  └──────┬───────┘  └──────┬───────┘  └─────────────┬─────────────┘  │
-│         │                 │                        │                │
-│  ┌──────┴─────────────────┴────────────────────────┴───────────┐    │
-│  │  Hook System                                                │    │
-│  │  onSessionStart/End · beforeToolCall · afterToolCall        │    │
-│  │  beforeInbound · beforeOutbound · onHeartbeat · onError     │    │
-│  └─────────────────────────────────────────────────────────────┘    │
-│                                                                      │
-│  ┌────────────────────────────────────────────────────────────────┐  │
-│  │  Heartbeat Engine  (timer → heartbeat.md → mini session)      │  │
-│  └────────────────────────────────────────────────────────────────┘  │
-│                                      │                               │
-│                              ┌───────▼────────┐                      │
-│                              │   Workspace    │                      │
-│                              │  (filesystem)  │                      │
-│                              └───────┬────────┘                      │
-└──────────────────────────────────────┼───────────────────────────────┘
-                                       │
-                            ┌──────────▼──────────┐
-                            │    Docker Daemon     │
-                            └───┬──────────────┬───┘
-                                │              │
-                    ┌───────────▼──┐    ┌───────▼──────────┐
-                    │  Ephemeral   │    │  Service         │
-                    │  Container   │    │  Container       │──► port:host
-                    │  (run+rm)    │    │  (long-running)  │    binding
-                    └──────────────┘    └──────────────────┘
+CLI user ──► cloudmind CLI ──────────────────────────────────┐
+                                                              │ HTTP (localhost)
+Telegram user ──► Telegram Bot API                           │
+                       │ long-poll                            │
+              ┌────────▼───────────────┐                     │
+              │  Telegram Bridge       │                      │
+              │  (service container,   │─── host.docker. ────┤
+              │   agent-managed)       │    internal:PORT     │
+              └────────────────────────┘                      │
+                                                              ▼
+                                              ┌───────────────────────────┐
+                                              │  Agent Process            │
+                                              │  HTTP API (Hono)          │
+                                              │  POST /agents/{id}/messages│
+                                              │  GET  /agents/{id}/events  │
+                                              │         (SSE stream)       │
+                                              └──────────────┬────────────┘
+                                                             │
+                                              ┌──────────────▼────────────┐
+                                              │  Core                     │
+                                              │  pi-agent-core (LLM loop) │
+                                              │  Memory Manager           │
+                                              │  Container Manager        │
+                                              │  Hook System              │
+                                              │  Heartbeat Engine         │
+                                              └──────────────┬────────────┘
+                                                             │
+                                              ┌──────────────▼────────────┐
+                                              │  Workspace (filesystem)   │
+                                              └──────────────┬────────────┘
+                                                             │
+                                              ┌──────────────▼────────────┐
+                                              │  Docker Daemon            │
+                                              └────┬──────────────┬───────┘
+                                                   │              │
+                                       ┌───────────▼──┐  ┌────────▼─────────┐
+                                       │  Ephemeral   │  │  Service         │
+                                       │  Container   │  │  Container       │──► port:host
+                                       └──────────────┘  └──────────────────┘
 ```
 
 ---
@@ -106,6 +98,10 @@ Every agent gets one workspace directory. Everything the agent owns lives here.
 │
 ├── hooks/
 │   └── hooks.json                       # Custom hook handler declarations (optional)
+│
+├── runtime/
+│   ├── api.token                        # Runtime API token (generated at startup, gitignored)
+│   └── api.port                         # Actual bound port (written at startup, read by CLI + bridges)
 │
 └── logs/
     └── {YYYY-MM-DD}.log                 # Agent runtime logs
@@ -255,7 +251,6 @@ Built-in tools available to agent:
 | `memory_note` | Write/update a note in memory/notes/{topic}.md |
 | `memory_recall` | Read one or more memory note files |
 | `web_fetch` | Fetch a URL and return content |
-| `tailscale_funnel` | Enable/disable Tailscale Funnel for a port (runs `tailscale funnel`, no sudo needed) |
 | `agent_doctor` | Run self-diagnostics: check process health, containers, memory files, config validity |
 
 ### 3. Memory Manager (File-based)
@@ -379,7 +374,7 @@ Only the fields that genuinely need tamper-resistance live here:
 ```json
 {
   "autonomy_level": "supervised",
-  "require_approval_for": ["container_start", "tailscale_funnel"]
+  "require_approval_for": ["container_start"]
 }
 ```
 
@@ -396,8 +391,8 @@ Sensitive credentials the agent's containers may need at runtime. The LLM **neve
 
 ```json
 {
-  "OPENAI_API_KEY": "sk-...",
-  "DISCORD_BOT_TOKEN": "...",
+  "ANTHROPIC_API_KEY": "sk-ant-...",
+  "TELEGRAM_BOT_TOKEN": "...",
   "DATABASE_PASSWORD": "...",
   "GITHUB_TOKEN": "ghp_..."
 }
@@ -541,9 +536,96 @@ The agent itself writes and maintains this file. It's a markdown checklist where
 
 #### Key design decisions
 - Heartbeat runs in its own isolated mini-session (separate session ID, logged separately)
-- It uses the same ReAct loop and tool system as normal sessions
+- It uses the same pi-agent-core loop and tool system as normal sessions
 - If a heartbeat run is already in progress when the timer fires again, skip (no overlapping runs)
 - Heartbeat does not stream output to any user — results go only to episodic memory
+
+---
+
+### 8. Channel System
+
+The agent exposes an HTTP API (Hono server) as its sole communication interface. There is no `ChannelManager` class and no channel code inside the agent process. External clients — a CLI program, a Telegram bridge container, or any other HTTP client — call this API to send messages and receive responses.
+
+#### HTTP API Contract
+
+```
+POST /agents/{id}/messages
+  Body: InboundMessage JSON
+  Returns: { sessionId }
+
+GET /agents/{id}/events?sessionId=xxx
+  Returns: SSE stream of OutboundEvent
+```
+
+```typescript
+// Inbound message posted by any client
+type InboundMessage = {
+  sessionId: string        // namespaced by client: "cli:2026-03-08-abc", "telegram:123456789"
+  text: string
+  attachments?: { type: string; url?: string; data?: Buffer }[]
+}
+
+// Events streamed back over SSE
+type OutboundEvent =
+  | { type: "text_delta";  sessionId: string; text: string }   // streaming chunk
+  | { type: "text_final";  sessionId: string; text: string }   // complete answer
+  | { type: "tool_start";  sessionId: string; tool: string }   // optional: "thinking..."
+  | { type: "error";       sessionId: string; message: string }
+```
+
+#### Port — Dynamic Assignment
+
+At startup the agent binds the HTTP server to port `0`, letting the OS assign a free port. The actual port is written to `runtime/api.port`. If `config.http_api.preferred_port` is set, it is tried first; if already taken, the OS assigns a free port instead.
+
+This means multiple agents can run on the same host with zero port configuration — each agent discovers its own port via `runtime/api.port`.
+
+#### Auth — Runtime API Token
+
+At startup the agent generates a random token, writes it to `runtime/api.token`, and requires it on every HTTP request (`Authorization: Bearer <token>`). The `runtime/` directory is gitignored. Bridge containers receive the token via the `CLOUDMIND_API_KEY` environment variable.
+
+#### CLI Client
+
+`cloudmind chat --agent <id>` and `cloudmind run --agent <id> "task"` are thin external programs — not Channel classes. They:
+1. Read `runtime/api.port` and `runtime/api.token` from the agent workspace
+2. Generate a session ID: `cli:{YYYY-MM-DD}-{nanoid}`
+3. POST the message to `POST /agents/{id}/messages`
+4. Subscribe to `GET /agents/{id}/events?sessionId=xxx`
+5. Stream `text_delta` events to stdout
+
+#### Telegram Bridge Container
+
+Telegram is handled by a service container the agent starts via `container_start`. The container is an independent program (any language) that:
+1. Long-polls the Telegram Bot API
+2. For each message: generates session ID `telegram:{chat_id}`, POSTs to the agent HTTP API
+3. Subscribes to the SSE stream and forwards the response back to Telegram via `sendMessage`
+
+The bridge container is configured with these environment variables:
+- `TELEGRAM_BOT_TOKEN` — injected from `secrets.json`
+- `CLOUDMIND_API_URL=http://host.docker.internal:{port}` — port read from `runtime/api.port` at container launch time
+- `CLOUDMIND_API_KEY` — runtime token from `runtime/api.token`
+- `CLOUDMIND_AGENT_ID` — the agent's id
+
+`config.channels.telegram_bridge.allowed_chat_ids` — allowlist of Telegram chat IDs the bridge enforces; empty list rejects all.
+
+#### Session Namespacing
+
+Session IDs are namespaced by the client before the POST, enforced at the HTTP API boundary:
+
+| Client | Session ID format | Meaning |
+|--------|------------------|---------|
+| CLI | `cli:{YYYY-MM-DD}-{nanoid}` | Each CLI invocation |
+| Telegram bridge | `telegram:{chat_id}` | Each Telegram chat or group |
+
+Sessions from different clients share the same agent memory (`working.md`, `notes/`) but have separate conversation histories.
+
+#### Adding a New Channel
+
+Write any HTTP client (a container image, a script, a mobile app) that:
+1. Reads or receives the runtime API token
+2. POSTs `InboundMessage` JSON to the agent HTTP API
+3. Subscribes to the SSE stream and handles `OutboundEvent`s
+
+No agent code changes are needed.
 
 ---
 
@@ -561,8 +643,8 @@ The agent is designed to be minimally invasive to the host. Here is the complete
 | Impact | Details |
 |--------|---------|
 | **Firewall rules** | If a service container needs to be reachable from outside, UFW/iptables may need a rule opened. Agent can note this but cannot do it automatically (requires root). |
-| **Tailscale Funnel** | Agent can directly run `tailscale funnel <port>` via the `tailscale_funnel` tool — no sudo needed. Agent tracks which ports are funneled in its config. |
-| **Secrets / env vars** | API keys or credentials that containers need. Agent stores these in `config.json` within workspace and injects them as container env vars at launch time. Never written to container images. |
+| **Tailscale Funnel** | Agent cannot run `tailscale funnel` directly — host networking is out of scope for agent tools. If external access via Tailscale Funnel is needed, the agent will instruct the user to run `tailscale funnel <port>` themselves. |
+| **Secrets / env vars** | API keys or credentials that containers need. Stored in `~/.cloudmind/{agent-id}/secrets.json` (outside workspace). Agent reads at startup, injects as Docker `--env` flags at container launch. Values never written to container images and never passed to LLM. |
 | **Docker networks** | Agent may create named Docker networks for multi-container setups. These are Docker-managed, not host-level. |
 | **DNS** | If containers need to resolve custom hostnames, may need `/etc/hosts` entries on the host. Edge case. |
 | **GPU access** | If a container needs GPU, host must have nvidia-container-toolkit. Not needed for v1. |
@@ -614,8 +696,17 @@ The agent is designed to be minimally invasive to the host. Here is the complete
     "enabled": true,
     "interval_minutes": 60,
     "max_iterations": 10,
-    "autonomy": "readonly",
+    "autonomy_level": "readonly",
     "tools_allowed": ["read_file", "write_file", "container_status", "memory_note", "memory_recall"]
+  },
+  "http_api": {
+    "preferred_port": 3000
+  },
+  "channels": {
+    "telegram_bridge": {
+      "enabled": false,
+      "allowed_chat_ids": []
+    }
   }
 }
 ```
@@ -625,7 +716,7 @@ The agent is designed to be minimally invasive to the host. Here is the complete
 ```json
 {
   "autonomy_level": "supervised",
-  "require_approval_for": ["container_start", "tailscale_funnel"]
+  "require_approval_for": ["container_start"]
 }
 ```
 
@@ -633,8 +724,8 @@ The agent is designed to be minimally invasive to the host. Here is the complete
 
 ```json
 {
-  "OPENAI_API_KEY": "sk-...",
-  "DISCORD_BOT_TOKEN": "...",
+  "ANTHROPIC_API_KEY": "sk-ant-...",
+  "TELEGRAM_BOT_TOKEN": "...",
   "DATABASE_PASSWORD": "...",
   "GITHUB_TOKEN": "ghp_..."
 }
@@ -653,5 +744,6 @@ The agent is designed to be minimally invasive to the host. Here is the complete
 | Container management | Dockerode (Docker SDK for Node) |
 | Memory / sessions | Plain files: `.md` + `.jsonl` |
 | Database | None in v1. SQLite optional later. |
-| API interface | Local HTTP (Hono) or CLI |
+| Telegram bridge | container image (any language) |
+| HTTP API | Hono (built into agent process from Phase 2) |
 | Deployment | Single host process (systemd or pm2) |
