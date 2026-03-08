@@ -13,6 +13,9 @@ const READONLY_BLOCKED_TOOLS = new Set([
   'write_file',
   'delete_file',
   'container_run',
+  'container_start',
+  'container_stop',
+  'container_exec',
 ]);
 
 interface ToolContext {
@@ -267,6 +270,174 @@ const createContainerStatusTool = ({
   },
 });
 
+// ---------------------------------------------------------------------------
+// container_start
+// ---------------------------------------------------------------------------
+
+const ContainerStartParams = Type.Object({
+  name: Type.String({
+    description:
+      'Unique name for the service container. Used to reference it in stop/exec calls.',
+  }),
+  image: Type.String({ description: 'Docker image name.' }),
+  description: Type.Optional(
+    Type.String({
+      description: 'Short note describing the purpose of this service.',
+    }),
+  ),
+  mount: Type.Optional(
+    Type.String({
+      description:
+        'Workspace path under containers/{name}/data to mount at /data inside the container. Defaults to containers/{name}/data.',
+    }),
+  ),
+  ports: Type.Optional(
+    Type.Record(
+      Type.String({ description: 'Container port (e.g. "5432").' }),
+      Type.Number({ description: 'Host port to bind (e.g. 10001).' }),
+      {
+        description:
+          'Port mappings: { "<containerPort>": <hostPort> }. Warn the user to run "tailscale funnel <hostPort>" themselves if external access is needed.',
+      },
+    ),
+  ),
+  env: Type.Optional(
+    Type.Record(Type.String(), Type.String(), {
+      description: 'Plain environment variables to pass to the container.',
+    }),
+  ),
+  env_secrets: Type.Optional(
+    Type.Array(Type.String(), {
+      description:
+        'Secret names whose values are resolved at launch and injected as env vars. Values are never returned to the agent.',
+    }),
+  ),
+  network: Type.Optional(
+    Type.String({
+      description:
+        'Docker network name. Containers on the same network can reach each other by container name.',
+    }),
+  ),
+});
+
+type ContainerStartArgs = Static<typeof ContainerStartParams>;
+
+const createContainerStartTool = ({
+  security,
+  containerManager,
+}: ToolContext): AgentTool<typeof ContainerStartParams> => ({
+  name: 'container_start',
+  label: 'Start Service Container',
+  description:
+    'Start a long-running service container (e.g. Postgres, Redis). The container is registered and persists across agent restarts until explicitly stopped. Port bindings expose the service on the host; inform the user if external access requires additional host configuration.',
+  parameters: ContainerStartParams,
+  execute: async (_toolCallId, args: ContainerStartArgs) => {
+    ensureAutonomyAllows(security, 'container_start');
+
+    const secretEnv =
+      args.env_secrets && args.env_secrets.length > 0
+        ? security.resolveSecrets(args.env_secrets)
+        : {};
+
+    const env =
+      Object.keys(secretEnv).length > 0 || (args.env && Object.keys(args.env).length > 0)
+        ? { ...(args.env ?? {}), ...secretEnv }
+        : undefined;
+
+    const entry = await containerManager.startService({
+      name: args.name,
+      image: args.image,
+      ...(args.description ? { description: args.description } : {}),
+      ...(args.mount ? { mount: args.mount } : {}),
+      ...(args.ports ? { ports: args.ports } : {}),
+      ...(env ? { env } : {}),
+      ...(args.network ? { network: args.network } : {}),
+    });
+
+    const portHints =
+      entry.ports && Object.keys(entry.ports).length > 0
+        ? `\nBound ports: ${Object.entries(entry.ports)
+            .map(([containerPort, hostPort]) => `${containerPort} → host:${hostPort}`)
+            .join(', ')}. Run "tailscale funnel <hostPort>" on the host if external access is needed.`
+        : '';
+
+    return {
+      content: asTextContent(`Service "${entry.name}" started.${portHints}`),
+      details: entry,
+    };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// container_stop
+// ---------------------------------------------------------------------------
+
+const ContainerStopParams = Type.Object({
+  name: Type.String({ description: 'Name of the service container to stop and remove.' }),
+});
+
+type ContainerStopArgs = Static<typeof ContainerStopParams>;
+
+const createContainerStopTool = ({
+  security,
+  containerManager,
+}: ToolContext): AgentTool<typeof ContainerStopParams> => ({
+  name: 'container_stop',
+  label: 'Stop Service Container',
+  description: 'Stop and remove a running service container. The registry entry is preserved with status "removed".',
+  parameters: ContainerStopParams,
+  execute: async (_toolCallId, args: ContainerStopArgs) => {
+    ensureAutonomyAllows(security, 'container_stop');
+
+    const entry = await containerManager.stopService(args.name);
+
+    return {
+      content: asTextContent(`Service "${entry.name}" stopped.`),
+      details: entry,
+    };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// container_exec
+// ---------------------------------------------------------------------------
+
+const ContainerExecParams = Type.Object({
+  name: Type.String({ description: 'Name of the running service container.' }),
+  command: Type.String({ description: 'Shell command to execute inside the container.' }),
+});
+
+type ContainerExecArgs = Static<typeof ContainerExecParams>;
+
+const createContainerExecTool = ({
+  security,
+  containerManager,
+}: ToolContext): AgentTool<typeof ContainerExecParams> => ({
+  name: 'container_exec',
+  label: 'Exec in Service Container',
+  description:
+    'Execute a shell command inside a running service container and return stdout/stderr. Use this to inspect state, run migrations, or interact with a service.',
+  parameters: ContainerExecParams,
+  execute: async (_toolCallId, args: ContainerExecArgs) => {
+    ensureAutonomyAllows(security, 'container_exec');
+
+    const result = await containerManager.execInService(args.name, args.command);
+
+    const details = {
+      stdout: result.stdout,
+      stderr: result.stderr,
+      exitCode: result.exitCode,
+      durationMs: result.durationMs,
+      ...(result.parsedOutput !== undefined ? { parsedOutput: result.parsedOutput } : {}),
+    };
+
+    return {
+      content: asTextContent(formatJson(details)),
+      details,
+    };
+  },
+});
+
 export const summarizeContainerList = (
   containers: ContainerListEntry[],
 ): string => formatJson(containers);
@@ -284,4 +455,7 @@ export const createBuiltInTools = (
   createDeleteFileTool(context),
   createContainerRunTool(context),
   createContainerStatusTool(context),
+  createContainerStartTool(context),
+  createContainerStopTool(context),
+  createContainerExecTool(context),
 ];
