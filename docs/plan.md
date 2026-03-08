@@ -99,6 +99,7 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
   - `container_stop(name)` — stop service container
   - `container_exec(name, command)` — exec in running container
   - `container_status()` — list containers + status + description
+  - `file_search(pattern, path?, glob?)` — ripgrep-like text search across workspace files
   - `web_fetch(url)` — HTTP GET, return body as text
   - `agent_doctor()` — self-diagnostics (see Phase 4)
 - [ ] `delete_file` counts as a destructive write tool; support placing it in `require_approval_for`
@@ -146,26 +147,32 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 
 ### 3.1 Working Memory
 - [ ] Load `memory/working.md` at session start → inject into system prompt
-- [ ] `memory_update_working(content)` tool — agent rewrites working.md
+- [ ] Agent rewrites `memory/working.md` using normal file tools (`read_file` / `write_file`)
 - [ ] Auto-prompt agent to update working memory at session end if context changed significantly
 - [ ] Keep working.md under a token limit (warn agent if it's growing too large)
 
 ### 3.2 Episodic Memory
 - [ ] Write to `memory/episodic/{YYYY-MM}.jsonl` — auto-create new file each month
-- [ ] All writes go through the `log` hook handler (no direct episodic writes elsewhere)
+- [ ] Episodic memory is summary-oriented, not a raw mirror of `sessions/*.jsonl`
+- [ ] Summarization triggers:
+  - once when a session ends
+  - once every 50 conversation turns for a long-running session
+- [ ] Starting a new CLI session (for example via `/new`) is treated as ending the previous one
+- [ ] All writes go through the `log` / summarization path rather than direct ad hoc episodic writes
 - [ ] Event schema: `{ ts, session, type, data }`
-- [ ] `episodic_read(limit?, since?)` tool — agent can query recent events (reads across monthly files as needed)
+- [ ] Agent queries episodic history through normal file reads plus `file_search`
 
-### 3.3 Long-term Notes
-- [ ] `memory_note(topic, content)` tool — write/overwrite `memory/notes/{topic}.md`
-- [ ] `memory_recall(topic)` tool — read a note file back
-- [ ] `memory_list_notes()` tool — list available topics
-- [ ] Inject note filenames (not content) into system prompt so agent knows what it has
+### 3.3 Long-Term Memory
+- [ ] Add `memory/long-term.md` as the entry point and index for long-term memory
+- [ ] Store topic files under `memory/notes/*.md`
+- [ ] Long-term memory is managed through existing file tools (`read_file`, `write_file`, `list_files`) plus `file_search`
+- [ ] Inject `memory/long-term.md` and relevant note filenames (not all note content) into context so agent knows what stable knowledge exists
 
 ### 3.4 Session Log
 - [ ] Auto-create `sessions/{date}-{id}.jsonl` at session start
 - [ ] Append every message + tool call/result during session
-- [ ] Session summary: at end of session, optionally prompt agent to write a summary note
+- [ ] Session summary: at session end, generate an episodic summary entry
+- [ ] Long sessions also emit intermediate episodic summaries every 50 turns
 
 **Deliverable**: Agent remembers a user's name and preferred programming language across two separate sessions without being told again.
 
@@ -316,13 +323,8 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 
 ### `memory/episodic/2026-03.jsonl`
 ```jsonl
-{"ts":"2026-03-07T10:00:00Z","session":"s1","type":"session_started","data":{}}
-{"ts":"2026-03-07T10:00:05Z","session":"s1","type":"message_received","data":{"role":"user","content":"hello"}}
-{"ts":"2026-03-07T10:00:08Z","session":"s1","type":"tool_requested","data":{"tool":"read_file","args":{"path":"memory/notes/facts.md"}}}
-{"ts":"2026-03-07T10:00:08Z","session":"s1","type":"tool_started","data":{"tool":"read_file","args":{"path":"memory/notes/facts.md"}}}
-{"ts":"2026-03-07T10:00:09Z","session":"s1","type":"tool_result","data":{"tool":"read_file","result":"..."}}
-{"ts":"2026-03-07T10:00:12Z","session":"s1","type":"message_sent","data":{"role":"assistant","content":"Hi!"}}
-{"ts":"2026-03-07T10:00:12Z","session":"s1","type":"session_ended","data":{"turns":2}}
+{"ts":"2026-03-07T10:00:12Z","session":"s1","type":"session_summary","data":{"turns":2,"summary":"User asked for a fibonacci script; agent wrote it, tested it, and confirmed the output."}}
+{"ts":"2026-03-07T11:45:00Z","session":"s2","type":"session_checkpoint","data":{"turns":50,"summary":"Long debugging session: narrowed the issue to Docker mount validation and approval event ordering."}}
 {"ts":"2026-03-07T11:00:00Z","session":"heartbeat:1741345200","type":"heartbeat_run","data":{"tasks_checked":3,"tasks_acted":1,"duration_ms":4200}}
 ```
 

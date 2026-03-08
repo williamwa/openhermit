@@ -20,6 +20,7 @@
 | Data | Format |
 |------|--------|
 | Working memory | `memory/working.md` |
+| Long-term index | `memory/long-term.md` |
 | Long-term notes | `memory/notes/{topic}.md` |
 | Episodic log | `memory/episodic/{YYYY-MM}.jsonl` (monthly split) |
 | Session history | `sessions/{date}-{id}.jsonl` |

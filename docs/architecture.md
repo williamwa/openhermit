@@ -81,11 +81,12 @@ Every agent gets one workspace directory. Everything the agent owns lives here.
 │
 ├── memory/
 │   ├── working.md                       # Rolling context summary (what agent "has in mind" right now)
+│   ├── long-term.md                     # Long-term memory index / table of contents
 │   ├── heartbeat.md                     # Periodic task checklist, maintained by the agent itself
 │   ├── episodic/
 │   │   ├── 2026-03.jsonl                # Append-only event log, split by month
 │   │   └── 2026-04.jsonl
-│   └── notes/                           # Long-term knowledge, one markdown file per topic
+│   └── notes/                           # Long-term knowledge files indexed from long-term.md
 │       ├── facts.md
 │       ├── user-preferences.md
 │       └── {topic}.md
@@ -151,7 +152,7 @@ CloudMind does **not** implement its own ReAct loop. It uses two libraries from 
 
 ```
 CloudMind Tool Handlers
-  (container_run, memory_note, read_file, …)
+  (container_run, file_search, read_file, …)
            │ implements AgentTool[]
            ▼
   @mariozechner/pi-agent-core
@@ -255,14 +256,13 @@ Built-in tools available to agent:
 | `container_stop` | Stop a service container |
 | `container_exec` | Exec a command in a running container |
 | `container_status` | List containers and their status |
-| `memory_note` | Write/update a note in memory/notes/{topic}.md |
-| `memory_recall` | Read one or more memory note files |
+| `file_search` | Ripgrep-like text search across workspace files |
 | `web_fetch` | Fetch a URL and return content |
 | `agent_doctor` | Run self-diagnostics: check process health, containers, memory files, config validity |
 
 ### 3. Memory Manager (File-based)
 
-Three layers, all stored as plain files in the workspace:
+Four layers, all stored as plain files in the workspace:
 
 #### Working Memory — `memory/working.md`
 - A markdown file the agent rewrites as context shifts
@@ -270,16 +270,20 @@ Three layers, all stored as plain files in the workspace:
 - Kept short (< 1000 tokens) — agent summarizes and updates it explicitly
 
 #### Episodic Memory — `memory/episodic/{YYYY-MM}.jsonl`
-- Append-only JSONL log, one event per line, **split by month** to avoid unbounded file growth
-- Events: `message_received`, `tool_requested`, `tool_started`, `tool_result`, `session_started`, `session_ended`, `note_updated`, `heartbeat_run`, `hook_fired`
-- Used for reviewing history, understanding what happened and when
+- Append-only JSONL log, one summary/event per line, **split by month** to avoid unbounded file growth
+- Written by summarization, not by blindly mirroring every raw session event
+- Primary triggers:
+  - once when a session ends
+  - once every 50 conversation turns for a long-running session
+- Used for reviewing history, understanding what happened and when across sessions
 - Format: `{"ts": "ISO8601", "type": "...", "session": "...", "data": {...}}`
 - Current month file is active; older files are read-only archives
 
-#### Long-term Notes — `memory/notes/*.md`
-- Agent explicitly creates and updates these
-- Human-readable markdown, organized by topic
-- Agent uses `memory_note` tool to write and `memory_recall` to read
+#### Long-Term Memory — `memory/long-term.md` + `memory/notes/*.md`
+- `memory/long-term.md` is the entry point and index
+- `memory/notes/*.md` contains the actual topic files linked or indexed from `long-term.md`
+- Human-readable markdown, organized by topic rather than by time
+- Read, write, and search are handled through normal file tools plus `file_search`
 - Examples: `user-preferences.md`, `project-status.md`, `important-facts.md`
 
 #### Session Log — `sessions/{date}-{id}.jsonl`
@@ -376,7 +380,7 @@ Because this boundary is architectural (not policy-driven), a separate `forbidde
 
 Commands run inside containers via `container_exec` or `container_run` execute inside Docker, not on the host. The container only has access to its mounted `containers/{name}/data/` subdirectory. Since code inside a container cannot reach host-sensitive paths, a command whitelist is an operational preference rather than a security control.
 
-The default `container_defaults` in `config.json` sets memory + CPU caps on all containers. Commands passed to containers are logged in the episodic memory for auditability.
+The default `container_defaults` in `config.json` sets memory + CPU caps on all containers. Raw command execution belongs in session logs; episodic memory should only receive summarized outcomes worth remembering later.
 
 #### `~/.cloudmind/{agent-id}/security.json`
 
@@ -443,7 +447,7 @@ A lightweight event bus that fires at fixed points in the agent's execution. Hoo
 
 | Handler | Hook points | What it does |
 |---------|------------|--------------|
-| `log` | all | Writes event to episodic memory (this is how all episodic events are recorded) |
+| `log` | all | Writes audit/log data; episodic memory receives summarized events rather than a full mirror of raw session traffic |
 | `require-approval` | `beforeToolCall` | Pauses execution and asks user to confirm before proceeding |
 
 #### Custom Hook Handlers — `hooks/hooks.json`
@@ -484,7 +488,7 @@ inbound message arrives
       │
   answer sent to user
       │
-  [onSessionEnd hooks]    ← write session summary to memory
+  [onSessionEnd hooks]    ← write session summary to episodic / working / long-term as needed
 ```
 
 ---
@@ -539,7 +543,7 @@ Heartbeat and cron jobs are just scheduled adapters over the same session lifecy
 - Heartbeat is a built-in scheduled source that opens a session, synthesizes a first message from `memory/heartbeat.md`, and posts it
 - Cron jobs are user-defined scheduled sources that open a session, synthesize their own first message, and post it
 - Both dispatch through the same runner used by CLI and IM sessions
-- Both are non-interactive by default and record outcomes to episodic memory
+- Both are non-interactive by default and record summarized outcomes to episodic memory
 
 #### `memory/heartbeat.md` — agent-maintained checklist
 
@@ -550,7 +554,7 @@ The heartbeat trigger reads this file to decide what maintenance work to perform
 
 ## Hourly
 - [ ] Verify all service containers are running — last checked: 2026-03-07 09:00
-- [ ] Flush episodic buffer if > 500 events
+- [ ] Refresh long-running session summaries if any session crossed another 50-turn boundary
 
 ## Daily
 - [ ] Summarise today's episodic log into memory/notes/daily-summary.md — last run: 2026-03-06
@@ -558,7 +562,7 @@ The heartbeat trigger reads this file to decide what maintenance work to perform
 
 ## Weekly
 - [ ] Archive sessions older than 30 days
-- [ ] Review memory/notes/ for stale or contradictory facts
+- [ ] Review memory/long-term.md and memory/notes/ for stale or contradictory facts
 ```
 
 #### Scheduled config in `config.json`
@@ -568,7 +572,7 @@ The heartbeat trigger reads this file to decide what maintenance work to perform
   "enabled": true,
   "interval_minutes": 60,
   "max_iterations": 10,
-  "tools_allowed": ["read_file", "write_file", "container_status", "memory_note"]
+  "tools_allowed": ["read_file", "write_file", "list_files", "file_search", "container_status"]
 },
 "schedules": {
   "jobs": []
@@ -593,7 +597,7 @@ Session IDs are namespaced by source:
 | Heartbeat | `heartbeat:{ts}` | Each heartbeat run |
 | Cron job | `cron:{job-id}:{ts}` | Each configured scheduled job run |
 
-Sessions from different trigger sources share the same agent memory (`working.md`, `notes/`) but have separate conversation histories.
+Sessions from different trigger sources share the same agent memory (`working.md`, `long-term.md`, `notes/`) but have separate conversation histories.
 
 ---
 
@@ -746,7 +750,7 @@ The agent is designed to be minimally invasive to the host. Here is the complete
     "enabled": true,
     "interval_minutes": 60,
     "max_iterations": 10,
-    "tools_allowed": ["read_file", "write_file", "container_status", "memory_note", "memory_recall"]
+    "tools_allowed": ["read_file", "write_file", "list_files", "file_search", "container_status"]
   },
   "schedules": {
     "jobs": []
