@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import {
   CloudMindError,
+  NotFoundError,
   ValidationError,
 } from '@cloudmind/shared';
 
@@ -52,6 +53,34 @@ test('DockerContainerManager rejects mounts outside containers/{name}/data', asy
         image: 'alpine:3.20',
         command: 'echo hello',
         mount: 'files/not-allowed',
+      }),
+    ValidationError,
+  );
+
+  assert.equal(runner.calls.length, 0);
+});
+
+test('DockerContainerManager rejects mount traversal outside containers/{name}/data', async (t) => {
+  const { workspace } = await createWorkspaceFixture(t);
+  const runner = new FakeDockerRunner([]);
+  const manager = new DockerContainerManager(workspace, { runner });
+
+  await assert.rejects(
+    () =>
+      manager.runEphemeral({
+        image: 'alpine:3.20',
+        command: 'echo hello',
+        mount: 'containers/demo/data/../escape',
+      }),
+    ValidationError,
+  );
+
+  await assert.rejects(
+    () =>
+      manager.startService({
+        name: 'redis-cache',
+        image: 'redis:7',
+        mount: 'containers/redis-cache/data/../../oops',
       }),
     ValidationError,
   );
@@ -195,6 +224,46 @@ test('DockerContainerManager tolerates stopping a missing live container when re
   const stopped = await manager.stopService('redis-cache');
 
   assert.equal(stopped.status, 'removed');
+});
+
+test('DockerContainerManager rejects stopping an unregistered service container', async (t) => {
+  const { workspace } = await createWorkspaceFixture(t);
+  const runner = new FakeDockerRunner([]);
+  const manager = new DockerContainerManager(workspace, { runner });
+
+  await assert.rejects(
+    () => manager.stopService('foreign-container'),
+    NotFoundError,
+  );
+
+  assert.equal(runner.calls.length, 0);
+});
+
+test('DockerContainerManager rejects exec for unregistered or removed service containers', async (t) => {
+  const { workspace } = await createWorkspaceFixture(t);
+  const runner = new FakeDockerRunner([
+    okResult({ stdout: 'container-123\n' }),
+    okResult({}),
+  ]);
+  const manager = new DockerContainerManager(workspace, { runner });
+
+  await assert.rejects(
+    () => manager.execInService('foreign-container', 'echo hello'),
+    NotFoundError,
+  );
+
+  await manager.startService({
+    name: 'redis-cache',
+    image: 'redis:7',
+  });
+  await manager.stopService('redis-cache');
+
+  await assert.rejects(
+    () => manager.execInService('redis-cache', 'echo hello'),
+    ValidationError,
+  );
+
+  assert.equal(runner.calls.length, 2);
 });
 
 test('DockerContainerManager listAll merges live docker status into registry entries', async (t) => {

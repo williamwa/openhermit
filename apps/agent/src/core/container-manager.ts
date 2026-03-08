@@ -18,8 +18,21 @@ import { AgentWorkspace } from './workspace.js';
 const OUTPUT_START = '---CLOUDMIND_OUTPUT_START---';
 const OUTPUT_END = '---CLOUDMIND_OUTPUT_END---';
 
+const normalizeContainerRelativePath = (relativePath: string): string =>
+  path.posix.normalize(relativePath.split(path.sep).join(path.posix.sep));
+
 const isContainerMountPath = (relativePath: string): boolean => {
-  const normalized = relativePath.split(path.sep).join(path.posix.sep);
+  const normalized = normalizeContainerRelativePath(relativePath);
+
+  if (
+    normalized === '.' ||
+    normalized === '..' ||
+    normalized.startsWith('../') ||
+    normalized.startsWith('/')
+  ) {
+    return false;
+  }
+
   const segments = normalized.split('/').filter(Boolean);
 
   return segments.length >= 3 && segments[0] === 'containers' && segments[2] === 'data';
@@ -228,11 +241,25 @@ export class DockerContainerManager {
     this.registry = new ContainerRegistryStore(workspace);
   }
 
+  private async requireRegisteredService(
+    name: string,
+  ): Promise<ContainerRegistryEntry> {
+    const entry = await this.registry.findByName(name);
+
+    if (!entry || entry.type !== 'service') {
+      throw new NotFoundError(`Service container not found in registry: ${name}`);
+    }
+
+    return entry;
+  }
+
   async runEphemeral(
     args: EphemeralContainerArgs,
   ): Promise<ContainerProcessResult & { container: ContainerRegistryEntry }> {
     const name = `run-${Date.now()}-${randomUUID().slice(0, 8)}`;
-    const mountRelative = args.mount ?? `containers/${name}/data`;
+    const mountRelative = normalizeContainerRelativePath(
+      args.mount ?? `containers/${name}/data`,
+    );
 
     if (!isContainerMountPath(mountRelative)) {
       throw new ValidationError(
@@ -291,7 +318,9 @@ export class DockerContainerManager {
   }
 
   async startService(args: ServiceContainerArgs): Promise<ContainerRegistryEntry> {
-    const mountRelative = args.mount ?? `containers/${args.name}/data`;
+    const mountRelative = normalizeContainerRelativePath(
+      args.mount ?? `containers/${args.name}/data`,
+    );
 
     if (!isContainerMountPath(mountRelative)) {
       throw new ValidationError(
@@ -361,6 +390,12 @@ export class DockerContainerManager {
   }
 
   async stopService(name: string): Promise<ContainerRegistryEntry> {
+    const entry = await this.requireRegisteredService(name);
+
+    if (entry.status === 'removed') {
+      return entry;
+    }
+
     const result = await this.docker.run(['rm', '-f', name]);
     const missingContainer =
       result.exitCode !== 0 &&
@@ -374,8 +409,8 @@ export class DockerContainerManager {
       );
     }
 
-    return this.registry.updateByName(name, (entry) => ({
-      ...entry,
+    return this.registry.updateByName(name, (current) => ({
+      ...current,
       status: 'removed',
       removed: new Date().toISOString(),
     }));
@@ -385,6 +420,12 @@ export class DockerContainerManager {
     name: string,
     command: string,
   ): Promise<ContainerProcessResult> {
+    const entry = await this.requireRegisteredService(name);
+
+    if (entry.status !== 'running') {
+      throw new ValidationError(`Service container is not running: ${name}`);
+    }
+
     const result = await this.docker.run(['exec', name, 'sh', '-lc', command]);
     const parsedOutput = parseStructuredOutput(result.stdout);
 

@@ -49,6 +49,7 @@ export const createSecurityFixture = async (
   t: TestContext,
   options?: {
     secrets?: SecretsMap;
+    /** Override fields in security.json (e.g. autonomy_level, require_approval_for). */
     security?: Partial<SecurityPolicy>;
   },
 ): Promise<SecurityFixture> => {
