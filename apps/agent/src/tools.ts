@@ -182,7 +182,8 @@ const ContainerRunParams = Type.Object({
   ),
   mount: Type.Optional(
     Type.String({
-      description: 'Optional workspace path under containers/{name}/data.',
+      description:
+        'Optional workspace path under containers/{name}/data. If omitted, a fresh empty mount is created. Files under files/ are not mounted automatically.',
     }),
   ),
   env_secrets: Type.Optional(
@@ -209,7 +210,8 @@ const createContainerRunTool = ({
 }: ToolContext): AgentTool<typeof ContainerRunParams> => ({
   name: 'container_run',
   label: 'Run Container',
-  description: 'Run a one-off command in an ephemeral Docker container.',
+  description:
+    'Run a one-off command in an ephemeral Docker container. The container only sees the selected mount under containers/{name}/data; if you need to run a script, write or copy it there first and pass that mount.',
   parameters: ContainerRunParams,
   execute: async (_toolCallId, args: ContainerRunArgs) => {
     ensureAutonomyAllows(security, 'container_run');

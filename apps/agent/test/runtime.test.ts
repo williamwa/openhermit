@@ -58,11 +58,15 @@ test('InMemoryAgentRuntime publishes a scaffold response for posted messages', a
     sessionId: 'cli:test-session',
     messageId: 'msg-1',
   });
-  assert.equal(backlog.length, 1);
+  assert.equal(backlog.length, 2);
   assert.deepEqual(backlog[0]?.event, {
     type: 'text_final',
     sessionId: 'cli:test-session',
     text: 'CloudMind agent scaffold received a cli message: hello',
+  });
+  assert.deepEqual(backlog[1]?.event, {
+    type: 'agent_end',
+    sessionId: 'cli:test-session',
   });
 });
 

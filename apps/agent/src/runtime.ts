@@ -1,4 +1,5 @@
 import {
+  createAgentEndEvent,
   createTextFinalEvent,
   type OutboundEvent,
   type SessionMessage,
@@ -164,6 +165,7 @@ export class InMemoryAgentRuntime implements SessionRuntime {
         `CloudMind agent scaffold received a ${session.spec.source.kind} message: ${message.text}`,
       ),
     );
+    await this.events.publish(createAgentEndEvent(sessionId));
 
     if (message.messageId) {
       return {

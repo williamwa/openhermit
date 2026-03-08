@@ -34,6 +34,7 @@ const readSseChunk = async (
 
       if (
         collected.includes('event: text_final') &&
+        collected.includes('event: agent_end') &&
         collected.includes('event: ready')
       ) {
         break;
@@ -142,6 +143,7 @@ test('createAgentApp opens a session, accepts a message, and streams the backlog
   const sseText = await readSseChunk(eventsResponse, eventsAbortController);
 
   assert.match(sseText, /event: text_final/);
+  assert.match(sseText, /event: agent_end/);
   assert.match(
     sseText,
     /CloudMind agent scaffold received a cli message: hello from test/,

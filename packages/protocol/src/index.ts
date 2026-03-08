@@ -32,7 +32,16 @@ export interface SessionMessage {
 export type OutboundEvent =
   | { type: 'text_delta'; sessionId: string; text: string }
   | { type: 'text_final'; sessionId: string; text: string }
-  | { type: 'tool_start'; sessionId: string; tool: string }
+  | { type: 'tool_start'; sessionId: string; tool: string; args?: unknown }
+  | {
+      type: 'tool_result';
+      sessionId: string;
+      tool: string;
+      isError: boolean;
+      text?: string;
+      details?: unknown;
+    }
+  | { type: 'agent_end'; sessionId: string }
   | { type: 'error'; sessionId: string; message: string };
 
 export const agentLocalRoutes = {
@@ -142,4 +151,9 @@ export const createTextFinalEvent = (
   type: 'text_final',
   sessionId,
   text,
+});
+
+export const createAgentEndEvent = (sessionId: string): OutboundEvent => ({
+  type: 'agent_end',
+  sessionId,
 });

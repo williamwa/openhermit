@@ -153,7 +153,63 @@ const readRuntimeValue = async (
   return (await fs.readFile(filePath, 'utf8')).trim();
 };
 
-const waitForAssistantTurn = async (
+const formatDebugValue = (value: unknown): string => {
+  if (value === undefined) {
+    return '';
+  }
+
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  const compact = JSON.stringify(value);
+
+  if (compact && compact.length <= 120) {
+    return compact;
+  }
+
+  return JSON.stringify(value, null, 2);
+};
+
+const writeToolCall = (tool: string, args: unknown): void => {
+  const formattedArgs = formatDebugValue(args);
+
+  if (!formattedArgs) {
+    stdout.write(`\n[tool] ${tool}\n`);
+    return;
+  }
+
+  if (formattedArgs.includes('\n')) {
+    stdout.write(`\n[tool] ${tool}\n${formattedArgs}\n`);
+    return;
+  }
+
+  stdout.write(`\n[tool] ${tool} ${formattedArgs}\n`);
+};
+
+const writeToolResult = (
+  tool: string,
+  isError: boolean,
+  text: unknown,
+  details: unknown,
+): void => {
+  const label = isError ? '[tool error]' : '[tool result]';
+  const body = details !== undefined ? formatDebugValue(details) : formatDebugValue(text);
+
+  if (!body) {
+    stdout.write(`${label} ${tool}\n`);
+    return;
+  }
+
+  if (body.includes('\n')) {
+    stdout.write(`${label} ${tool}\n${body}\n`);
+    return;
+  }
+
+  stdout.write(`${label} ${tool} ${body}\n`);
+};
+
+export const waitForAssistantTurn = async (
   client: AgentLocalClient,
   token: string,
   sessionId: string,
@@ -208,7 +264,17 @@ const waitForAssistantTurn = async (
             : {};
 
         if (frame.event === 'tool_start') {
-          stdout.write(`\n[tool] ${String(payload.tool ?? 'unknown')}\n`);
+          writeToolCall(String(payload.tool ?? 'unknown'), payload.args);
+          continue;
+        }
+
+        if (frame.event === 'tool_result') {
+          writeToolResult(
+            String(payload.tool ?? 'unknown'),
+            Boolean(payload.isError),
+            payload.text,
+            payload.details,
+          );
           continue;
         }
 
@@ -224,11 +290,15 @@ const waitForAssistantTurn = async (
           }
 
           stdout.write('\n');
-          return nextLastEventId;
+          continue;
         }
 
         if (frame.event === 'error') {
           stderr.write(`\n[error] ${String(payload.message ?? 'Unknown error')}\n`);
+          continue;
+        }
+
+        if (frame.event === 'agent_end') {
           return nextLastEventId;
         }
       }

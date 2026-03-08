@@ -264,7 +264,19 @@ test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
     backlog.some(
       (entry) =>
         entry.event.type === 'tool_start' &&
-        entry.event.tool === 'read_file',
+        entry.event.tool === 'read_file' &&
+        'args' in entry.event &&
+        JSON.stringify(entry.event.args) === JSON.stringify({ path: 'files/fact.txt' }),
+      ),
+  );
+  assert.ok(
+    backlog.some(
+      (entry) =>
+        entry.event.type === 'tool_result' &&
+        entry.event.tool === 'read_file' &&
+        entry.event.isError === false &&
+        typeof entry.event.text === 'string' &&
+        entry.event.text.includes('42'),
     ),
   );
   assert.ok(
@@ -339,5 +351,60 @@ test('AgentRunner surfaces a missing API key as an error event instead of crashi
         typeof entry.message === 'string' &&
         entry.message.includes('Missing API key for provider "anthropic"'),
     ),
+  );
+});
+
+test('AgentRunner publishes detailed tool failure messages', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: {
+      ANTHROPIC_API_KEY: 'test-anthropic-key',
+    },
+  });
+  await security.load();
+
+  const runner = await AgentRunner.create({
+    workspace,
+    security,
+    streamFn: createSequentialStreamFn([
+      () =>
+        createToolCallResponseStream({
+          type: 'toolCall',
+          id: 'call-container-run',
+          name: 'container_run',
+          arguments: {
+            image: 'python:3.12',
+            command: 'python /workspace/test.py',
+            mount: 'files',
+          },
+        }),
+      () => createTextResponseStream('The container run failed because the mount path was invalid.'),
+    ]),
+  });
+
+  await runner.openSession({
+    sessionId: 'cli:tool-error-session',
+    source: {
+      kind: 'cli',
+      interactive: true,
+    },
+  });
+  await runner.postMessage('cli:tool-error-session', {
+    text: 'Run the Python script in a container.',
+  });
+  await runner.waitForSessionIdle('cli:tool-error-session');
+
+  const backlog = runner.events.getBacklog('cli:tool-error-session');
+  const toolResultEvent = backlog.find(
+    (entry) => entry.event.type === 'tool_result' && entry.event.tool === 'container_run',
+  );
+
+  assert.ok(toolResultEvent);
+  assert.equal(toolResultEvent?.event.type, 'tool_result');
+  assert.equal(toolResultEvent?.event.isError, true);
+  assert.match(
+    toolResultEvent?.event.type === 'tool_result' && typeof toolResultEvent.event.text === 'string'
+      ? toolResultEvent.event.text
+      : '',
+    /Ephemeral mount path must stay under containers\/\{name\}\/data: files/,
   );
 });

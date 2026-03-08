@@ -103,6 +103,49 @@ const formatMissingApiKeyMessage = (
 
 const serializeDetails = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
 
+const extractToolResultText = (result: unknown): string | undefined => {
+  if (!result || typeof result !== 'object') {
+    return undefined;
+  }
+
+  const content = 'content' in result ? result.content : undefined;
+
+  if (!Array.isArray(content)) {
+    return undefined;
+  }
+
+  const textParts = content
+    .filter(
+      (entry): entry is { type: 'text'; text: string } =>
+        typeof entry === 'object' &&
+        entry !== null &&
+        'type' in entry &&
+        entry.type === 'text' &&
+        'text' in entry &&
+        typeof entry.text === 'string',
+    )
+    .map((entry) => entry.text.trim())
+    .filter((entry) => entry.length > 0);
+
+  if (textParts.length === 0) {
+    return undefined;
+  }
+
+  return textParts.join('\n');
+};
+
+const extractToolResultDetails = (result: unknown): unknown => {
+  if (!result || typeof result !== 'object') {
+    return undefined;
+  }
+
+  if (!('details' in result)) {
+    return undefined;
+  }
+
+  return result.details;
+};
+
 const resolveModel = (config: AgentConfig): Model<any> => {
   try {
     return getModel(
@@ -493,6 +536,7 @@ export class AgentRunner implements SessionRuntime {
           type: 'tool_start',
           sessionId: session.spec.sessionId,
           tool: event.toolName,
+          args: event.args,
         });
         void this.queueSideEffect(session, async () => {
           await Promise.all([
@@ -520,14 +564,17 @@ export class AgentRunner implements SessionRuntime {
 
       case 'tool_execution_end': {
         const ts = new Date().toISOString();
+        const resultText = extractToolResultText(event.result);
+        const resultDetails = extractToolResultDetails(event.result);
 
-        if (event.isError) {
-          void this.events.publish({
-            type: 'error',
-            sessionId: session.spec.sessionId,
-            message: `Tool ${event.toolName} failed.`,
-          });
-        }
+        void this.events.publish({
+          type: 'tool_result',
+          sessionId: session.spec.sessionId,
+          tool: event.toolName,
+          isError: event.isError,
+          ...(resultText ? { text: resultText } : {}),
+          ...(resultDetails !== undefined ? { details: resultDetails } : {}),
+        });
 
         void this.queueSideEffect(session, async () => {
           await Promise.all([
@@ -559,13 +606,20 @@ export class AgentRunner implements SessionRuntime {
         const ts = new Date().toISOString();
         const finalText = session.latestAssistantText;
 
-        if (finalText) {
-          void this.events.publish({
-            type: 'text_final',
+        void (async () => {
+          if (finalText) {
+            await this.events.publish({
+              type: 'text_final',
+              sessionId: session.spec.sessionId,
+              text: finalText,
+            });
+          }
+
+          await this.events.publish({
+            type: 'agent_end',
             sessionId: session.spec.sessionId,
-            text: finalText,
           });
-        }
+        })();
 
         session.latestAssistantText = undefined;
         void this.queueSideEffect(session, async () => {
@@ -592,30 +646,32 @@ export class AgentRunner implements SessionRuntime {
     const ts = new Date().toISOString();
 
     try {
-      await Promise.all([
-        this.events.publish({
-          type: 'error',
-          sessionId: session.spec.sessionId,
-          message,
-        }),
-        this.queueSideEffect(session, async () => {
-          await Promise.all([
-            this.logWriter.appendSession(session.sessionLogRelativePath, {
-              ts,
-              role: 'error',
+      await this.events.publish({
+        type: 'error',
+        sessionId: session.spec.sessionId,
+        message,
+      });
+      await this.events.publish({
+        type: 'agent_end',
+        sessionId: session.spec.sessionId,
+      });
+      await this.queueSideEffect(session, async () => {
+        await Promise.all([
+          this.logWriter.appendSession(session.sessionLogRelativePath, {
+            ts,
+            role: 'error',
+            message,
+          }),
+          this.logWriter.appendEpisodic(session.episodicRelativePath, {
+            ts,
+            session: session.spec.sessionId,
+            type: 'run_error',
+            data: {
               message,
-            }),
-            this.logWriter.appendEpisodic(session.episodicRelativePath, {
-              ts,
-              session: session.spec.sessionId,
-              type: 'run_error',
-              data: {
-                message,
-              },
-            }),
-          ]);
-        }),
-      ]);
+            },
+          }),
+        ]);
+      });
     } catch (persistenceError) {
       console.error(
         `[cloudmind-agent] failed to surface run error for ${session.spec.sessionId}`,
