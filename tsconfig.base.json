@@ -17,8 +17,6 @@
     "sourceMap": true,
     "composite": true,
     "incremental": true,
-    "rootDir": "src",
-    "outDir": "dist",
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,

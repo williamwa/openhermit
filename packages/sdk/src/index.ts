@@ -3,7 +3,11 @@ import {
   type SessionMessage,
   type SessionSpec,
 } from '@cloudmind/protocol';
-import { CloudMindError, joinUrl } from '@cloudmind/shared';
+import {
+  CloudMindError,
+  type CloudMindStatusCode,
+  joinUrl,
+} from '@cloudmind/shared';
 
 type FetchLike = typeof fetch;
 
@@ -47,10 +51,18 @@ export class AgentLocalClient {
 
     if (!response.ok) {
       const responseText = await response.text();
+      const statusCode: CloudMindStatusCode =
+        response.status === 400 ||
+        response.status === 401 ||
+        response.status === 404 ||
+        response.status === 500
+          ? response.status
+          : 500;
+
       throw new CloudMindError(
         `Agent local API request failed (${response.status}): ${responseText || response.statusText}`,
         'agent_api_error',
-        response.status,
+        statusCode,
       );
     }
 

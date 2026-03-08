@@ -4,4 +4,5 @@ dist/
 .env.local
 *.log
 *.tsbuildinfo
+.cloudmind-dev/
 .DS_Store

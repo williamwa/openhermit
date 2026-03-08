@@ -5,11 +5,13 @@ export interface JsonErrorBody {
   };
 }
 
+export type CloudMindStatusCode = 400 | 401 | 404 | 500;
+
 export class CloudMindError extends Error {
   constructor(
     message: string,
     public readonly code: string,
-    public readonly statusCode: number,
+    public readonly statusCode: CloudMindStatusCode,
   ) {
     super(message);
     this.name = new.target.name;
@@ -25,6 +27,12 @@ export class ValidationError extends CloudMindError {
 export class NotFoundError extends CloudMindError {
   constructor(message: string) {
     super(message, 'not_found', 404);
+  }
+}
+
+export class UnauthorizedError extends CloudMindError {
+  constructor(message: string) {
+    super(message, 'unauthorized', 401);
   }
 }
 

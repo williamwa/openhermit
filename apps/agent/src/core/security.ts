@@ -1,0 +1,133 @@
+import { promises as fs } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import { NotFoundError, ValidationError } from '@cloudmind/shared';
+
+import type { ResolvePathOptions } from './workspace.js';
+import { AgentWorkspace } from './workspace.js';
+import {
+  DEFAULT_SECURITY_POLICY,
+  type AutonomyLevel,
+  type SecretsMap,
+  type SecurityPolicy,
+} from './types.js';
+
+export interface AgentSecurityOptions {
+  agentId: string;
+  workspace: AgentWorkspace;
+  cloudMindHome?: string;
+}
+
+const ensureJsonFile = async (
+  filePath: string,
+  defaultContent: unknown,
+): Promise<void> => {
+  try {
+    await fs.access(filePath);
+  } catch {
+    await fs.writeFile(filePath, `${JSON.stringify(defaultContent, null, 2)}\n`, 'utf8');
+  }
+};
+
+export class AgentSecurity {
+  private policy: SecurityPolicy = DEFAULT_SECURITY_POLICY;
+
+  private secrets: SecretsMap = {};
+
+  readonly rootDir: string;
+
+  readonly securityFilePath: string;
+
+  readonly secretsFilePath: string;
+
+  constructor(private readonly options: AgentSecurityOptions) {
+    const baseDir =
+      options.cloudMindHome ??
+      process.env.CLOUDMIND_HOME ??
+      path.join(os.homedir(), '.cloudmind');
+
+    this.rootDir = path.join(baseDir, options.agentId);
+    this.securityFilePath = path.join(this.rootDir, 'security.json');
+    this.secretsFilePath = path.join(this.rootDir, 'secrets.json');
+  }
+
+  async init(): Promise<void> {
+    await fs.mkdir(this.rootDir, { recursive: true });
+    await ensureJsonFile(this.securityFilePath, DEFAULT_SECURITY_POLICY);
+    await ensureJsonFile(this.secretsFilePath, {});
+  }
+
+  async load(): Promise<void> {
+    const [securityContent, secretsContent] = await Promise.all([
+      fs.readFile(this.securityFilePath, 'utf8'),
+      fs.readFile(this.secretsFilePath, 'utf8'),
+    ]);
+
+    const parsedPolicy = JSON.parse(securityContent) as SecurityPolicy;
+    const parsedSecrets = JSON.parse(secretsContent) as SecretsMap;
+
+    if (
+      parsedPolicy.autonomy_level !== 'readonly' &&
+      parsedPolicy.autonomy_level !== 'supervised' &&
+      parsedPolicy.autonomy_level !== 'full'
+    ) {
+      throw new ValidationError('Invalid autonomy_level in security.json');
+    }
+
+    if (!Array.isArray(parsedPolicy.require_approval_for)) {
+      throw new ValidationError('Invalid require_approval_for in security.json');
+    }
+
+    this.policy = {
+      autonomy_level: parsedPolicy.autonomy_level,
+      require_approval_for: parsedPolicy.require_approval_for.filter(
+        (value): value is string => typeof value === 'string',
+      ),
+    };
+
+    const sanitizedSecrets: SecretsMap = {};
+
+    for (const [key, value] of Object.entries(parsedSecrets)) {
+      if (typeof value !== 'string') {
+        throw new ValidationError(`Secret value must be a string: ${key}`);
+      }
+
+      sanitizedSecrets[key] = value;
+    }
+
+    this.secrets = sanitizedSecrets;
+  }
+
+  checkPath(relativePath: string, options?: ResolvePathOptions): Promise<string> {
+    return this.options.workspace.resolve(relativePath, options);
+  }
+
+  getAutonomyLevel(): AutonomyLevel {
+    return this.policy.autonomy_level;
+  }
+
+  requiresApproval(toolName: string): boolean {
+    return this.policy.require_approval_for.includes(toolName);
+  }
+
+  resolveSecrets(names: string[]): Record<string, string> {
+    const resolved: Record<string, string> = {};
+
+    for (const name of names) {
+      const value = this.secrets[name];
+
+      if (value === undefined) {
+        throw new NotFoundError(`Secret not found: ${name}`);
+      }
+
+      resolved[name] = value;
+    }
+
+    return resolved;
+  }
+
+  listSecretNames(): string[] {
+    return Object.keys(this.secrets).sort();
+  }
+}

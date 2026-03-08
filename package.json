@@ -13,7 +13,7 @@
   ],
   "scripts": {
     "build": "tsc -b",
-    "typecheck": "tsc -b --pretty false",
+    "typecheck": "tsc -b --pretty false --noEmit",
     "dev:agent": "tsx apps/agent/src/index.ts",
     "dev:gateway": "tsx apps/gateway/src/index.ts",
     "dev:telegram": "tsx apps/channels/telegram/src/index.ts"

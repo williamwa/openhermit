@@ -8,6 +8,7 @@ import {
 } from '@cloudmind/protocol';
 import {
   CloudMindError,
+  UnauthorizedError,
   ValidationError,
   getErrorMessage,
   jsonError,
@@ -43,8 +44,29 @@ const waitForAbort = async (signal: AbortSignal): Promise<void> => {
 
 export const createAgentApp = (
   runtime = new InMemoryAgentRuntime(),
+  options: { apiToken?: string } = {},
 ): Hono => {
   const app = new Hono();
+
+  app.use('*', async (c, next) => {
+    if (c.req.path === agentLocalRoutes.health) {
+      await next();
+      return;
+    }
+
+    if (!options.apiToken) {
+      await next();
+      return;
+    }
+
+    const authorization = c.req.header('authorization');
+
+    if (authorization !== `Bearer ${options.apiToken}`) {
+      throw new UnauthorizedError('Invalid or missing bearer token.');
+    }
+
+    await next();
+  });
 
   app.get(agentLocalRoutes.health, (c) =>
     c.json({
