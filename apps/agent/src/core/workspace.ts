@@ -61,6 +61,7 @@ Use this file for workspace-specific instructions, preferences, and collaboratio
 
 const OTHER_SCAFFOLD_FILES = {
   'memory/working.md': '# Working Memory\n',
+  'memory/long-term.md': '# Long-Term Memory\n\n## Index\n',
   'memory/heartbeat.md': '# Heartbeat Checklist\n',
   'hooks/hooks.json': '{}\n',
   'containers/registry.jsonl': '',
@@ -173,9 +174,8 @@ export const createDefaultAgentConfig = ({
     tools_allowed: [
       'read_file',
       'write_file',
+      'list_files',
       'container_status',
-      'memory_note',
-      'memory_recall',
     ],
   },
   schedules: {
