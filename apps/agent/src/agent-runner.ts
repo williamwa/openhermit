@@ -89,6 +89,18 @@ const createProviderSecretCandidates = (provider: string): string[] => {
   return [`${provider.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`];
 };
 
+const formatMissingApiKeyMessage = (
+  provider: string,
+  secretsFilePath: string,
+): string => {
+  const candidateNames = createProviderSecretCandidates(provider);
+
+  return [
+    `Missing API key for provider "${provider}".`,
+    `Add one of [${candidateNames.join(', ')}] to ${secretsFilePath}, or export it in the environment before starting the agent.`,
+  ].join(' ');
+};
+
 const serializeDetails = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
 
 const resolveModel = (config: AgentConfig): Model<any> => {
@@ -296,7 +308,9 @@ export class AgentRunner implements SessionRuntime {
   }
 
   private async refreshAgentConfiguration(session: RunnerSession): Promise<void> {
+    await this.options.security.load();
     const config = await this.options.workspace.readConfig();
+    this.ensureProviderApiKey(config.model.provider);
     session.agent.setModel(resolveModel(config));
     session.agent.setSystemPrompt(await this.buildSystemPrompt(config));
     session.agent.setTools(
@@ -379,6 +393,21 @@ export class AgentRunner implements SessionRuntime {
     }
 
     return undefined;
+  }
+
+  private ensureProviderApiKey(provider: string): void {
+    const apiKey = this.resolveApiKey(provider);
+
+    if (apiKey) {
+      return;
+    }
+
+    throw new ValidationError(
+      formatMissingApiKeyMessage(
+        provider,
+        this.options.security.secretsFilePath,
+      ),
+    );
   }
 
   private handleAgentEvent(session: RunnerSession, event: AgentEvent): void {
@@ -562,30 +591,37 @@ export class AgentRunner implements SessionRuntime {
     const message = getErrorMessage(error);
     const ts = new Date().toISOString();
 
-    await Promise.all([
-      this.events.publish({
-        type: 'error',
-        sessionId: session.spec.sessionId,
-        message,
-      }),
-      this.queueSideEffect(session, async () => {
-        await Promise.all([
-          this.logWriter.appendSession(session.sessionLogRelativePath, {
-            ts,
-            role: 'error',
-            message,
-          }),
-          this.logWriter.appendEpisodic(session.episodicRelativePath, {
-            ts,
-            session: session.spec.sessionId,
-            type: 'run_error',
-            data: {
+    try {
+      await Promise.all([
+        this.events.publish({
+          type: 'error',
+          sessionId: session.spec.sessionId,
+          message,
+        }),
+        this.queueSideEffect(session, async () => {
+          await Promise.all([
+            this.logWriter.appendSession(session.sessionLogRelativePath, {
+              ts,
+              role: 'error',
               message,
-            },
-          }),
-        ]);
-      }),
-    ]);
+            }),
+            this.logWriter.appendEpisodic(session.episodicRelativePath, {
+              ts,
+              session: session.spec.sessionId,
+              type: 'run_error',
+              data: {
+                message,
+              },
+            }),
+          ]);
+        }),
+      ]);
+    } catch (persistenceError) {
+      console.error(
+        `[cloudmind-agent] failed to surface run error for ${session.spec.sessionId}`,
+        persistenceError,
+      );
+    }
   }
 
   private async queueSideEffect(

@@ -140,7 +140,11 @@ const readJsonl = async (
     .map((line) => JSON.parse(line) as Record<string, unknown>);
 
 test('AgentRunner publishes SSE text events and writes minimal logs', async (t) => {
-  const { workspace, security } = await createSecurityFixture(t);
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: {
+      ANTHROPIC_API_KEY: 'test-anthropic-key',
+    },
+  });
   await security.load();
 
   const runner = await AgentRunner.create({
@@ -217,7 +221,11 @@ test('AgentRunner publishes SSE text events and writes minimal logs', async (t) 
 });
 
 test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
-  const { workspace, security } = await createSecurityFixture(t);
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: {
+      ANTHROPIC_API_KEY: 'test-anthropic-key',
+    },
+  });
   await security.load();
   await workspace.writeFile('files/fact.txt', '42');
 
@@ -285,6 +293,51 @@ test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
         entry.role === 'tool_result' &&
         typeof entry.content === 'string' &&
         entry.content.includes('42'),
+    ),
+  );
+});
+
+test('AgentRunner surfaces a missing API key as an error event instead of crashing', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t);
+  await security.load();
+
+  const runner = await AgentRunner.create({
+    workspace,
+    security,
+  });
+
+  await runner.openSession({
+    sessionId: 'cli:no-key-session',
+    source: {
+      kind: 'cli',
+      interactive: true,
+    },
+  });
+  await runner.postMessage('cli:no-key-session', {
+    text: 'hello',
+  });
+  await runner.waitForSessionIdle('cli:no-key-session');
+
+  const backlog = runner.events.getBacklog('cli:no-key-session');
+  const errorEvent = backlog.find((entry) => entry.event.type === 'error');
+
+  assert.ok(errorEvent);
+  assert.match(
+    errorEvent?.event.type === 'error' ? errorEvent.event.message : '',
+    /Missing API key for provider "anthropic"/,
+  );
+
+  const sessionEntries = await readJsonl(
+    (relativePath) => workspace.readFile(relativePath),
+    runner.getSessionLogRelativePath('cli:no-key-session'),
+  );
+
+  assert.ok(
+    sessionEntries.some(
+      (entry) =>
+        entry.role === 'error' &&
+        typeof entry.message === 'string' &&
+        entry.message.includes('Missing API key for provider "anthropic"'),
     ),
   );
 });

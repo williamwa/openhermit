@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { TestContext } from 'node:test';
 
 import { AgentSecurity, AgentWorkspace } from '../src/core/index.js';
+import type { SecretsMap } from '../src/core/types.js';
 
 export interface WorkspaceFixture {
   root: string;
@@ -46,6 +47,9 @@ export const createWorkspaceFixture = async (
 
 export const createSecurityFixture = async (
   t: TestContext,
+  options?: {
+    secrets?: SecretsMap;
+  },
 ): Promise<SecurityFixture> => {
   const workspaceFixture = await createWorkspaceFixture(t);
   const cloudMindHome = await createTempDir(t, 'cloudmind-home-');
@@ -56,6 +60,14 @@ export const createSecurityFixture = async (
   });
 
   await security.init();
+
+  if (options?.secrets) {
+    await fs.writeFile(
+      security.secretsFilePath,
+      `${JSON.stringify(options.secrets, null, 2)}\n`,
+      'utf8',
+    );
+  }
 
   return {
     ...workspaceFixture,
