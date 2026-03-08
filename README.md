@@ -30,4 +30,32 @@ cloudmind/
 
 ## Quick Start
 
-> Coming soon — see docs/plan.md for current development status.
+1. Add your model API key to `~/.cloudmind/agent-dev/secrets.json`, for example:
+
+```json
+{
+  "ANTHROPIC_API_KEY": "your-key"
+}
+```
+
+2. Start the agent:
+
+```bash
+npm run dev:agent
+```
+
+3. In another terminal, start the minimal CLI:
+
+```bash
+npm run chat:agent
+```
+
+CLI options:
+
+```bash
+npm run chat:agent -- --agent-id agent-dev
+npm run chat:agent -- --workspace /absolute/path/to/workspace
+npm run chat:agent -- --session cli:resume-me
+```
+
+If `tsx` is not suitable in your environment, you can build first and run the compiled entrypoints from `apps/agent/dist/`.

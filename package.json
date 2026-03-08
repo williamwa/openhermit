@@ -16,6 +16,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run build && node --import tsx --test apps/agent/test/*.test.ts",
     "dev:agent": "tsx apps/agent/src/index.ts",
+    "chat:agent": "tsx apps/agent/src/chat.ts",
     "dev:gateway": "tsx apps/gateway/src/index.ts",
     "dev:telegram": "tsx apps/channels/telegram/src/index.ts"
   },

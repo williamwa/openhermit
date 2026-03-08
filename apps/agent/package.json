@@ -9,10 +9,12 @@
     "build": "tsc -b",
     "typecheck": "tsc -p tsconfig.json --pretty false --noEmit && tsc -p tsconfig.test.json --pretty false --noEmit",
     "test": "npm run build && node --import tsx --test test/*.test.ts",
-    "dev": "tsx src/index.ts"
+    "dev": "tsx src/index.ts",
+    "chat": "tsx src/chat.ts"
   },
   "dependencies": {
     "@cloudmind/protocol": "0.1.0",
+    "@cloudmind/sdk": "0.1.0",
     "@cloudmind/shared": "0.1.0",
     "@hono/node-server": "^1.14.0",
     "@mariozechner/pi-agent-core": "^0.57.1",
