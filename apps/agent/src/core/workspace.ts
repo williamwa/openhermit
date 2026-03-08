@@ -60,6 +60,7 @@ Use this file for workspace-specific instructions, preferences, and collaboratio
 } as const;
 
 const OTHER_SCAFFOLD_FILES = {
+  'sessions/index.json': '{\n  "version": 1,\n  "sessions": []\n}\n',
   'memory/working.md': '# Working Memory\n',
   'memory/long-term.md': '# Long-Term Memory\n\n## Index\n',
   'memory/heartbeat.md': '# Heartbeat Checklist\n',

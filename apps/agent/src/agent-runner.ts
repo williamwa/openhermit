@@ -79,7 +79,12 @@ import {
   DockerContainerManager,
   type AgentConfig,
 } from './core/index.js';
-import { SessionLogWriter, createSessionLogPaths } from './session-logs.js';
+import {
+  SessionIndexStore,
+  SessionLogWriter,
+  createSessionLogPaths,
+  type PersistedSessionIndexEntry,
+} from './session-logs.js';
 import { type SessionDescriptor, SessionEventBroker, type SessionRuntime } from './runtime.js';
 import {
   type ApprovalCallback,
@@ -297,6 +302,8 @@ export class AgentRunner implements SessionRuntime {
 
   private readonly containerManager: DockerContainerManager;
 
+  private readonly sessionIndex: SessionIndexStore;
+
   private readonly logWriter: SessionLogWriter;
 
   private readonly sessions = new Map<string, RunnerSession>();
@@ -304,6 +311,7 @@ export class AgentRunner implements SessionRuntime {
   private constructor(private readonly options: AgentRunnerOptions) {
     this.containerManager =
       options.containerManager ?? new DockerContainerManager(options.workspace);
+    this.sessionIndex = new SessionIndexStore(options.workspace);
     this.logWriter = new SessionLogWriter(options.workspace);
   }
 
@@ -333,6 +341,8 @@ export class AgentRunner implements SessionRuntime {
           : {}),
       };
       existing.updatedAt = now;
+      existing.status = 'idle';
+      await this.persistSessionIndex(existing);
 
       return {
         spec: existing.spec,
@@ -341,14 +351,31 @@ export class AgentRunner implements SessionRuntime {
       };
     }
 
+    const persisted = await this.sessionIndex.get(spec.sessionId);
+    const mergedMetadata = {
+      ...(persisted?.metadata ?? {}),
+      ...(spec.metadata ?? {}),
+    };
+    const effectiveSpec: SessionSpec = {
+      ...spec,
+      source: {
+        ...(persisted?.source ?? {}),
+        ...spec.source,
+      },
+      ...(Object.keys(mergedMetadata).length > 0
+        ? { metadata: mergedMetadata }
+        : {}),
+    };
+    const createdAt = persisted?.createdAt ?? now;
+
     const config = await this.options.workspace.readConfig();
     const approvalGate = new ApprovalGate();
-    const approvalCallback = spec.source.interactive
-      ? this.makeApprovalCallback(spec.sessionId, approvalGate)
+    const approvalCallback = effectiveSpec.source.interactive
+      ? this.makeApprovalCallback(effectiveSpec.sessionId, approvalGate)
       : undefined;
     let session: RunnerSession | undefined;
     const agent = await this.createAgent(
-      spec,
+      effectiveSpec,
       config,
       approvalCallback,
       (...args) => {
@@ -366,10 +393,15 @@ export class AgentRunner implements SessionRuntime {
         return this.makeToolStartedCallback(session)(...args);
       },
     );
-    const paths = createSessionLogPaths(spec.sessionId, now);
+    const paths = persisted
+      ? {
+          sessionLogRelativePath: persisted.sessionLogRelativePath,
+          episodicRelativePath: persisted.episodicRelativePath,
+        }
+      : createSessionLogPaths(effectiveSpec.sessionId, createdAt);
     session = {
-      spec,
-      createdAt: now,
+      spec: effectiveSpec,
+      createdAt,
       updatedAt: now,
       agent,
       queue: Promise.resolve(),
@@ -379,7 +411,10 @@ export class AgentRunner implements SessionRuntime {
       latestAssistantText: undefined,
       approvalGate,
       status: 'idle',
-      messageCount: 0,
+      messageCount: persisted?.messageCount ?? 0,
+      ...(persisted?.lastMessagePreview
+        ? { lastMessagePreview: persisted.lastMessagePreview }
+        : {}),
     };
 
     agent.subscribe((event) => {
@@ -387,10 +422,13 @@ export class AgentRunner implements SessionRuntime {
     });
 
     this.sessions.set(spec.sessionId, session);
-    await this.logWriter.writeSessionStarted(paths, spec, {
-      provider: config.model.provider,
-      model: config.model.model,
-    });
+    if (!persisted) {
+      await this.logWriter.writeSessionStarted(paths, effectiveSpec, {
+        provider: config.model.provider,
+        model: config.model.model,
+      });
+    }
+    await this.persistSessionIndex(session);
 
     return {
       spec: session.spec,
@@ -414,21 +452,64 @@ export class AgentRunner implements SessionRuntime {
   }
 
   async listSessions(query: SessionListQuery = {}): Promise<SessionSummary[]> {
+    const persistedSessions = await this.sessionIndex.list();
     const limit = query.limit;
-    const summaries = [...this.sessions.values()]
+    const summaries = persistedSessions
       .map((session) => ({
-        sessionId: session.spec.sessionId,
-        source: session.spec.source,
+        sessionId: session.sessionId,
+        source: session.source,
         createdAt: session.createdAt,
-        lastActivityAt: session.updatedAt,
-        lastEventId:
-          this.events.getBacklog(session.spec.sessionId).at(-1)?.id ?? 0,
+        lastActivityAt: session.lastActivityAt,
+        lastEventId: 0,
         messageCount: session.messageCount,
         ...(session.lastMessagePreview
           ? { lastMessagePreview: session.lastMessagePreview }
           : {}),
-        status: session.status,
+        status: 'idle' as const,
       }))
+      .map((summary) => {
+        const activeSession = this.sessions.get(summary.sessionId);
+
+        if (!activeSession) {
+          return summary;
+        }
+
+        return {
+          sessionId: activeSession.spec.sessionId,
+          source: activeSession.spec.source,
+          createdAt: activeSession.createdAt,
+          lastActivityAt: activeSession.updatedAt,
+          lastEventId:
+            this.events.getBacklog(activeSession.spec.sessionId).at(-1)?.id ?? 0,
+          messageCount: activeSession.messageCount,
+          ...(activeSession.lastMessagePreview
+            ? { lastMessagePreview: activeSession.lastMessagePreview }
+            : {}),
+          status: activeSession.status,
+        };
+      })
+      .concat(
+        [...this.sessions.values()]
+          .filter(
+            (session) =>
+              !persistedSessions.some(
+                (entry) => entry.sessionId === session.spec.sessionId,
+              ),
+          )
+          .map((session) => ({
+            sessionId: session.spec.sessionId,
+            source: session.spec.source,
+            createdAt: session.createdAt,
+            lastActivityAt: session.updatedAt,
+            lastEventId:
+              this.events.getBacklog(session.spec.sessionId).at(-1)?.id ?? 0,
+            messageCount: session.messageCount,
+            ...(session.lastMessagePreview
+              ? { lastMessagePreview: session.lastMessagePreview }
+              : {}),
+            status: session.status,
+          })),
+      )
       .filter((summary) => matchesSessionListQuery(summary, query))
       .sort(sortSessionSummaries);
 
@@ -468,6 +549,7 @@ export class AgentRunner implements SessionRuntime {
     const session = this.getRequiredSession(sessionId);
     await session.queue;
     await session.sideEffects;
+    await this.sessionIndex.waitForIdle();
   }
 
   async postMessage(
@@ -479,6 +561,7 @@ export class AgentRunner implements SessionRuntime {
     session.status = 'running';
     session.messageCount += 1;
     session.lastMessagePreview = message.text;
+    await this.persistSessionIndex(session);
 
     const receivedAt = new Date().toISOString();
     await this.queueSideEffect(session, async () => {
@@ -893,6 +976,7 @@ export class AgentRunner implements SessionRuntime {
         session.updatedAt = ts;
         session.messageCount += 1;
         session.lastMessagePreview = assistantText;
+        void this.persistSessionIndex(session);
 
         void this.queueSideEffect(session, async () => {
           await Promise.all([
@@ -971,6 +1055,7 @@ export class AgentRunner implements SessionRuntime {
         const finalText = session.latestAssistantText;
         session.updatedAt = ts;
         session.status = 'idle';
+        void this.persistSessionIndex(session);
 
         void (async () => {
           if (finalText) {
@@ -1012,6 +1097,7 @@ export class AgentRunner implements SessionRuntime {
     const ts = new Date().toISOString();
     session.updatedAt = ts;
     session.status = 'idle';
+    await this.persistSessionIndex(session);
 
     try {
       await this.events.publish({
@@ -1070,5 +1156,29 @@ export class AgentRunner implements SessionRuntime {
     }
 
     return session;
+  }
+
+  private async persistSessionIndex(session: RunnerSession): Promise<void> {
+    await this.sessionIndex.upsert(
+      this.createPersistedSessionIndexEntry(session),
+    );
+  }
+
+  private createPersistedSessionIndexEntry(
+    session: RunnerSession,
+  ): PersistedSessionIndexEntry {
+    return {
+      sessionId: session.spec.sessionId,
+      source: session.spec.source,
+      createdAt: session.createdAt,
+      lastActivityAt: session.updatedAt,
+      messageCount: session.messageCount,
+      ...(session.lastMessagePreview
+        ? { lastMessagePreview: session.lastMessagePreview }
+        : {}),
+      sessionLogRelativePath: session.sessionLogRelativePath,
+      episodicRelativePath: session.episodicRelativePath,
+      ...(session.spec.metadata ? { metadata: session.spec.metadata } : {}),
+    };
   }
 }

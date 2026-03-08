@@ -868,3 +868,86 @@ test('AgentRunner publishes detailed tool failure messages', async (t) => {
     /Ephemeral mount path must stay under containers\/\{name\}\/data: files/,
   );
 });
+
+test('AgentRunner rebuilds and reuses persisted session index across restarts', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: {
+      ANTHROPIC_API_KEY: 'test-anthropic-key',
+    },
+  });
+  await security.load();
+
+  const runner = await AgentRunner.create({
+    workspace,
+    security,
+    streamFn: createSequentialStreamFn([
+      () => createTextResponseStream('first reply'),
+    ]),
+  });
+
+  await runner.openSession({
+    sessionId: 'cli:persisted-session',
+    source: {
+      kind: 'cli',
+      interactive: true,
+    },
+  });
+  await runner.postMessage('cli:persisted-session', {
+    text: 'hello persistence',
+  });
+  await runner.waitForSessionIdle('cli:persisted-session');
+
+  const originalLogPath = runner.getSessionLogRelativePath('cli:persisted-session');
+  const indexedSessions = await runner.listSessions({ kind: 'cli' });
+  assert.equal(indexedSessions.length, 1);
+  assert.equal(indexedSessions[0]?.sessionId, 'cli:persisted-session');
+
+  await workspace.deleteFile('sessions/index.json');
+
+  const restoredRunner = await AgentRunner.create({
+    workspace,
+    security,
+    streamFn: createSequentialStreamFn([
+      () => createTextResponseStream('second reply'),
+    ]),
+  });
+
+  const restoredSessions = await restoredRunner.listSessions({ kind: 'cli' });
+  assert.equal(restoredSessions.length, 1);
+  assert.equal(restoredSessions[0]?.sessionId, 'cli:persisted-session');
+  assert.equal(restoredSessions[0]?.status, 'idle');
+  assert.equal(restoredSessions[0]?.lastEventId, 0);
+  assert.equal(restoredSessions[0]?.messageCount, 2);
+  assert.equal(restoredSessions[0]?.lastMessagePreview, 'first reply');
+
+  await restoredRunner.openSession({
+    sessionId: 'cli:persisted-session',
+    source: {
+      kind: 'cli',
+      interactive: true,
+    },
+  });
+  assert.equal(
+    restoredRunner.getSessionLogRelativePath('cli:persisted-session'),
+    originalLogPath,
+  );
+
+  await restoredRunner.postMessage('cli:persisted-session', {
+    text: 'continue persistence',
+  });
+  await restoredRunner.waitForSessionIdle('cli:persisted-session');
+
+  const sessionEntries = await readJsonl(
+    (relativePath) => workspace.readFile(relativePath),
+    originalLogPath,
+  );
+  assert.equal(
+    sessionEntries.filter((entry) => entry.type === 'session_started').length,
+    1,
+  );
+  assert.ok(
+    sessionEntries.some(
+      (entry) => entry.role === 'assistant' && entry.content === 'second reply',
+    ),
+  );
+});
