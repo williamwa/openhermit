@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
 import { test } from 'node:test';
 
 import type { AgentTool, AgentToolUpdateCallback } from '@mariozechner/pi-agent-core';
@@ -11,7 +13,7 @@ import {
   DockerContainerManager,
 } from '../src/core/index.js';
 import { createBuiltInTools, withApproval } from '../src/tools.js';
-import { createSecurityFixture } from './helpers.js';
+import { createSecurityFixture, createTempDir } from './helpers.js';
 
 const getFirstText = (result: {
   content: Array<{ type: string; text?: string }>;
@@ -337,6 +339,63 @@ test('file_search rejects an empty pattern', async (t) => {
     () => tool.execute('call-search-3', { pattern: '' }),
     ValidationError,
   );
+});
+
+test('file_search rejects search paths that escape the workspace root', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+  });
+  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tool = findTool(tools, 'file_search');
+
+  await assert.rejects(
+    () =>
+      tool.execute('call-search-escape', {
+        pattern: 'hello',
+        path: '../outside',
+      }),
+    ValidationError,
+  );
+});
+
+test('file_search skips symlinked paths that point outside the workspace', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  const outsideDir = await createTempDir(t, 'openhermit-search-outside-');
+  const outsideFile = path.join(outsideDir, 'secret.txt');
+  await fs.writeFile(outsideFile, 'outside secret needle\n', 'utf8');
+
+  await workspace.writeFile('files/inside.txt', 'inside needle\n');
+  await fs.symlink(outsideFile, path.join(workspace.root, 'files', 'outside-link.txt'));
+
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+  });
+  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tool = findTool(tools, 'file_search');
+
+  const result = await tool.execute('call-search-symlink', {
+    pattern: 'needle',
+    path: 'files',
+  });
+
+  const text = getFirstText(result);
+  assert.match(text, /files\/inside.txt:1:8 inside needle/);
+  assert.doesNotMatch(text, /outside-link\.txt/);
+  assert.doesNotMatch(text, /outside secret needle/);
+
+  const details = result.details as Record<string, unknown>;
+  assert.equal(details.scannedFiles, 1);
+  assert.equal(details.matchedFiles, 1);
+  assert.equal(details.totalMatches, 1);
 });
 
 test('file_search truncates large result sets and skips oversized files', async (t) => {
