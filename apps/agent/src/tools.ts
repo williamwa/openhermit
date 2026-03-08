@@ -17,13 +17,15 @@ const READONLY_BLOCKED_TOOLS = new Set([
 
 /**
  * Called before a tool executes when approval is required.
- * Returns true to allow the call, false to reject it.
+ * Returns an explicit decision so timeout and user denial are distinguishable.
  */
+export type ApprovalDecision = 'approved' | 'rejected' | 'timed_out' | 'cancelled';
+
 export type ApprovalCallback = (
   toolName: string,
   toolCallId: string,
   args: unknown,
-) => Promise<boolean>;
+) => Promise<ApprovalDecision>;
 
 interface ToolContext {
   workspace: AgentWorkspace;
@@ -314,14 +316,23 @@ export const withApproval = (
         security.requiresApproval(tool.name);
 
       if (needsApproval) {
-        const approved = await approvalCallback(tool.name, toolCallId, args);
+        const decision = await approvalCallback(tool.name, toolCallId, args);
 
-        if (!approved) {
+        if (decision !== 'approved') {
+          const text =
+            decision === 'timed_out'
+              ? `Tool call "${tool.name}" timed out waiting for user approval.`
+              : decision === 'cancelled'
+                ? `Tool call "${tool.name}" was cancelled before approval was received.`
+                : `Tool call "${tool.name}" was rejected by the user.`;
+
           return {
-            content: asTextContent(
-              `Tool call "${tool.name}" was rejected by the user.`,
-            ),
-            details: { rejected: true, toolName: tool.name },
+            content: asTextContent(text),
+            details: {
+              rejected: true,
+              toolName: tool.name,
+              approvalStatus: decision,
+            },
           };
         }
       }

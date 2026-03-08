@@ -537,6 +537,12 @@ test('AgentRunner rejects tool call when respondToApproval sends false', async (
     false,
     'rejection is returned as a non-error tool result with a message',
   );
+  assert.match(
+    toolResult?.event.type === 'tool_result' && typeof toolResult.event.text === 'string'
+      ? toolResult.event.text
+      : '',
+    /rejected by the user/,
+  );
 });
 
 test('AgentRunner skips approval for full autonomy level', async (t) => {

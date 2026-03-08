@@ -24,15 +24,18 @@ const APPROVAL_TIMEOUT_MS = 120_000; // 2 minutes before auto-deny
 class ApprovalGate {
   private readonly pending = new Map<
     string,
-    { resolve: (approved: boolean) => void; timeout: ReturnType<typeof setTimeout> }
+    {
+      resolve: (decision: ApprovalDecision) => void;
+      timeout: ReturnType<typeof setTimeout>;
+    }
   >();
 
   /** Suspend until the user approves or denies this toolCallId. */
-  request(toolCallId: string): Promise<boolean> {
-    return new Promise<boolean>((resolve) => {
+  request(toolCallId: string): Promise<ApprovalDecision> {
+    return new Promise<ApprovalDecision>((resolve) => {
       const timeout = setTimeout(() => {
         this.pending.delete(toolCallId);
-        resolve(false); // auto-deny on timeout
+        resolve('timed_out');
       }, APPROVAL_TIMEOUT_MS);
 
       this.pending.set(toolCallId, { resolve, timeout });
@@ -53,7 +56,7 @@ class ApprovalGate {
 
     clearTimeout(pending.timeout);
     this.pending.delete(toolCallId);
-    pending.resolve(approved);
+    pending.resolve(approved ? 'approved' : 'rejected');
     return true;
   }
 
@@ -61,7 +64,7 @@ class ApprovalGate {
   cancelAll(): void {
     for (const [, entry] of this.pending) {
       clearTimeout(entry.timeout);
-      entry.resolve(false);
+      entry.resolve('cancelled');
     }
 
     this.pending.clear();
@@ -76,7 +79,11 @@ import {
 } from './core/index.js';
 import { SessionLogWriter, createSessionLogPaths } from './session-logs.js';
 import { type SessionDescriptor, SessionEventBroker, type SessionRuntime } from './runtime.js';
-import { type ApprovalCallback, createBuiltInTools } from './tools.js';
+import {
+  type ApprovalCallback,
+  type ApprovalDecision,
+  createBuiltInTools,
+} from './tools.js';
 
 const SECRET_NAME_CANDIDATES: Record<string, string[]> = {
   anthropic: ['ANTHROPIC_API_KEY'],

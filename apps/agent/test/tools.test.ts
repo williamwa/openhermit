@@ -7,6 +7,13 @@ import { Type } from '@mariozechner/pi-ai';
 import { withApproval } from '../src/tools.js';
 import { createSecurityFixture } from './helpers.js';
 
+const getFirstText = (result: {
+  content: Array<{ type: string; text?: string }>;
+}): string => {
+  const first = result.content.find((entry) => entry.type === 'text');
+  return typeof first?.text === 'string' ? first.text : '';
+};
+
 test('withApproval forwards signal and onUpdate to the wrapped tool', async (t) => {
   const { security } = await createSecurityFixture(t, {
     security: {
@@ -46,7 +53,7 @@ test('withApproval forwards signal and onUpdate to the wrapped tool', async (t) 
 
   const wrapped = withApproval(tool, security, async (_toolName, _toolCallId, args) => {
     approvalArgs = args;
-    return true;
+    return 'approved';
   });
 
   const abortController = new AbortController();
@@ -66,4 +73,48 @@ test('withApproval forwards signal and onUpdate to the wrapped tool', async (t) 
   assert.deepEqual(approvalArgs, { value: 'payload' });
   assert.deepEqual(updates, [{ status: 'midway' }]);
   assert.deepEqual(result.details, { status: 'done' });
+});
+
+test('withApproval distinguishes timeout from explicit rejection', async (t) => {
+  const { security } = await createSecurityFixture(t, {
+    security: {
+      autonomy_level: 'supervised',
+      require_approval_for: ['dangerous_tool'],
+    },
+  });
+  await security.load();
+
+  const Params = Type.Object({
+    value: Type.String(),
+  });
+
+  const tool: AgentTool<typeof Params, { status: string }> = {
+    name: 'dangerous_tool',
+    label: 'Dangerous Tool',
+    description: 'Tool used to verify approval decisions.',
+    parameters: Params,
+    execute: async () => {
+      throw new Error('should not execute when approval is not granted');
+    },
+  };
+
+  const timedOut = withApproval(tool, security, async () => 'timed_out');
+  const rejected = withApproval(tool, security, async () => 'rejected');
+
+  const timedOutResult = await timedOut.execute('call-timeout', { value: 'payload' });
+  const rejectedResult = await rejected.execute('call-rejected', { value: 'payload' });
+
+  assert.match(getFirstText(timedOutResult), /timed out waiting for user approval/);
+  assert.deepEqual(timedOutResult.details, {
+    rejected: true,
+    toolName: 'dangerous_tool',
+    approvalStatus: 'timed_out',
+  });
+
+  assert.match(getFirstText(rejectedResult), /rejected by the user/);
+  assert.deepEqual(rejectedResult.details, {
+    rejected: true,
+    toolName: 'dangerous_tool',
+    approvalStatus: 'rejected',
+  });
 });
