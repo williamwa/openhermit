@@ -116,6 +116,7 @@ test('InMemoryAgentRuntime lists sessions by last activity and applies filters',
     lastActivityAt: cliSessions[0]?.lastActivityAt,
     lastEventId: runtime.events.getBacklog('cli:test-session').at(-1)?.id ?? 0,
     messageCount: 2,
+    description: 'hello list',
     lastMessagePreview: 'CloudMind agent scaffold received a cli message: hello list',
     status: 'idle',
   });

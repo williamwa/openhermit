@@ -34,6 +34,8 @@ export interface PersistedSessionIndexEntry {
   createdAt: string;
   lastActivityAt: string;
   messageCount: number;
+  description?: string;
+  descriptionSource?: 'fallback' | 'ai';
   lastMessagePreview?: string;
   sessionLogRelativePath: string;
   episodicRelativePath: string;
@@ -163,6 +165,21 @@ const parseSessionIndexDocument = (value: unknown): SessionIndexDocument => {
     }
 
     if (
+      entry.description !== undefined &&
+      typeof entry.description !== 'string'
+    ) {
+      return false;
+    }
+
+    if (
+      entry.descriptionSource !== undefined &&
+      entry.descriptionSource !== 'fallback' &&
+      entry.descriptionSource !== 'ai'
+    ) {
+      return false;
+    }
+
+    if (
       entry.lastMessagePreview !== undefined &&
       typeof entry.lastMessagePreview !== 'string'
     ) {
@@ -213,6 +230,7 @@ const deriveSessionIndexEntryFromLog = (
   }
 
   let messageCount = 0;
+  let firstUserMessage: string | undefined;
   let lastMessagePreview: string | undefined;
   let lastActivityAt = startedEntry.ts;
 
@@ -225,6 +243,10 @@ const deriveSessionIndexEntryFromLog = (
       (entry.role === 'user' || entry.role === 'assistant') &&
       typeof entry.content === 'string'
     ) {
+      if (entry.role === 'user' && !firstUserMessage) {
+        firstUserMessage = entry.content;
+      }
+
       messageCount += 1;
       lastMessagePreview = entry.content;
     }
@@ -240,6 +262,12 @@ const deriveSessionIndexEntryFromLog = (
     createdAt: startedEntry.ts,
     lastActivityAt,
     messageCount,
+    ...(firstUserMessage
+      ? {
+          description: firstUserMessage.replace(/\s+/g, ' ').trim().slice(0, 80),
+          descriptionSource: 'fallback' as const,
+        }
+      : {}),
     ...(lastMessagePreview ? { lastMessagePreview } : {}),
     sessionLogRelativePath,
     episodicRelativePath: `memory/episodic/${startedEntry.ts.slice(0, 7)}.jsonl`,

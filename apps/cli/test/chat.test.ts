@@ -68,6 +68,7 @@ test('formatSessionList highlights current session and truncates previews', () =
       lastActivityAt: '2026-03-08T01:00:00.000Z',
       lastEventId: 7,
       messageCount: 4,
+      description: 'Build Telegram bridge retry strategy',
       lastMessagePreview:
         'This is a very long assistant preview that should be trimmed down for compact CLI display.',
       status: 'idle',
@@ -91,8 +92,7 @@ test('formatSessionList highlights current session and truncates previews', () =
 
   assert.match(output, /CLI sessions \(most recent first\):/);
   assert.match(output, /\* cli:current \[idle\] 2026-03-08T01:00:00.000Z messages=4/);
-  assert.match(output, /This is a very long assistant preview/);
-  assert.match(output, /\.\.\./);
+  assert.match(output, /Build Telegram bridge retry strategy/);
   assert.match(output, /  cli:older \[awaiting_approval\] 2026-03-08T00:30:00.000Z messages=2 Short preview/);
 });
 

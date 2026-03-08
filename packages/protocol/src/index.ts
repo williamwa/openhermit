@@ -38,6 +38,7 @@ export interface SessionSummary {
   lastActivityAt: string;
   lastEventId: number;
   messageCount: number;
+  description?: string;
   lastMessagePreview?: string;
   status: SessionStatus;
 }

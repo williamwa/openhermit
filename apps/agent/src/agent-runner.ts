@@ -6,6 +6,7 @@ import {
   type StreamFn,
 } from '@mariozechner/pi-agent-core';
 import {
+  complete,
   getModel,
   type AssistantMessage,
   type Message,
@@ -111,9 +112,12 @@ interface RunnerSession extends SessionDescriptor {
   sessionLogRelativePath: string;
   episodicRelativePath: string;
   latestAssistantText: string | undefined;
+  lastUserMessageText?: string;
   approvalGate: ApprovalGate;
   status: SessionStatus;
   messageCount: number;
+  description?: string;
+  descriptionSource?: 'fallback' | 'ai';
   lastMessagePreview?: string;
 }
 
@@ -122,6 +126,13 @@ export interface AgentRunnerOptions {
   security: AgentSecurity;
   containerManager?: DockerContainerManager;
   streamFn?: StreamFn;
+  sessionDescriptionGenerator?: (
+    input: {
+      userText: string;
+      assistantText?: string;
+      config: AgentConfig;
+    },
+  ) => Promise<string | undefined>;
 }
 
 const isAssistantMessage = (message: AgentMessage): message is AssistantMessage =>
@@ -255,6 +266,41 @@ const extractToolResultDetails = (result: unknown): unknown => {
   }
 
   return result.details;
+};
+
+const toSingleLine = (value: string): string =>
+  value.replace(/\s+/g, ' ').trim();
+
+const createFallbackDescription = (text: string): string | undefined => {
+  const normalized = toSingleLine(text);
+
+  if (!normalized) {
+    return undefined;
+  }
+
+  return normalized.length <= 80
+    ? normalized
+    : `${normalized.slice(0, 77)}...`;
+};
+
+const normalizeGeneratedDescription = (
+  value: string | undefined,
+): string | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = toSingleLine(value)
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .replace(/^[#*\-\s]+/, '');
+
+  if (!normalized) {
+    return undefined;
+  }
+
+  return normalized.length <= 80
+    ? normalized
+    : `${normalized.slice(0, 77)}...`;
 };
 
 const matchesSessionListQuery = (
@@ -412,6 +458,10 @@ export class AgentRunner implements SessionRuntime {
       approvalGate,
       status: 'idle',
       messageCount: persisted?.messageCount ?? 0,
+      ...(persisted?.description ? { description: persisted.description } : {}),
+      ...(persisted?.descriptionSource
+        ? { descriptionSource: persisted.descriptionSource }
+        : {}),
       ...(persisted?.lastMessagePreview
         ? { lastMessagePreview: persisted.lastMessagePreview }
         : {}),
@@ -462,6 +512,7 @@ export class AgentRunner implements SessionRuntime {
         lastActivityAt: session.lastActivityAt,
         lastEventId: 0,
         messageCount: session.messageCount,
+        ...(session.description ? { description: session.description } : {}),
         ...(session.lastMessagePreview
           ? { lastMessagePreview: session.lastMessagePreview }
           : {}),
@@ -482,6 +533,9 @@ export class AgentRunner implements SessionRuntime {
           lastEventId:
             this.events.getBacklog(activeSession.spec.sessionId).at(-1)?.id ?? 0,
           messageCount: activeSession.messageCount,
+          ...(activeSession.description
+            ? { description: activeSession.description }
+            : {}),
           ...(activeSession.lastMessagePreview
             ? { lastMessagePreview: activeSession.lastMessagePreview }
             : {}),
@@ -504,6 +558,7 @@ export class AgentRunner implements SessionRuntime {
             lastEventId:
               this.events.getBacklog(session.spec.sessionId).at(-1)?.id ?? 0,
             messageCount: session.messageCount,
+            ...(session.description ? { description: session.description } : {}),
             ...(session.lastMessagePreview
               ? { lastMessagePreview: session.lastMessagePreview }
               : {}),
@@ -560,6 +615,15 @@ export class AgentRunner implements SessionRuntime {
     session.updatedAt = new Date().toISOString();
     session.status = 'running';
     session.messageCount += 1;
+    session.lastUserMessageText = message.text;
+    if (!session.description) {
+      const fallbackDescription = createFallbackDescription(message.text);
+
+      if (fallbackDescription) {
+        session.description = fallbackDescription;
+        session.descriptionSource = 'fallback';
+      }
+    }
     session.lastMessagePreview = message.text;
     await this.persistSessionIndex(session);
 
@@ -1056,6 +1120,9 @@ export class AgentRunner implements SessionRuntime {
         session.updatedAt = ts;
         session.status = 'idle';
         void this.persistSessionIndex(session);
+        void this.queueSideEffect(session, async () => {
+          await this.maybeGenerateSessionDescription(session, finalText);
+        });
 
         void (async () => {
           if (finalText) {
@@ -1173,6 +1240,10 @@ export class AgentRunner implements SessionRuntime {
       createdAt: session.createdAt,
       lastActivityAt: session.updatedAt,
       messageCount: session.messageCount,
+      ...(session.description ? { description: session.description } : {}),
+      ...(session.descriptionSource
+        ? { descriptionSource: session.descriptionSource }
+        : {}),
       ...(session.lastMessagePreview
         ? { lastMessagePreview: session.lastMessagePreview }
         : {}),
@@ -1180,5 +1251,83 @@ export class AgentRunner implements SessionRuntime {
       episodicRelativePath: session.episodicRelativePath,
       ...(session.spec.metadata ? { metadata: session.spec.metadata } : {}),
     };
+  }
+
+  private async maybeGenerateSessionDescription(
+    session: RunnerSession,
+    assistantText: string | undefined,
+  ): Promise<void> {
+    if (session.descriptionSource === 'ai' || !session.lastUserMessageText) {
+      return;
+    }
+
+    const config = await this.options.workspace.readConfig();
+    const description = await this.generateSessionDescription({
+      userText: session.lastUserMessageText,
+      config,
+      ...(assistantText ? { assistantText } : {}),
+    });
+
+    if (!description) {
+      return;
+    }
+
+    session.description = description;
+    session.descriptionSource = 'ai';
+    await this.persistSessionIndex(session);
+  }
+
+  private async generateSessionDescription(input: {
+    userText: string;
+    assistantText?: string;
+    config: AgentConfig;
+  }): Promise<string | undefined> {
+    if (this.options.sessionDescriptionGenerator) {
+      return normalizeGeneratedDescription(
+        await this.options.sessionDescriptionGenerator(input),
+      );
+    }
+
+    if (this.options.streamFn) {
+      return undefined;
+    }
+
+    const apiKey = this.resolveApiKey(input.config.model.provider);
+
+    if (!apiKey) {
+      return undefined;
+    }
+
+    const response = await complete(
+      resolveModel(input.config),
+      {
+        systemPrompt: [
+          'Generate a short session title for retrieval.',
+          'Return plain text only.',
+          'Do not use quotes, markdown, or trailing punctuation.',
+          'Keep it under 10 words.',
+        ].join(' '),
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: [
+                  `User message: ${input.userText}`,
+                  input.assistantText
+                    ? `Assistant reply: ${input.assistantText}`
+                    : 'Assistant reply: (none yet)',
+                ].join('\n'),
+              },
+            ],
+            timestamp: Date.now(),
+          },
+        ],
+      },
+      { apiKey },
+    );
+
+    return normalizeGeneratedDescription(extractAssistantText(response));
   }
 }

@@ -17,6 +17,7 @@ export interface SessionRecord {
   updatedAt: string;
   status: SessionStatus;
   messageCount: number;
+  description?: string;
   lastMessagePreview?: string;
 }
 
@@ -67,6 +68,18 @@ const sortSessionSummaries = (
   left: SessionSummary,
   right: SessionSummary,
 ): number => right.lastActivityAt.localeCompare(left.lastActivityAt);
+
+const createFallbackDescription = (text: string): string | undefined => {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+
+  if (!normalized) {
+    return undefined;
+  }
+
+  return normalized.length <= 80
+    ? normalized
+    : `${normalized.slice(0, 77)}...`;
+};
 
 type SessionSubscriber = (
   envelope: SessionEventEnvelope,
@@ -192,6 +205,7 @@ export class InMemoryAgentRuntime implements SessionRuntime {
         lastEventId:
           this.events.getBacklog(session.spec.sessionId).at(-1)?.id ?? 0,
         messageCount: session.messageCount,
+        ...(session.description ? { description: session.description } : {}),
         ...(session.lastMessagePreview
           ? { lastMessagePreview: session.lastMessagePreview }
           : {}),
@@ -217,6 +231,13 @@ export class InMemoryAgentRuntime implements SessionRuntime {
     session.updatedAt = new Date().toISOString();
     session.status = 'running';
     session.messageCount += 1;
+    if (!session.description) {
+      const fallbackDescription = createFallbackDescription(message.text);
+
+      if (fallbackDescription) {
+        session.description = fallbackDescription;
+      }
+    }
     session.lastMessagePreview = message.text;
 
     // Temporary scaffold response until the LLM loop is wired into the runtime.

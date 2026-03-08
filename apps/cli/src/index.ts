@@ -192,8 +192,9 @@ export const formatSessionList = (
 
   const lines = sessions.map((session) => {
     const marker = session.sessionId === currentSessionId ? '*' : ' ';
-    const preview = session.lastMessagePreview
-      ? ` ${truncateSingleLine(session.lastMessagePreview)}`
+    const label = session.description ?? session.lastMessagePreview;
+    const preview = label
+      ? ` ${truncateSingleLine(label)}`
       : '';
 
     return `${marker} ${session.sessionId} [${session.status}] ${session.lastActivityAt} messages=${session.messageCount}${preview}`;
