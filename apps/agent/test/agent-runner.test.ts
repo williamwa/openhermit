@@ -28,6 +28,14 @@ const zeroUsage: Usage = {
   },
 };
 
+const trackedToolEventTypes = new Set([
+  'tool_requested',
+  'tool_approval_requested',
+  'tool_approval_resolved',
+  'tool_started',
+  'tool_result',
+]);
+
 const createAssistantMessage = (
   content: AssistantMessage['content'],
   stopReason: AssistantMessage['stopReason'],
@@ -301,7 +309,16 @@ test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
   assert.ok(
     backlog.some(
       (entry) =>
-        entry.event.type === 'tool_start' &&
+        entry.event.type === 'tool_requested' &&
+        entry.event.tool === 'read_file' &&
+        'args' in entry.event &&
+        JSON.stringify(entry.event.args) === JSON.stringify({ path: 'files/fact.txt' }),
+      ),
+  );
+  assert.ok(
+    backlog.some(
+      (entry) =>
+        entry.event.type === 'tool_started' &&
         entry.event.tool === 'read_file' &&
         'args' in entry.event &&
         JSON.stringify(entry.event.args) === JSON.stringify({ path: 'files/fact.txt' }),
@@ -334,6 +351,15 @@ test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
     sessionEntries.some(
       (entry) =>
         entry.role === 'tool_call' &&
+        entry.type === 'tool_requested' &&
+        entry.name === 'read_file',
+    ),
+  );
+  assert.ok(
+    sessionEntries.some(
+      (entry) =>
+        entry.role === 'tool_call' &&
+        entry.type === 'tool_started' &&
         entry.name === 'read_file',
     ),
   );
@@ -390,6 +416,384 @@ test('AgentRunner surfaces a missing API key as an error event instead of crashi
         entry.message.includes('Missing API key for provider "anthropic"'),
     ),
   );
+});
+
+test('AgentRunner pauses on require_approval_for and resumes after respondToApproval', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'test-anthropic-key' },
+    security: {
+      autonomy_level: 'supervised',
+      require_approval_for: ['write_file'],
+    },
+  });
+  await security.load();
+
+  const runner = await AgentRunner.create({
+    workspace,
+    security,
+    streamFn: createSequentialStreamFn([
+      () =>
+        createToolCallResponseStream({
+          type: 'toolCall',
+          id: 'call-write',
+          name: 'write_file',
+          arguments: { path: 'files/out.txt', content: 'approved content' },
+        }),
+      () => createTextResponseStream('File written successfully.'),
+    ]),
+  });
+
+  await runner.openSession({
+    sessionId: 'cli:approval-session',
+    source: { kind: 'cli', interactive: true },
+  });
+  await runner.postMessage('cli:approval-session', { text: 'Write a file.' });
+
+  // Wait until tool_approval_required is published (agent is paused waiting for gate)
+  await new Promise<void>((resolve) => {
+    const check = (): void => {
+      const backlog = runner.events.getBacklog('cli:approval-session');
+      if (backlog.some((e) => e.event.type === 'tool_approval_required')) {
+        resolve();
+      } else {
+        setTimeout(check, 10);
+      }
+    };
+    check();
+  });
+
+  const backlogBefore = runner.events.getBacklog('cli:approval-session');
+  assert.ok(
+    backlogBefore.some((e) => e.event.type === 'tool_approval_required'),
+    'tool_approval_required event was published',
+  );
+  assert.ok(
+    backlogBefore.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'write_file'),
+    'tool_requested is published before approval resolves',
+  );
+  assert.ok(
+    !backlogBefore.some((e) => e.event.type === 'tool_started' && e.event.tool === 'write_file'),
+    'tool_started is not published before approval resolves',
+  );
+  const approvalEvent = backlogBefore.find((e) => e.event.type === 'tool_approval_required');
+  assert.equal(approvalEvent?.event.type, 'tool_approval_required');
+
+  if (approvalEvent?.event.type === 'tool_approval_required') {
+    assert.equal(approvalEvent.event.toolName, 'write_file');
+
+    // Approve the tool call
+    const resolved = runner.respondToApproval(
+      'cli:approval-session',
+      approvalEvent.event.toolCallId,
+      true,
+    );
+    assert.equal(resolved, true, 'respondToApproval found the pending gate');
+  }
+
+  await runner.waitForSessionIdle('cli:approval-session');
+
+  const backlogAfter = runner.events.getBacklog('cli:approval-session');
+  assert.ok(
+    backlogAfter.some((e) => e.event.type === 'tool_started' && e.event.tool === 'write_file'),
+    'write_file only starts after approval',
+  );
+  assert.ok(
+    backlogAfter.some((e) => e.event.type === 'tool_result' && e.event.tool === 'write_file' && !e.event.isError),
+    'write_file completed successfully after approval',
+  );
+  assert.ok(
+    backlogAfter.some((e) => e.event.type === 'text_final'),
+    'agent produced a final reply',
+  );
+  const fileContent = await workspace.readFile('files/out.txt');
+  assert.equal(fileContent, 'approved content');
+
+  const sessionEntries = await readJsonl(
+    (relativePath) => workspace.readFile(relativePath),
+    runner.getSessionLogRelativePath('cli:approval-session'),
+  );
+  const episodicEntries = await readJsonl(
+    (relativePath) => workspace.readFile(relativePath),
+    runner.getEpisodicLogRelativePath('cli:approval-session'),
+  );
+
+  assert.ok(
+    sessionEntries.some(
+      (entry) =>
+        entry.type === 'tool_approval_requested' &&
+        entry.toolName === 'write_file',
+    ),
+  );
+  assert.ok(
+    sessionEntries.some(
+      (entry) =>
+        entry.type === 'tool_approval_resolved' &&
+        entry.toolName === 'write_file' &&
+        entry.decision === 'approved',
+    ),
+  );
+  assert.ok(
+    episodicEntries.some(
+      (entry) =>
+        entry.type === 'tool_approval_requested' &&
+        entry.data &&
+        typeof entry.data === 'object' &&
+        'toolName' in entry.data &&
+        entry.data.toolName === 'write_file',
+    ),
+  );
+  assert.ok(
+    episodicEntries.some(
+      (entry) =>
+        entry.type === 'tool_approval_resolved' &&
+        entry.data &&
+        typeof entry.data === 'object' &&
+        'decision' in entry.data &&
+        entry.data.decision === 'approved',
+    ),
+  );
+  const approvalFlow = episodicEntries
+    .map((entry) => String(entry.type))
+    .filter((type) => trackedToolEventTypes.has(type));
+  assert.deepEqual(approvalFlow, [
+    'tool_requested',
+    'tool_approval_requested',
+    'tool_approval_resolved',
+    'tool_started',
+    'tool_result',
+  ]);
+});
+
+test('AgentRunner rejects tool call when respondToApproval sends false', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'test-anthropic-key' },
+    security: {
+      autonomy_level: 'supervised',
+      require_approval_for: ['write_file'],
+    },
+  });
+  await security.load();
+
+  const runner = await AgentRunner.create({
+    workspace,
+    security,
+    streamFn: createSequentialStreamFn([
+      () =>
+        createToolCallResponseStream({
+          type: 'toolCall',
+          id: 'call-write-denied',
+          name: 'write_file',
+          arguments: { path: 'files/blocked.txt', content: 'should not appear' },
+        }),
+      () => createTextResponseStream('The write was rejected by the user.'),
+    ]),
+  });
+
+  await runner.openSession({
+    sessionId: 'cli:deny-session',
+    source: { kind: 'cli', interactive: true },
+  });
+  await runner.postMessage('cli:deny-session', { text: 'Write a file.' });
+
+  // Wait for approval event
+  await new Promise<void>((resolve) => {
+    const check = (): void => {
+      const backlog = runner.events.getBacklog('cli:deny-session');
+      if (backlog.some((e) => e.event.type === 'tool_approval_required')) {
+        resolve();
+      } else {
+        setTimeout(check, 10);
+      }
+    };
+    check();
+  });
+
+  const approvalEvent = runner.events
+    .getBacklog('cli:deny-session')
+    .find((e) => e.event.type === 'tool_approval_required');
+
+  if (approvalEvent?.event.type === 'tool_approval_required') {
+    runner.respondToApproval('cli:deny-session', approvalEvent.event.toolCallId, false);
+  }
+
+  await runner.waitForSessionIdle('cli:deny-session');
+
+  // File must NOT have been created
+  const fileExists = await workspace.readFile('files/blocked.txt').then(() => true, () => false);
+  assert.equal(fileExists, false, 'rejected write_file must not create the file');
+
+  const backlog = runner.events.getBacklog('cli:deny-session');
+  assert.ok(
+    backlog.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'write_file'),
+    'tool_requested is still published before a denied approval',
+  );
+  assert.ok(
+    !backlog.some((e) => e.event.type === 'tool_started' && e.event.tool === 'write_file'),
+    'tool_started is not published when approval is denied',
+  );
+  const toolResult = backlog.find((e) => e.event.type === 'tool_result' && e.event.tool === 'write_file');
+  assert.ok(toolResult, 'tool_result event was published');
+  assert.equal(
+    toolResult?.event.type === 'tool_result' ? toolResult.event.isError : undefined,
+    false,
+    'rejection is returned as a non-error tool result with a message',
+  );
+  assert.match(
+    toolResult?.event.type === 'tool_result' && typeof toolResult.event.text === 'string'
+      ? toolResult.event.text
+      : '',
+    /rejected by the user/,
+  );
+
+  const sessionEntries = await readJsonl(
+    (relativePath) => workspace.readFile(relativePath),
+    runner.getSessionLogRelativePath('cli:deny-session'),
+  );
+  const episodicEntries = await readJsonl(
+    (relativePath) => workspace.readFile(relativePath),
+    runner.getEpisodicLogRelativePath('cli:deny-session'),
+  );
+
+  assert.ok(
+    sessionEntries.some(
+      (entry) =>
+        entry.type === 'tool_approval_requested' &&
+        entry.toolName === 'write_file',
+    ),
+  );
+  assert.ok(
+    sessionEntries.some(
+      (entry) =>
+        entry.type === 'tool_approval_resolved' &&
+        entry.toolName === 'write_file' &&
+        entry.decision === 'rejected',
+    ),
+  );
+  assert.ok(
+    episodicEntries.some(
+      (entry) =>
+        entry.type === 'tool_approval_resolved' &&
+        entry.data &&
+        typeof entry.data === 'object' &&
+        'decision' in entry.data &&
+        entry.data.decision === 'rejected',
+    ),
+  );
+  const deniedFlow = episodicEntries
+    .map((entry) => String(entry.type))
+    .filter((type) => trackedToolEventTypes.has(type));
+  assert.deepEqual(deniedFlow, [
+    'tool_requested',
+    'tool_approval_requested',
+    'tool_approval_resolved',
+    'tool_result',
+  ]);
+});
+
+test('AgentRunner skips approval for full autonomy level', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'test-anthropic-key' },
+    security: {
+      autonomy_level: 'full',
+      require_approval_for: ['write_file'],
+    },
+  });
+  await security.load();
+
+  const runner = await AgentRunner.create({
+    workspace,
+    security,
+    streamFn: createSequentialStreamFn([
+      () =>
+        createToolCallResponseStream({
+          type: 'toolCall',
+          id: 'call-write-full',
+          name: 'write_file',
+          arguments: { path: 'files/auto.txt', content: 'no approval needed' },
+        }),
+      () => createTextResponseStream('Done.'),
+    ]),
+  });
+
+  await runner.openSession({
+    sessionId: 'cli:full-autonomy',
+    source: { kind: 'cli', interactive: true },
+  });
+  await runner.postMessage('cli:full-autonomy', { text: 'Write a file.' });
+  await runner.waitForSessionIdle('cli:full-autonomy');
+
+  const backlog = runner.events.getBacklog('cli:full-autonomy');
+  assert.ok(
+    !backlog.some((e) => e.event.type === 'tool_approval_required'),
+    'no approval event for full autonomy',
+  );
+  assert.ok(
+    backlog.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'write_file'),
+    'tool_requested is published for full autonomy',
+  );
+  assert.ok(
+    backlog.some((e) => e.event.type === 'tool_started' && e.event.tool === 'write_file'),
+    'tool_started is published for full autonomy',
+  );
+  assert.ok(
+    backlog.some((e) => e.event.type === 'tool_result' && e.event.tool === 'write_file' && !e.event.isError),
+    'write_file ran without approval in full mode',
+  );
+  const content = await workspace.readFile('files/auto.txt');
+  assert.equal(content, 'no approval needed');
+});
+
+test('AgentRunner skips approval for non-interactive sessions', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'test-anthropic-key' },
+    security: {
+      autonomy_level: 'supervised',
+      require_approval_for: ['write_file'],
+    },
+  });
+  await security.load();
+
+  const runner = await AgentRunner.create({
+    workspace,
+    security,
+    streamFn: createSequentialStreamFn([
+      () =>
+        createToolCallResponseStream({
+          type: 'toolCall',
+          id: 'call-write-heartbeat',
+          name: 'write_file',
+          arguments: { path: 'files/heartbeat.txt', content: 'from heartbeat' },
+        }),
+      () => createTextResponseStream('Heartbeat complete.'),
+    ]),
+  });
+
+  await runner.openSession({
+    sessionId: 'heartbeat:1234',
+    source: { kind: 'heartbeat', interactive: false },
+  });
+  await runner.postMessage('heartbeat:1234', { text: 'Run maintenance.' });
+  await runner.waitForSessionIdle('heartbeat:1234');
+
+  const backlog = runner.events.getBacklog('heartbeat:1234');
+  assert.ok(
+    !backlog.some((e) => e.event.type === 'tool_approval_required'),
+    'no approval event for non-interactive session',
+  );
+  assert.ok(
+    backlog.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'write_file'),
+    'tool_requested is published for non-interactive sessions',
+  );
+  assert.ok(
+    backlog.some((e) => e.event.type === 'tool_started' && e.event.tool === 'write_file'),
+    'tool_started is published for non-interactive sessions',
+  );
+  assert.ok(
+    backlog.some((e) => e.event.type === 'tool_result' && e.event.tool === 'write_file' && !e.event.isError),
+    'write_file ran without approval in non-interactive mode',
+  );
+  const content = await workspace.readFile('files/heartbeat.txt');
+  assert.equal(content, 'from heartbeat');
 });
 
 test('AgentRunner publishes detailed tool failure messages', async (t) => {

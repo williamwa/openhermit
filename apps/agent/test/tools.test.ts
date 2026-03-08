@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import type { AgentTool, AgentToolUpdateCallback } from '@mariozechner/pi-agent-core';
+import { Type } from '@mariozechner/pi-ai';
 import { ValidationError } from '@cloudmind/shared';
 
 import {
@@ -8,12 +10,15 @@ import {
   type DockerRunner,
   DockerContainerManager,
 } from '../src/core/index.js';
-import { createBuiltInTools } from '../src/tools.js';
+import { createBuiltInTools, withApproval } from '../src/tools.js';
 import { createSecurityFixture } from './helpers.js';
 
-// ---------------------------------------------------------------------------
-// Shared helpers
-// ---------------------------------------------------------------------------
+const getFirstText = (result: {
+  content: Array<{ type: string; text?: string }>;
+}): string => {
+  const first = result.content.find((entry) => entry.type === 'text');
+  return typeof first?.text === 'string' ? first.text : '';
+};
 
 class FakeDockerRunner implements DockerRunner {
   readonly calls: string[][] = [];
@@ -23,24 +28,39 @@ class FakeDockerRunner implements DockerRunner {
   async run(args: string[]): Promise<DockerCommandResult> {
     this.calls.push(args);
     const next = this.results.shift();
-    if (!next) throw new Error(`Unexpected docker call: docker ${args.join(' ')}`);
+
+    if (!next) {
+      throw new Error(`Unexpected docker call: docker ${args.join(' ')}`);
+    }
+
     return next;
   }
 }
 
-const okDocker = (overrides: Partial<DockerCommandResult> = {}): DockerCommandResult => ({
-  stdout: '', stderr: '', exitCode: 0, durationMs: 5, ...overrides,
+const okResult = (overrides: Partial<DockerCommandResult> = {}): DockerCommandResult => ({
+  stdout: '',
+  stderr: '',
+  exitCode: 0,
+  durationMs: 5,
+  ...overrides,
 });
 
 const findTool = (tools: ReturnType<typeof createBuiltInTools>, name: string) => {
-  const tool = tools.find((t) => t.name === name);
-  assert.ok(tool, `Tool "${name}" not found`);
+  const tool = tools.find((entry) => entry.name === name);
+  assert.ok(tool, `Tool "${name}" not found in createBuiltInTools`);
   return tool;
 };
 
-// ---------------------------------------------------------------------------
-// Minimal fetch mock helpers
-// ---------------------------------------------------------------------------
+const registerService = async (
+  containerManager: DockerContainerManager,
+  name: string,
+  image: string,
+): Promise<void> => {
+  await containerManager.startService({
+    name,
+    image,
+  });
+};
 
 type FetchImpl = typeof fetch;
 
@@ -51,8 +71,7 @@ const makeFetchMock = (
 ): FetchImpl =>
   (async (_url, _init) => {
     const encoder = new TextEncoder();
-    const bytes = encoder.encode(body);
-    return new Response(bytes, { status, headers });
+    return new Response(encoder.encode(body), { status, headers });
   }) as FetchImpl;
 
 const makeFetchError = (message: string): FetchImpl =>
@@ -60,44 +79,194 @@ const makeFetchError = (message: string): FetchImpl =>
     throw new Error(message);
   }) as FetchImpl;
 
-// ---------------------------------------------------------------------------
-// web_fetch tests
-//
-// web_fetch creates its tool via createWebFetchTool() which is not exported,
-// so we access it through createBuiltInTools and inject a fetch mock via
-// Node's globalThis.fetch override (the tool uses the global fetch).
-// ---------------------------------------------------------------------------
-
-// We temporarily replace globalThis.fetch for each test.
 const withMockFetch = async (mockFetch: FetchImpl, fn: () => Promise<void>): Promise<void> => {
-  const original = globalThis.fetch;
-  // @ts-expect-error — intentional override for testing
-  globalThis.fetch = mockFetch;
+  const globals = globalThis as typeof globalThis & { fetch: FetchImpl };
+  const original = globals.fetch;
+  globals.fetch = mockFetch;
+
   try {
     await fn();
   } finally {
-    // @ts-expect-error
-    globalThis.fetch = original;
+    globals.fetch = original;
   }
 };
 
-test('web_fetch returns status, headers, and body for a successful GET', async (t) => {
+test('withApproval forwards signal and onUpdate to the wrapped tool', async (t) => {
+  const { security } = await createSecurityFixture(t, {
+    security: {
+      autonomy_level: 'supervised',
+      require_approval_for: ['dangerous_tool'],
+    },
+  });
+  await security.load();
+
+  const Params = Type.Object({
+    value: Type.String(),
+  });
+
+  let capturedSignal: AbortSignal | undefined;
+  let capturedOnUpdate: AgentToolUpdateCallback<{ status: string }> | undefined;
+  let approvalArgs: unknown;
+  const requestedCalls: Array<{ toolName: string; toolCallId: string; args: unknown }> = [];
+  const startedCalls: Array<{ toolName: string; toolCallId: string; args: unknown }> = [];
+
+  const tool: AgentTool<typeof Params, { status: string }> = {
+    name: 'dangerous_tool',
+    label: 'Dangerous Tool',
+    description: 'Tool used to verify approval forwarding.',
+    parameters: Params,
+    execute: async (_toolCallId, args, signal, onUpdate) => {
+      capturedSignal = signal;
+      capturedOnUpdate = onUpdate;
+      onUpdate?.({
+        content: [{ type: 'text', text: `updating ${args.value}` }],
+        details: { status: 'midway' },
+      });
+
+      return {
+        content: [{ type: 'text', text: `done ${args.value}` }],
+        details: { status: 'done' },
+      };
+    },
+  };
+
+  const wrapped = withApproval(
+    tool,
+    security,
+    async (_toolName, _toolCallId, args) => {
+      approvalArgs = args;
+      return 'approved';
+    },
+    async (toolName, toolCallId, args) => {
+      requestedCalls.push({ toolName, toolCallId, args });
+    },
+    async (toolName, toolCallId, args) => {
+      startedCalls.push({ toolName, toolCallId, args });
+    },
+  );
+
+  const abortController = new AbortController();
+  const updates: Array<{ status: string }> = [];
+
+  const result = await wrapped.execute(
+    'call-1',
+    { value: 'payload' },
+    abortController.signal,
+    ((partial) => {
+      updates.push(partial.details);
+    }) as AgentToolUpdateCallback<{ status: string }>,
+  );
+
+  assert.equal(capturedSignal, abortController.signal);
+  assert.ok(capturedOnUpdate);
+  assert.deepEqual(approvalArgs, { value: 'payload' });
+  assert.deepEqual(requestedCalls, [
+    {
+      toolName: 'dangerous_tool',
+      toolCallId: 'call-1',
+      args: { value: 'payload' },
+    },
+  ]);
+  assert.deepEqual(startedCalls, [
+    {
+      toolName: 'dangerous_tool',
+      toolCallId: 'call-1',
+      args: { value: 'payload' },
+    },
+  ]);
+  assert.deepEqual(updates, [{ status: 'midway' }]);
+  assert.deepEqual(result.details, { status: 'done' });
+});
+
+test('withApproval distinguishes timeout from explicit rejection', async (t) => {
+  const { security } = await createSecurityFixture(t, {
+    security: {
+      autonomy_level: 'supervised',
+      require_approval_for: ['dangerous_tool'],
+    },
+  });
+  await security.load();
+
+  const Params = Type.Object({
+    value: Type.String(),
+  });
+
+  const tool: AgentTool<typeof Params, { status: string }> = {
+    name: 'dangerous_tool',
+    label: 'Dangerous Tool',
+    description: 'Tool used to verify approval decisions.',
+    parameters: Params,
+    execute: async () => {
+      throw new Error('should not execute when approval is not granted');
+    },
+  };
+
+  const requestedCalls: string[] = [];
+  const startedCalls: string[] = [];
+
+  const timedOut = withApproval(
+    tool,
+    security,
+    async () => 'timed_out',
+    async (toolName) => {
+      requestedCalls.push(toolName);
+    },
+    async (toolName) => {
+      startedCalls.push(toolName);
+    },
+  );
+  const rejected = withApproval(
+    tool,
+    security,
+    async () => 'rejected',
+    async (toolName) => {
+      requestedCalls.push(toolName);
+    },
+    async (toolName) => {
+      startedCalls.push(toolName);
+    },
+  );
+
+  const timedOutResult = await timedOut.execute('call-timeout', { value: 'payload' });
+  const rejectedResult = await rejected.execute('call-rejected', { value: 'payload' });
+
+  assert.match(getFirstText(timedOutResult), /timed out waiting for user approval/);
+  assert.deepEqual(timedOutResult.details, {
+    rejected: true,
+    toolName: 'dangerous_tool',
+    approvalStatus: 'timed_out',
+  });
+
+  assert.match(getFirstText(rejectedResult), /rejected by the user/);
+  assert.deepEqual(rejectedResult.details, {
+    rejected: true,
+    toolName: 'dangerous_tool',
+    approvalStatus: 'rejected',
+  });
+  assert.deepEqual(requestedCalls, ['dangerous_tool', 'dangerous_tool']);
+  assert.deepEqual(startedCalls, []);
+});
+
+test('web_fetch returns status headers and body for a successful GET', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: { ANTHROPIC_API_KEY: 'key' },
   });
   await security.load();
 
-  const docker = new FakeDockerRunner([]);
-  const containerManager = new DockerContainerManager(workspace, { runner: docker });
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+  });
   const tools = createBuiltInTools({ workspace, security, containerManager });
   const tool = findTool(tools, 'web_fetch');
 
   await withMockFetch(
     makeFetchMock(200, 'Hello, world!', { 'content-type': 'text/plain' }),
     async () => {
-      const result = await tool.execute('call-1', { url: 'https://example.com/' });
+      const result = await tool.execute('call-web-1', {
+        url: 'https://example.com/',
+      });
 
-      const text = result.content[0]?.text ?? '';
+      const text = getFirstText(result);
       assert.match(text, /HTTP 200/);
       assert.match(text, /Hello, world!/);
 
@@ -112,47 +281,55 @@ test('web_fetch returns status, headers, and body for a successful GET', async (
   );
 });
 
-test('web_fetch sends POST with body and custom headers', async (t) => {
+test('web_fetch is still wrapped by approval callbacks in createBuiltInTools', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: { ANTHROPIC_API_KEY: 'key' },
+    security: {
+      autonomy_level: 'supervised',
+      require_approval_for: ['web_fetch'],
+    },
   });
   await security.load();
 
-  let capturedRequest: { url: RequestInfo | URL; init?: RequestInit } | undefined;
+  const approvalCalls: Array<{ toolName: string; toolCallId: string; args: unknown }> = [];
+  const requestedCalls: Array<{ toolName: string; toolCallId: string; args: unknown }> = [];
+  const startedCalls: Array<{ toolName: string; toolCallId: string; args: unknown }> = [];
 
-  const capturingFetch: FetchImpl = (async (url, init) => {
-    capturedRequest = { url, init };
-    return new Response('{"ok":true}', {
-      status: 201,
-      headers: { 'content-type': 'application/json' },
-    });
-  }) as FetchImpl;
-
-  const docker = new FakeDockerRunner([]);
-  const containerManager = new DockerContainerManager(workspace, { runner: docker });
-  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+  });
+  const tools = createBuiltInTools({
+    workspace,
+    security,
+    containerManager,
+    approvalCallback: async (toolName, toolCallId, args) => {
+      approvalCalls.push({ toolName, toolCallId, args });
+      return 'approved';
+    },
+    onToolRequested: async (toolName, toolCallId, args) => {
+      requestedCalls.push({ toolName, toolCallId, args });
+    },
+    onToolStarted: async (toolName, toolCallId, args) => {
+      startedCalls.push({ toolName, toolCallId, args });
+    },
+  });
   const tool = findTool(tools, 'web_fetch');
 
-  await withMockFetch(capturingFetch, async () => {
-    const result = await tool.execute('call-2', {
-      url: 'https://api.example.com/data',
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-token': 'abc' },
-      body: '{"key":"value"}',
+  await withMockFetch(makeFetchMock(200, 'ok'), async () => {
+    const result = await tool.execute('call-web-2', {
+      url: 'https://example.com/approved',
     });
-
-    assert.ok(capturedRequest, 'fetch was called');
-    assert.equal(capturedRequest?.init?.method, 'POST');
-    assert.equal(
-      (capturedRequest?.init?.headers as Record<string, string>)?.['x-token'],
-      'abc',
-    );
-    assert.equal(capturedRequest?.init?.body, '{"key":"value"}');
-
-    const details = result.details as Record<string, unknown>;
-    assert.equal(details.status, 201);
-    assert.match(String(details.body), /ok.*true/);
+    assert.match(getFirstText(result), /HTTP 200/);
   });
+
+  const expectedCall = {
+    toolName: 'web_fetch',
+    toolCallId: 'call-web-2',
+    args: { url: 'https://example.com/approved' },
+  };
+  assert.deepEqual(approvalCalls, [expectedCall]);
+  assert.deepEqual(requestedCalls, [expectedCall]);
+  assert.deepEqual(startedCalls, [expectedCall]);
 });
 
 test('web_fetch truncates large responses at max_bytes', async (t) => {
@@ -162,14 +339,14 @@ test('web_fetch truncates large responses at max_bytes', async (t) => {
   await security.load();
 
   const bigBody = 'x'.repeat(500);
-
-  const docker = new FakeDockerRunner([]);
-  const containerManager = new DockerContainerManager(workspace, { runner: docker });
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+  });
   const tools = createBuiltInTools({ workspace, security, containerManager });
   const tool = findTool(tools, 'web_fetch');
 
   await withMockFetch(makeFetchMock(200, bigBody), async () => {
-    const result = await tool.execute('call-3', {
+    const result = await tool.execute('call-web-3', {
       url: 'https://example.com/big',
       max_bytes: 100,
     });
@@ -179,9 +356,7 @@ test('web_fetch truncates large responses at max_bytes', async (t) => {
     assert.equal(details.bodyBytes, 500);
     assert.equal(details.returnedBytes, 100);
     assert.equal(String(details.body).length, 100);
-
-    const text = result.content[0]?.text ?? '';
-    assert.match(text, /truncated/i);
+    assert.match(getFirstText(result), /truncated/i);
   });
 });
 
@@ -191,19 +366,18 @@ test('web_fetch caps max_bytes at the hard 200 KB limit', async (t) => {
   });
   await security.load();
 
-  const docker = new FakeDockerRunner([]);
-  const containerManager = new DockerContainerManager(workspace, { runner: docker });
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+  });
   const tools = createBuiltInTools({ workspace, security, containerManager });
   const tool = findTool(tools, 'web_fetch');
 
-  // Body smaller than the hard limit but max_bytes asks for more than 200 KB
   await withMockFetch(makeFetchMock(200, 'small body'), async () => {
-    const result = await tool.execute('call-4', {
+    const result = await tool.execute('call-web-4', {
       url: 'https://example.com/',
       max_bytes: 999_999_999,
     });
 
-    // No truncation since body is small; the cap doesn't kick in unless body > 200 KB
     const details = result.details as Record<string, unknown>;
     assert.equal(details.truncated, undefined);
     assert.equal(details.body, 'small body');
@@ -216,13 +390,14 @@ test('web_fetch rejects non-http/https URLs', async (t) => {
   });
   await security.load();
 
-  const docker = new FakeDockerRunner([]);
-  const containerManager = new DockerContainerManager(workspace, { runner: docker });
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+  });
   const tools = createBuiltInTools({ workspace, security, containerManager });
   const tool = findTool(tools, 'web_fetch');
 
   await assert.rejects(
-    () => tool.execute('call-5', { url: 'ftp://example.com/file' }),
+    () => tool.execute('call-web-5', { url: 'ftp://example.com/file' }),
     ValidationError,
   );
 });
@@ -233,13 +408,30 @@ test('web_fetch rejects malformed URLs', async (t) => {
   });
   await security.load();
 
-  const docker = new FakeDockerRunner([]);
-  const containerManager = new DockerContainerManager(workspace, { runner: docker });
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+  });
+  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tool = findTool(tools, 'web_fetch');
+
+  await assert.rejects(() => tool.execute('call-web-6', { url: 'not a url at all' }));
+});
+
+test('web_fetch rejects non-positive max_bytes', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+  });
   const tools = createBuiltInTools({ workspace, security, containerManager });
   const tool = findTool(tools, 'web_fetch');
 
   await assert.rejects(
-    () => tool.execute('call-6', { url: 'not a url at all' }),
+    () => tool.execute('call-web-7', { url: 'https://example.com/', max_bytes: 0 }),
+    ValidationError,
   );
 });
 
@@ -249,17 +441,18 @@ test('web_fetch surfaces network errors as thrown exceptions', async (t) => {
   });
   await security.load();
 
-  const docker = new FakeDockerRunner([]);
-  const containerManager = new DockerContainerManager(workspace, { runner: docker });
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+  });
   const tools = createBuiltInTools({ workspace, security, containerManager });
   const tool = findTool(tools, 'web_fetch');
 
   await withMockFetch(makeFetchError('ECONNREFUSED'), async () => {
     await assert.rejects(
-      () => tool.execute('call-7', { url: 'https://localhost:9/' }),
-      (err: unknown) => {
-        assert.ok(err instanceof Error);
-        assert.match(err.message, /ECONNREFUSED/);
+      () => tool.execute('call-web-8', { url: 'https://localhost:9/' }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /ECONNREFUSED/);
         return true;
       },
     );
@@ -272,18 +465,268 @@ test('web_fetch returns non-200 status without throwing', async (t) => {
   });
   await security.load();
 
-  const docker = new FakeDockerRunner([]);
-  const containerManager = new DockerContainerManager(workspace, { runner: docker });
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+  });
   const tools = createBuiltInTools({ workspace, security, containerManager });
   const tool = findTool(tools, 'web_fetch');
 
   await withMockFetch(makeFetchMock(404, 'Not Found'), async () => {
-    const result = await tool.execute('call-8', { url: 'https://example.com/missing' });
+    const result = await tool.execute('call-web-9', {
+      url: 'https://example.com/missing',
+    });
 
     const details = result.details as Record<string, unknown>;
     assert.equal(details.status, 404);
-
-    const text = result.content[0]?.text ?? '';
-    assert.match(text, /HTTP 404/);
+    assert.match(getFirstText(result), /HTTP 404/);
   });
+});
+
+test('container_start launches a service container and returns entry details', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  const fakeContainerId = 'abc123def456';
+  const docker = new FakeDockerRunner([okResult({ stdout: `${fakeContainerId}\n` })]);
+  const containerManager = new DockerContainerManager(workspace, { runner: docker });
+  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tool = findTool(tools, 'container_start');
+
+  const result = await tool.execute('call-1', {
+    name: 'pg-main',
+    image: 'postgres:16',
+    description: 'Main postgres instance',
+    ports: { '5432': 10001 },
+    env: { POSTGRES_PASSWORD: 'secret' },
+  });
+
+  assert.ok(docker.calls[0]?.includes('run'));
+  assert.ok(docker.calls[0]?.includes('-d'));
+  assert.ok(docker.calls[0]?.includes('pg-main'));
+  assert.ok(docker.calls[0]?.includes('postgres:16'));
+  assert.ok(docker.calls[0]?.includes('-p'));
+  assert.ok(docker.calls[0]?.some((arg) => arg.includes('10001:5432')));
+
+  const text = getFirstText(result);
+  assert.match(text, /pg-main/);
+  assert.match(text, /tailscale funnel/i);
+  assert.match(text, /10001/);
+
+  const entries = await containerManager.registry.readAll();
+  const entry = entries.find((container) => container.name === 'pg-main');
+  assert.ok(entry);
+  assert.equal(entry?.status, 'running');
+  assert.equal(entry?.image, 'postgres:16');
+  assert.equal(entry?.description, 'Main postgres instance');
+});
+
+test('container_start resolves env_secrets and merges with plain env', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { DB_PASSWORD: 'supersecret', ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  const docker = new FakeDockerRunner([okResult({ stdout: 'cid\n' })]);
+  const containerManager = new DockerContainerManager(workspace, { runner: docker });
+  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tool = findTool(tools, 'container_start');
+
+  await tool.execute('call-2', {
+    name: 'redis-main',
+    image: 'redis:7',
+    env: { PLAIN_VAR: 'visible' },
+    env_secrets: ['DB_PASSWORD'],
+  });
+
+  const envFlags = docker.calls[0]?.filter((_, index, args) => args[index - 1] === '-e') ?? [];
+  assert.ok(envFlags.some((flag) => flag.startsWith('PLAIN_VAR=')), 'plain env var present');
+  assert.ok(envFlags.some((flag) => flag.startsWith('DB_PASSWORD=')), 'secret env var present');
+
+  const entry = (await containerManager.registry.readAll()).find((container) => container.name === 'redis-main');
+  const serialized = JSON.stringify(entry);
+  assert.ok(!serialized.includes('supersecret'), 'secret value not in registry entry');
+});
+
+test('container_start is blocked in readonly mode', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+    security: { autonomy_level: 'readonly' },
+  });
+  await security.load();
+
+  const docker = new FakeDockerRunner([]);
+  const containerManager = new DockerContainerManager(workspace, { runner: docker });
+  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tool = findTool(tools, 'container_start');
+
+  await assert.rejects(
+    () => tool.execute('call-3', { name: 'blocked', image: 'alpine' }),
+    ValidationError,
+  );
+
+  assert.equal(docker.calls.length, 0, 'docker should not be called in readonly mode');
+});
+
+test('container_stop removes a running service and updates the registry', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  const docker = new FakeDockerRunner([
+    okResult({ stdout: 'cid\n' }),
+    okResult(),
+  ]);
+  const containerManager = new DockerContainerManager(workspace, { runner: docker });
+  const tools = createBuiltInTools({ workspace, security, containerManager });
+
+  await findTool(tools, 'container_start').execute('call-start', {
+    name: 'svc-to-stop',
+    image: 'nginx:alpine',
+  });
+
+  const stopResult = await findTool(tools, 'container_stop').execute('call-stop', {
+    name: 'svc-to-stop',
+  });
+
+  assert.ok(docker.calls[1]?.includes('rm'));
+  assert.ok(docker.calls[1]?.includes('-f'));
+  assert.ok(docker.calls[1]?.includes('svc-to-stop'));
+  assert.match(getFirstText(stopResult), /svc-to-stop/);
+
+  const entries = await containerManager.registry.readAll();
+  const entry = entries.find((container) => container.name === 'svc-to-stop');
+  assert.equal(entry?.status, 'removed');
+  assert.ok(entry?.removed, 'removed timestamp should be set');
+});
+
+test('container_stop is blocked in readonly mode', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+    security: { autonomy_level: 'readonly' },
+  });
+  await security.load();
+
+  const docker = new FakeDockerRunner([]);
+  const containerManager = new DockerContainerManager(workspace, { runner: docker });
+  const tools = createBuiltInTools({ workspace, security, containerManager });
+
+  await assert.rejects(
+    () => findTool(tools, 'container_stop').execute('call-4', { name: 'anything' }),
+    ValidationError,
+  );
+
+  assert.equal(docker.calls.length, 0);
+});
+
+test('container_exec runs a command and returns stdout stderr exitCode', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  const docker = new FakeDockerRunner([
+    okResult({ stdout: 'service-cid\n' }),
+    okResult({ stdout: 'hello from container\n', stderr: '', exitCode: 0, durationMs: 12 }),
+  ]);
+  const containerManager = new DockerContainerManager(workspace, { runner: docker });
+  const tools = createBuiltInTools({ workspace, security, containerManager });
+
+  await registerService(containerManager, 'my-service', 'alpine:3.20');
+
+  const result = await findTool(tools, 'container_exec').execute('call-5', {
+    name: 'my-service',
+    command: 'echo hello from container',
+  });
+
+  assert.ok(docker.calls[1]?.includes('exec'));
+  assert.ok(docker.calls[1]?.includes('my-service'));
+
+  const text = getFirstText(result);
+  assert.match(text, /hello from container/);
+
+  assert.equal((result.details as Record<string, unknown>).exitCode, 0);
+  assert.match(String((result.details as Record<string, unknown>).stdout), /hello from container/);
+});
+
+test('container_exec surfaces non-zero exit code without throwing', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  const docker = new FakeDockerRunner([
+    okResult({ stdout: 'service-cid\n' }),
+    okResult({ stdout: '', stderr: 'command not found: psql', exitCode: 127, durationMs: 3 }),
+  ]);
+  const containerManager = new DockerContainerManager(workspace, { runner: docker });
+  const tools = createBuiltInTools({ workspace, security, containerManager });
+
+  await registerService(containerManager, 'pg', 'postgres:16');
+
+  const result = await findTool(tools, 'container_exec').execute('call-6', {
+    name: 'pg',
+    command: 'psql --version',
+  });
+
+  const details = result.details as Record<string, unknown>;
+  assert.equal(details.exitCode, 127);
+  assert.match(String(details.stderr), /command not found/);
+});
+
+test('container_exec parses structured output between sentinel markers', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  const structuredStdout = [
+    'some log line',
+    '---CLOUDMIND_OUTPUT_START---',
+    JSON.stringify({ rows: 42, table: 'users' }),
+    '---CLOUDMIND_OUTPUT_END---',
+  ].join('\n');
+
+  const docker = new FakeDockerRunner([
+    okResult({ stdout: 'service-cid\n' }),
+    okResult({ stdout: structuredStdout, exitCode: 0, durationMs: 8 }),
+  ]);
+  const containerManager = new DockerContainerManager(workspace, { runner: docker });
+  const tools = createBuiltInTools({ workspace, security, containerManager });
+
+  await registerService(containerManager, 'pg', 'postgres:16');
+
+  const result = await findTool(tools, 'container_exec').execute('call-7', {
+    name: 'pg',
+    command: 'node query.js',
+  });
+
+  const details = result.details as Record<string, unknown>;
+  assert.ok(details.parsedOutput, 'parsedOutput should be present');
+  assert.equal((details.parsedOutput as Record<string, unknown>).rows, 42);
+});
+
+test('container_exec is blocked in readonly mode', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+    security: { autonomy_level: 'readonly' },
+  });
+  await security.load();
+
+  const docker = new FakeDockerRunner([]);
+  const containerManager = new DockerContainerManager(workspace, { runner: docker });
+  const tools = createBuiltInTools({ workspace, security, containerManager });
+
+  await assert.rejects(
+    () =>
+      findTool(tools, 'container_exec').execute('call-8', {
+        name: 'svc',
+        command: 'echo hi',
+      }),
+    ValidationError,
+  );
+
+  assert.equal(docker.calls.length, 0);
 });

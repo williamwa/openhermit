@@ -13,12 +13,45 @@ const READONLY_BLOCKED_TOOLS = new Set([
   'write_file',
   'delete_file',
   'container_run',
+  'container_start',
+  'container_stop',
+  'container_exec',
 ]);
+
+/**
+ * Called before a tool executes when approval is required.
+ * Returns an explicit decision so timeout and user denial are distinguishable.
+ */
+export type ApprovalDecision = 'approved' | 'rejected' | 'timed_out' | 'cancelled';
+
+export type ApprovalCallback = (
+  toolName: string,
+  toolCallId: string,
+  args: unknown,
+) => Promise<ApprovalDecision>;
+
+export type ToolStartedCallback = (
+  toolName: string,
+  toolCallId: string,
+  args: unknown,
+) => Promise<void> | void;
+
+export type ToolRequestedCallback = (
+  toolName: string,
+  toolCallId: string,
+  args: unknown,
+) => Promise<void> | void;
 
 interface ToolContext {
   workspace: AgentWorkspace;
   security: AgentSecurity;
   containerManager: DockerContainerManager;
+  /** When present, tools in security.require_approval_for pause for confirmation. */
+  approvalCallback?: ApprovalCallback;
+  /** Called as soon as the agent decides to invoke the tool. */
+  onToolRequested?: ToolRequestedCallback;
+  /** Called immediately before the underlying tool.execute() runs. */
+  onToolStarted?: ToolStartedCallback;
 }
 
 const asTextContent = (text: string) => [
@@ -275,31 +308,8 @@ const MAX_RESPONSE_BYTES = 200_000; // 200 KB — keeps responses inside context
 
 const WebFetchParams = Type.Object({
   url: Type.String({
-    description: 'Fully-qualified URL to fetch (http or https).',
+    description: 'Fully-qualified URL to fetch over HTTP(S).',
   }),
-  method: Type.Optional(
-    Type.Union(
-      [
-        Type.Literal('GET'),
-        Type.Literal('POST'),
-        Type.Literal('PUT'),
-        Type.Literal('PATCH'),
-        Type.Literal('DELETE'),
-        Type.Literal('HEAD'),
-      ],
-      { description: 'HTTP method. Defaults to GET.' },
-    ),
-  ),
-  headers: Type.Optional(
-    Type.Record(Type.String(), Type.String(), {
-      description: 'Additional request headers.',
-    }),
-  ),
-  body: Type.Optional(
-    Type.String({
-      description: 'Request body (for POST/PUT/PATCH). Send as a string; set Content-Type in headers.',
-    }),
-  ),
   max_bytes: Type.Optional(
     Type.Number({
       description: `Maximum response body bytes to return. Defaults to ${MAX_RESPONSE_BYTES}.`,
@@ -313,23 +323,22 @@ const createWebFetchTool = (): AgentTool<typeof WebFetchParams> => ({
   name: 'web_fetch',
   label: 'Web Fetch',
   description:
-    'Perform an HTTP request and return the response body as text. Useful for reading documentation, calling external APIs, or checking URLs. Responses are truncated at max_bytes to avoid flooding the context window.',
+    'Perform an HTTP GET request and return the response body as text. Useful for reading documentation or checking public URLs. Responses are truncated at max_bytes to avoid flooding the context window.',
   parameters: WebFetchParams,
   execute: async (_toolCallId, args: WebFetchArgs) => {
-    const url = new URL(args.url); // throws on invalid URL
+    const url = new URL(args.url);
 
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
       throw new ValidationError(`web_fetch only supports http/https URLs, got: ${url.protocol}`);
     }
 
-    const method = args.method ?? 'GET';
-    const limit = Math.min(args.max_bytes ?? MAX_RESPONSE_BYTES, MAX_RESPONSE_BYTES);
+    const requestedBytes = args.max_bytes ?? MAX_RESPONSE_BYTES;
+    if (!Number.isFinite(requestedBytes) || requestedBytes < 1) {
+      throw new ValidationError('web_fetch max_bytes must be a positive number.');
+    }
 
-    const response = await fetch(args.url, {
-      method,
-      ...(args.headers ? { headers: args.headers } : {}),
-      ...(args.body !== undefined ? { body: args.body } : {}),
-    });
+    const limit = Math.min(Math.floor(requestedBytes), MAX_RESPONSE_BYTES);
+    const response = await fetch(url, { method: 'GET' });
 
     const rawBuffer = await response.arrayBuffer();
     const rawBytes = rawBuffer.byteLength;
@@ -344,7 +353,7 @@ const createWebFetchTool = (): AgentTool<typeof WebFetchParams> => ({
 
     const details = {
       url: args.url,
-      method,
+      method: 'GET',
       status: response.status,
       statusText: response.statusText,
       headers: responseHeaders,
@@ -364,6 +373,174 @@ const createWebFetchTool = (): AgentTool<typeof WebFetchParams> => ({
   },
 });
 
+// ---------------------------------------------------------------------------
+// container_start
+// ---------------------------------------------------------------------------
+
+const ContainerStartParams = Type.Object({
+  name: Type.String({
+    description:
+      'Unique name for the service container. Used to reference it in stop/exec calls.',
+  }),
+  image: Type.String({ description: 'Docker image name.' }),
+  description: Type.Optional(
+    Type.String({
+      description: 'Short note describing the purpose of this service.',
+    }),
+  ),
+  mount: Type.Optional(
+    Type.String({
+      description:
+        'Workspace path under containers/{name}/data to mount at /data inside the container. Defaults to containers/{name}/data.',
+    }),
+  ),
+  ports: Type.Optional(
+    Type.Record(
+      Type.String({ description: 'Container port (e.g. "5432").' }),
+      Type.Number({ description: 'Host port to bind (e.g. 10001).' }),
+      {
+        description:
+          'Port mappings: { "<containerPort>": <hostPort> }. Warn the user to run "tailscale funnel <hostPort>" themselves if external access is needed.',
+      },
+    ),
+  ),
+  env: Type.Optional(
+    Type.Record(Type.String(), Type.String(), {
+      description: 'Plain environment variables to pass to the container.',
+    }),
+  ),
+  env_secrets: Type.Optional(
+    Type.Array(Type.String(), {
+      description:
+        'Secret names whose values are resolved at launch and injected as env vars. Values are never returned to the agent.',
+    }),
+  ),
+  network: Type.Optional(
+    Type.String({
+      description:
+        'Docker network name. Containers on the same network can reach each other by container name.',
+    }),
+  ),
+});
+
+type ContainerStartArgs = Static<typeof ContainerStartParams>;
+
+const createContainerStartTool = ({
+  security,
+  containerManager,
+}: ToolContext): AgentTool<typeof ContainerStartParams> => ({
+  name: 'container_start',
+  label: 'Start Service Container',
+  description:
+    'Start a long-running service container (e.g. Postgres, Redis). The container is registered and persists across agent restarts until explicitly stopped. Port bindings expose the service on the host; inform the user if external access requires additional host configuration.',
+  parameters: ContainerStartParams,
+  execute: async (_toolCallId, args: ContainerStartArgs) => {
+    ensureAutonomyAllows(security, 'container_start');
+
+    const secretEnv =
+      args.env_secrets && args.env_secrets.length > 0
+        ? security.resolveSecrets(args.env_secrets)
+        : {};
+
+    const env =
+      Object.keys(secretEnv).length > 0 || (args.env && Object.keys(args.env).length > 0)
+        ? { ...(args.env ?? {}), ...secretEnv }
+        : undefined;
+
+    const entry = await containerManager.startService({
+      name: args.name,
+      image: args.image,
+      ...(args.description ? { description: args.description } : {}),
+      ...(args.mount ? { mount: args.mount } : {}),
+      ...(args.ports ? { ports: args.ports } : {}),
+      ...(env ? { env } : {}),
+      ...(args.network ? { network: args.network } : {}),
+    });
+
+    const portHints =
+      entry.ports && Object.keys(entry.ports).length > 0
+        ? `\nBound ports: ${Object.entries(entry.ports)
+            .map(([containerPort, hostPort]) => `${containerPort} → host:${hostPort}`)
+            .join(', ')}. Run "tailscale funnel <hostPort>" on the host if external access is needed.`
+        : '';
+
+    return {
+      content: asTextContent(`Service "${entry.name}" started.${portHints}`),
+      details: entry,
+    };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// container_stop
+// ---------------------------------------------------------------------------
+
+const ContainerStopParams = Type.Object({
+  name: Type.String({ description: 'Name of the service container to stop and remove.' }),
+});
+
+type ContainerStopArgs = Static<typeof ContainerStopParams>;
+
+const createContainerStopTool = ({
+  security,
+  containerManager,
+}: ToolContext): AgentTool<typeof ContainerStopParams> => ({
+  name: 'container_stop',
+  label: 'Stop Service Container',
+  description: 'Stop and remove a running service container. The registry entry is preserved with status "removed".',
+  parameters: ContainerStopParams,
+  execute: async (_toolCallId, args: ContainerStopArgs) => {
+    ensureAutonomyAllows(security, 'container_stop');
+
+    const entry = await containerManager.stopService(args.name);
+
+    return {
+      content: asTextContent(`Service "${entry.name}" stopped.`),
+      details: entry,
+    };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// container_exec
+// ---------------------------------------------------------------------------
+
+const ContainerExecParams = Type.Object({
+  name: Type.String({ description: 'Name of the running service container.' }),
+  command: Type.String({ description: 'Shell command to execute inside the container.' }),
+});
+
+type ContainerExecArgs = Static<typeof ContainerExecParams>;
+
+const createContainerExecTool = ({
+  security,
+  containerManager,
+}: ToolContext): AgentTool<typeof ContainerExecParams> => ({
+  name: 'container_exec',
+  label: 'Exec in Service Container',
+  description:
+    'Execute a shell command inside a running service container and return stdout/stderr. Use this to inspect state, run migrations, or interact with a service.',
+  parameters: ContainerExecParams,
+  execute: async (_toolCallId, args: ContainerExecArgs) => {
+    ensureAutonomyAllows(security, 'container_exec');
+
+    const result = await containerManager.execInService(args.name, args.command);
+
+    const details = {
+      stdout: result.stdout,
+      stderr: result.stderr,
+      exitCode: result.exitCode,
+      durationMs: result.durationMs,
+      ...(result.parsedOutput !== undefined ? { parsedOutput: result.parsedOutput } : {}),
+    };
+
+    return {
+      content: asTextContent(formatJson(details)),
+      details,
+    };
+  },
+});
+
 export const summarizeContainerList = (
   containers: ContainerListEntry[],
 ): string => formatJson(containers);
@@ -372,14 +549,106 @@ export const summarizeContainerEntry = (
   container: ContainerRegistryEntry,
 ): string => formatJson(container);
 
+/**
+ * Wraps a tool so that calls to tools listed in security.require_approval_for
+ * will pause and invoke the approval callback before executing.
+ * In `full` autonomy mode or when no callback is provided, tools always proceed.
+ */
+export const withApproval = (
+  tool: AgentTool<any>,
+  security: AgentSecurity,
+  approvalCallback: ApprovalCallback | undefined,
+  onToolRequested?: ToolRequestedCallback,
+  onToolStarted?: ToolStartedCallback,
+): AgentTool<any> => {
+  if (!approvalCallback) {
+    if (!onToolRequested && !onToolStarted) {
+      return tool;
+    }
+
+    return {
+      ...tool,
+      execute: async (
+        toolCallId: string,
+        args: unknown,
+        signal?: AbortSignal,
+        onUpdate?: Parameters<AgentTool<any>['execute']>[3],
+      ) => {
+        await onToolRequested?.(tool.name, toolCallId, args);
+        await onToolStarted?.(tool.name, toolCallId, args);
+        return tool.execute(toolCallId, args, signal, onUpdate);
+      },
+    };
+  }
+
+  return {
+    ...tool,
+    execute: async (
+      toolCallId: string,
+      args: unknown,
+      signal?: AbortSignal,
+      onUpdate?: Parameters<AgentTool<any>['execute']>[3],
+    ) => {
+      const needsApproval =
+        security.getAutonomyLevel() !== 'full' &&
+        security.requiresApproval(tool.name);
+
+      await onToolRequested?.(tool.name, toolCallId, args);
+
+      if (needsApproval) {
+        const decision = await approvalCallback(tool.name, toolCallId, args);
+
+        if (decision !== 'approved') {
+          const text =
+            decision === 'timed_out'
+              ? `Tool call "${tool.name}" timed out waiting for user approval.`
+              : decision === 'cancelled'
+                ? `Tool call "${tool.name}" was cancelled before approval was received.`
+                : `Tool call "${tool.name}" was rejected by the user.`;
+
+          return {
+            content: asTextContent(text),
+            details: {
+              rejected: true,
+              toolName: tool.name,
+              approvalStatus: decision,
+            },
+          };
+        }
+      }
+
+      await onToolStarted?.(tool.name, toolCallId, args);
+      return tool.execute(toolCallId, args, signal, onUpdate);
+    },
+  };
+};
+
 export const createBuiltInTools = (
   context: ToolContext,
-): AgentTool<any>[] => [
-  createReadFileTool(context),
-  createWriteFileTool(context),
-  createListFilesTool(context),
-  createDeleteFileTool(context),
-  createContainerRunTool(context),
-  createContainerStatusTool(context),
-  createWebFetchTool(),
-];
+): AgentTool<any>[] => {
+  const { security, approvalCallback, onToolStarted } = context;
+  const { onToolRequested } = context;
+
+  const tools = [
+    createReadFileTool(context),
+    createWriteFileTool(context),
+    createListFilesTool(context),
+    createDeleteFileTool(context),
+    createContainerRunTool(context),
+    createContainerStatusTool(context),
+    createWebFetchTool(),
+    createContainerStartTool(context),
+    createContainerStopTool(context),
+    createContainerExecTool(context),
+  ];
+
+  return tools.map((tool) =>
+    withApproval(
+      tool,
+      security,
+      approvalCallback,
+      onToolRequested,
+      onToolStarted,
+    ),
+  );
+};

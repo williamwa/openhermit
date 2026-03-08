@@ -176,7 +176,7 @@ The agent still exposes an HTTP API (Hono) as its sole **external** communicatio
 **External HTTP API contract**:
 - `POST /sessions` — accepts `SessionSpec` JSON, creates or resumes the session, returns `{ sessionId }`
 - `POST /sessions/{sessionId}/messages` — accepts `SessionMessage` JSON, appends one inbound message, returns `{ sessionId, messageId? }`
-- `GET /events?sessionId=xxx` — SSE stream of `OutboundEvent` (`text_delta | text_final | tool_start | error`)
+- `GET /events?sessionId=xxx` — SSE stream of `OutboundEvent` (`text_delta | text_final | tool_requested | tool_started | tool_result | error`)
 - The HTTP API is agent-local, not a multi-agent gateway: each agent already has its own port, so the URL does not repeat `{agentId}`
 - `POST /sessions` is metadata-only: it establishes session state, but agent execution advances only when a `SessionMessage` is appended
 - Auth: bearer token generated at startup, stored at `runtime/api.token`, injected into bridge containers as `CLOUDMIND_API_KEY`
