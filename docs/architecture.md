@@ -612,6 +612,9 @@ POST /sessions
   Body: SessionSpec JSON
   Returns: { sessionId }
 
+GET /sessions?kind=cli&limit=20
+  Returns: session list ordered by lastActivityAt desc
+
 POST /sessions/{sessionId}/messages
   Body: SessionMessage JSON
   Returns: { sessionId, messageId? }
@@ -623,6 +626,22 @@ GET /events?sessionId=xxx
 These are agent-local routes. Each agent already runs on its own port, so the caller first discovers the target agent via workspace/runtime metadata (`runtime/api.port`, `runtime/api.token`) and then talks to that agent's local API directly; the URL does not repeat the agent id.
 
 `POST /sessions` is metadata-only: it creates or resumes session state, but it does not carry user text and does not advance the agent loop on its own. The loop advances only when a `SessionMessage` is posted.
+
+`GET /sessions` is agent-local. It lists sessions known to this agent, not a globally unified "current user's sessions" view. Callers filter by source metadata such as `kind`, `platform`, or `interactive`.
+
+Recommended default sort:
+
+- `lastActivityAt desc`
+
+Recommended response fields:
+
+- `sessionId`
+- `source`
+- `createdAt`
+- `lastActivityAt`
+- `messageCount`
+- `lastMessagePreview`
+- runtime `status` (`idle | running | awaiting_approval`)
 
 The HTTP API is one adapter over the same core runner. In-process timers and internal schedulers can call `openSession()` and `postMessage()` directly without going through HTTP.
 
@@ -646,6 +665,8 @@ At startup the agent generates a random token, writes it to `runtime/api.token`,
 3. Subscribe to `GET /events?sessionId=xxx`
 4. Send the first or next user message via `POST /sessions/{sessionId}/messages`
 5. Stream `text_delta` events to stdout
+
+If the CLI wants to resume an older session explicitly, it should first query `GET /sessions?kind=cli` and then bind the local conversation to the chosen `sessionId`.
 
 #### Telegram Bridge Container
 

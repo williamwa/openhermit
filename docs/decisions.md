@@ -176,10 +176,12 @@ The agent still exposes an HTTP API (Hono) as its sole **external** communicatio
 
 **External HTTP API contract**:
 - `POST /sessions` — accepts `SessionSpec` JSON, creates or resumes the session, returns `{ sessionId }`
+- `GET /sessions` — lists sessions known to the current agent; callers may filter by source metadata such as `kind`, `platform`, or `interactive`; default sort is `lastActivityAt desc`
 - `POST /sessions/{sessionId}/messages` — accepts `SessionMessage` JSON, appends one inbound message, returns `{ sessionId, messageId? }`
 - `GET /events?sessionId=xxx` — SSE stream of `OutboundEvent` (`text_delta | text_final | tool_requested | tool_started | tool_result | error`)
 - The HTTP API is agent-local, not a multi-agent gateway: each agent already has its own port, so the URL does not repeat `{agentId}`
 - `POST /sessions` is metadata-only: it establishes session state, but agent execution advances only when a `SessionMessage` is appended
+- `GET /sessions` is agent-local, not a global per-user inbox; session selection beyond a single agent happens in adapters or a future gateway
 - Auth: bearer token generated at startup, stored at `runtime/api.token`, injected into bridge containers as `CLOUDMIND_API_KEY`
 - Port: bound dynamically at startup (try `config.http_api.preferred_port` first; fall back to OS-assigned port `0`); actual port written to `runtime/api.port` — clients read it from there
 - A future gateway may proxy these agent-local endpoints behind `/agents/{id}/...`, but that is a separate control-plane layer, not part of the v1 agent contract

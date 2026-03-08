@@ -125,12 +125,13 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 - [ ] Expose `AgentRunner.openSession(spec)` and `AgentRunner.postMessage(sessionId, message)` inside the agent process; all adapters call this lifecycle interface
 - [ ] Implement Hono HTTP adapter inside the agent process:
   - `POST /sessions` — validates bearer token, accepts `SessionSpec`, creates or resumes the session, returns `{ sessionId }`
+  - `GET /sessions` — validates bearer token, lists sessions known to this agent; supports filters like `kind`, `platform`, `interactive`, `limit`; default sort is `lastActivityAt desc`
   - `POST /sessions/{sessionId}/messages` — validates bearer token, accepts `SessionMessage`, appends one inbound message, returns `{ sessionId, messageId? }`
   - `GET /events?sessionId=xxx` — SSE stream, pushes `OutboundEvent`s as the agent processes the session
 - [ ] Runtime API token: generate on startup, write to `runtime/api.token` (create `runtime/` dir, add to `.gitignore`)
 - [ ] Dynamic port binding: try `config.http_api.preferred_port` first; if taken, bind to port `0` (OS assigns free port); write actual port to `runtime/api.port` — guarantees zero conflicts when multiple agents run on the same host
 - [ ] Treat the HTTP API as agent-local: clients first choose the target agent by reading its workspace/runtime metadata, then talk to that agent's local port directly; route paths do not repeat `{agentId}`
-- [ ] CLI client (`cloudmind chat --agent <id>`): reads `runtime/api.port` and `runtime/api.token`, creates or resumes a `source.kind = "cli"` session, subscribes to SSE, then posts the first and subsequent user messages to `/sessions/{sessionId}/messages`
+- [ ] CLI client (`cloudmind chat --agent <id>`): reads `runtime/api.port` and `runtime/api.token`, creates a new `source.kind = "cli"` session by default, can resume older sessions explicitly via `GET /sessions?kind=cli`, subscribes to SSE, then posts the first and subsequent user messages to `/sessions/{sessionId}/messages`
 - [ ] `cloudmind run --agent <id> "task"` — same as above but single-shot (no readline loop)
 - [ ] Scheduled triggers in Phase 6 reuse the same `SessionSpec + SessionMessage` lifecycle in-process or over HTTP; no second execution path
 - [ ] `cloudmind models` — list all available models across providers
