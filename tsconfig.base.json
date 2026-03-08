@@ -3,6 +3,18 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "baseUrl": ".",
+    "paths": {
+      "@cloudmind/protocol": [
+        "packages/protocol/src/index.ts"
+      ],
+      "@cloudmind/shared": [
+        "packages/shared/src/index.ts"
+      ],
+      "@cloudmind/sdk": [
+        "packages/sdk/src/index.ts"
+      ]
+    },
     "lib": [
       "ES2022",
       "DOM",

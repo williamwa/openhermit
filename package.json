@@ -13,8 +13,7 @@
   ],
   "scripts": {
     "build": "tsc -b",
-    "typecheck": "tsc -b --pretty false --noEmit && npm run typecheck:test",
-    "typecheck:test": "tsc -p apps/agent/tsconfig.test.json --pretty false --noEmit",
+    "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run build && node --import tsx --test apps/agent/test/*.test.ts",
     "dev:agent": "tsx apps/agent/src/index.ts",
     "dev:gateway": "tsx apps/gateway/src/index.ts",

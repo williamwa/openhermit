@@ -1,11 +1,14 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "rootDir": ".",
+    "rootDir": "../..",
     "noEmit": true
   },
+  "references": [],
   "include": [
     "src",
-    "test"
+    "test",
+    "../../packages/protocol/src",
+    "../../packages/shared/src"
   ]
 }

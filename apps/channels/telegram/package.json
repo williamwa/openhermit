@@ -7,7 +7,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -b",
-    "typecheck": "tsc -b --pretty false --noEmit",
+    "typecheck": "tsc -p tsconfig.json --pretty false --noEmit",
     "dev": "tsx src/index.ts"
   },
   "dependencies": {

@@ -72,20 +72,24 @@ const deriveContainerStatus = (statusText: string | undefined): ContainerStatus 
   return 'unknown';
 };
 
-interface CommandResult {
+export interface DockerCommandResult {
   stdout: string;
   stderr: string;
   exitCode: number;
   durationMs: number;
 }
 
-class DockerCli {
+export interface DockerRunner {
+  run(args: string[]): Promise<DockerCommandResult>;
+}
+
+class DockerCliRunner implements DockerRunner {
   constructor(private readonly binary = process.env.CLOUDMIND_DOCKER_BIN ?? 'docker') {}
 
-  async run(args: string[]): Promise<CommandResult> {
+  async run(args: string[]): Promise<DockerCommandResult> {
     const startedAt = Date.now();
 
-    return new Promise<CommandResult>((resolve, reject) => {
+    return new Promise<DockerCommandResult>((resolve, reject) => {
       const child = spawn(this.binary, args, {
         env: process.env,
       });
@@ -121,6 +125,10 @@ class DockerCli {
       });
     });
   }
+}
+
+export interface DockerContainerManagerOptions {
+  runner?: DockerRunner;
 }
 
 export class ContainerRegistryStore {
@@ -208,12 +216,15 @@ interface LiveDockerContainer {
 }
 
 export class DockerContainerManager {
-  private readonly docker: DockerCli;
+  private readonly docker: DockerRunner;
 
   readonly registry: ContainerRegistryStore;
 
-  constructor(private readonly workspace: AgentWorkspace) {
-    this.docker = new DockerCli();
+  constructor(
+    private readonly workspace: AgentWorkspace,
+    options: DockerContainerManagerOptions = {},
+  ) {
+    this.docker = options.runner ?? new DockerCliRunner();
     this.registry = new ContainerRegistryStore(workspace);
   }
 
