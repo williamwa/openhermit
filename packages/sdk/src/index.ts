@@ -2,6 +2,7 @@ import {
   agentLocalRoutes,
   type SessionMessage,
   type SessionSpec,
+  type ToolApprovalRequest,
 } from '@cloudmind/protocol';
 import {
   CloudMindError,
@@ -33,6 +34,13 @@ export class AgentLocalClient {
     message: SessionMessage,
   ): Promise<{ sessionId: string; messageId?: string }> {
     return this.postJson(agentLocalRoutes.sessionMessages(sessionId), message);
+  }
+
+  async submitApproval(
+    sessionId: string,
+    request: ToolApprovalRequest,
+  ): Promise<{ resolved: boolean }> {
+    return this.postJson(agentLocalRoutes.sessionApprove(sessionId), request);
   }
 
   buildEventsUrl(sessionId: string): string {

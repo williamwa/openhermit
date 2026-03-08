@@ -271,7 +271,7 @@ Three layers, all stored as plain files in the workspace:
 
 #### Episodic Memory — `memory/episodic/{YYYY-MM}.jsonl`
 - Append-only JSONL log, one event per line, **split by month** to avoid unbounded file growth
-- Events: `message_received`, `tool_called`, `tool_result`, `session_started`, `session_ended`, `note_updated`, `heartbeat_run`, `hook_fired`
+- Events: `message_received`, `tool_requested`, `tool_started`, `tool_result`, `session_started`, `session_ended`, `note_updated`, `heartbeat_run`, `hook_fired`
 - Used for reviewing history, understanding what happened and when
 - Format: `{"ts": "ISO8601", "type": "...", "session": "...", "data": {...}}`
 - Current month file is active; older files are read-only archives
@@ -519,7 +519,8 @@ type SessionMessage = {
 type OutboundEvent =
   | { type: "text_delta"; sessionId: string; text: string }
   | { type: "text_final"; sessionId: string; text: string }
-  | { type: "tool_start"; sessionId: string; tool: string }
+  | { type: "tool_requested"; sessionId: string; tool: string; args?: unknown }
+  | { type: "tool_started"; sessionId: string; tool: string; args?: unknown }
   | { type: "error"; sessionId: string; message: string }
 ```
 
