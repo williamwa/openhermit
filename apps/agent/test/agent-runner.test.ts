@@ -468,6 +468,10 @@ test('AgentRunner pauses on require_approval_for and resumes after respondToAppr
   });
 
   const backlogBefore = runner.events.getBacklog('cli:approval-session');
+  const sessionSummariesWhilePaused = await runner.listSessions({ kind: 'cli' });
+  assert.equal(sessionSummariesWhilePaused.length, 1);
+  assert.equal(sessionSummariesWhilePaused[0]?.status, 'awaiting_approval');
+  assert.equal(sessionSummariesWhilePaused[0]?.lastMessagePreview, 'Write a file.');
   assert.ok(
     backlogBefore.some((e) => e.event.type === 'tool_approval_required'),
     'tool_approval_required event was published',
@@ -496,6 +500,15 @@ test('AgentRunner pauses on require_approval_for and resumes after respondToAppr
   }
 
   await runner.waitForSessionIdle('cli:approval-session');
+
+  const sessionSummariesAfterApproval = await runner.listSessions({ kind: 'cli' });
+  assert.equal(sessionSummariesAfterApproval.length, 1);
+  assert.equal(sessionSummariesAfterApproval[0]?.status, 'idle');
+  assert.equal(
+    sessionSummariesAfterApproval[0]?.lastMessagePreview,
+    'File written successfully.',
+  );
+  assert.equal(sessionSummariesAfterApproval[0]?.messageCount, 2);
 
   const backlogAfter = runner.events.getBacklog('cli:approval-session');
   assert.ok(

@@ -78,3 +78,52 @@ test('InMemoryAgentRuntime rejects messages for unknown sessions', async () => {
     NotFoundError,
   );
 });
+
+test('InMemoryAgentRuntime lists sessions by last activity and applies filters', async () => {
+  const runtime = new InMemoryAgentRuntime();
+
+  await runtime.openSession({
+    sessionId: 'im:telegram-1',
+    source: {
+      kind: 'im',
+      platform: 'telegram',
+      interactive: true,
+    },
+  });
+
+  await runtime.openSession({
+    sessionId: 'cli:test-session',
+    source: {
+      kind: 'cli',
+      interactive: true,
+    },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await runtime.postMessage('cli:test-session', {
+    text: 'hello list',
+  });
+
+  const cliSessions = await runtime.listSessions({ kind: 'cli' });
+  assert.equal(cliSessions.length, 1);
+  assert.deepEqual(cliSessions[0], {
+    sessionId: 'cli:test-session',
+    source: {
+      kind: 'cli',
+      interactive: true,
+    },
+    createdAt: cliSessions[0]?.createdAt,
+    lastActivityAt: cliSessions[0]?.lastActivityAt,
+    messageCount: 2,
+    lastMessagePreview: 'CloudMind agent scaffold received a cli message: hello list',
+    status: 'idle',
+  });
+
+  const telegramSessions = await runtime.listSessions({ platform: 'telegram' });
+  assert.equal(telegramSessions.length, 1);
+  assert.equal(telegramSessions[0]?.sessionId, 'im:telegram-1');
+
+  const limitedSessions = await runtime.listSessions({ limit: 1 });
+  assert.equal(limitedSessions.length, 1);
+  assert.equal(limitedSessions[0]?.sessionId, 'cli:test-session');
+});

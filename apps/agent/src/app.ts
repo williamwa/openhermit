@@ -5,6 +5,7 @@ import {
   agentLocalRoutes,
   isSessionMessage,
   isSessionSpec,
+  type SessionListQuery,
   isToolApprovalRequest,
 } from '@cloudmind/protocol';
 import {
@@ -43,6 +44,77 @@ const waitForAbort = async (signal: AbortSignal): Promise<void> => {
   await new Promise<void>((resolve) => {
     signal.addEventListener('abort', () => resolve(), { once: true });
   });
+};
+
+const parseBooleanQuery = (value: string | undefined): boolean | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === 'true') {
+    return true;
+  }
+
+  if (value === 'false') {
+    return false;
+  }
+
+  throw new ValidationError(`Invalid boolean query value: ${value}`);
+};
+
+const parsePositiveIntegerQuery = (
+  value: string | undefined,
+  fieldName: string,
+): number | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new ValidationError(`Invalid ${fieldName} query value: ${value}`);
+  }
+
+  return parsed;
+};
+
+const parseSessionListQuery = (request: Request): SessionListQuery => {
+  const url = new URL(request.url);
+  const kind = url.searchParams.get('kind');
+  const platform = url.searchParams.get('platform');
+  const query: SessionListQuery = {};
+
+  if (kind) {
+    query.kind = kind;
+  }
+
+  if (platform) {
+    query.platform = platform;
+  }
+
+  if (url.searchParams.has('interactive')) {
+    const interactive = parseBooleanQuery(
+      url.searchParams.get('interactive') ?? undefined,
+    );
+
+    if (interactive !== undefined) {
+      query.interactive = interactive;
+    }
+  }
+
+  if (url.searchParams.has('limit')) {
+    const limit = parsePositiveIntegerQuery(
+      url.searchParams.get('limit') ?? undefined,
+      'limit',
+    );
+
+    if (limit !== undefined) {
+      query.limit = limit;
+    }
+  }
+
+  return query;
 };
 
 export const createAgentApp = (
@@ -87,6 +159,12 @@ export const createAgentApp = (
 
     const session = await runtime.openSession(payload);
     return c.json({ sessionId: session.spec.sessionId });
+  });
+
+  app.get(agentLocalRoutes.sessions, async (c) => {
+    const query = parseSessionListQuery(c.req.raw);
+    const sessions = await runtime.listSessions(query);
+    return c.json(sessions);
   });
 
   app.post(agentLocalRoutes.sessionMessagesPattern, async (c) => {

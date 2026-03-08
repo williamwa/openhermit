@@ -12,6 +12,7 @@ import {
   type Model,
 } from '@mariozechner/pi-ai';
 import type { SessionMessage, SessionSpec } from '@cloudmind/protocol';
+import type { SessionListQuery, SessionStatus, SessionSummary } from '@cloudmind/protocol';
 import { NotFoundError, ValidationError, getErrorMessage } from '@cloudmind/shared';
 
 // ---------------------------------------------------------------------------
@@ -106,6 +107,9 @@ interface RunnerSession extends SessionDescriptor {
   episodicRelativePath: string;
   latestAssistantText: string | undefined;
   approvalGate: ApprovalGate;
+  status: SessionStatus;
+  messageCount: number;
+  lastMessagePreview?: string;
 }
 
 export interface AgentRunnerOptions {
@@ -248,6 +252,33 @@ const extractToolResultDetails = (result: unknown): unknown => {
   return result.details;
 };
 
+const matchesSessionListQuery = (
+  summary: SessionSummary,
+  query: SessionListQuery,
+): boolean => {
+  if (query.kind && summary.source.kind !== query.kind) {
+    return false;
+  }
+
+  if (query.platform && summary.source.platform !== query.platform) {
+    return false;
+  }
+
+  if (
+    query.interactive !== undefined &&
+    summary.source.interactive !== query.interactive
+  ) {
+    return false;
+  }
+
+  return true;
+};
+
+const sortSessionSummaries = (
+  left: SessionSummary,
+  right: SessionSummary,
+): number => right.lastActivityAt.localeCompare(left.lastActivityAt);
+
 const resolveModel = (config: AgentConfig): Model<any> => {
   try {
     return getModel(
@@ -347,6 +378,8 @@ export class AgentRunner implements SessionRuntime {
       episodicRelativePath: paths.episodicRelativePath,
       latestAssistantText: undefined,
       approvalGate,
+      status: 'idle',
+      messageCount: 0,
     };
 
     agent.subscribe((event) => {
@@ -378,6 +411,26 @@ export class AgentRunner implements SessionRuntime {
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
     };
+  }
+
+  async listSessions(query: SessionListQuery = {}): Promise<SessionSummary[]> {
+    const limit = query.limit;
+    const summaries = [...this.sessions.values()]
+      .map((session) => ({
+        sessionId: session.spec.sessionId,
+        source: session.spec.source,
+        createdAt: session.createdAt,
+        lastActivityAt: session.updatedAt,
+        messageCount: session.messageCount,
+        ...(session.lastMessagePreview
+          ? { lastMessagePreview: session.lastMessagePreview }
+          : {}),
+        status: session.status,
+      }))
+      .filter((summary) => matchesSessionListQuery(summary, query))
+      .sort(sortSessionSummaries);
+
+    return limit !== undefined ? summaries.slice(0, limit) : summaries;
   }
 
   getSessionLogRelativePath(sessionId: string): string {
@@ -421,6 +474,9 @@ export class AgentRunner implements SessionRuntime {
   ): Promise<{ sessionId: string; messageId?: string }> {
     const session = this.getRequiredSession(sessionId);
     session.updatedAt = new Date().toISOString();
+    session.status = 'running';
+    session.messageCount += 1;
+    session.lastMessagePreview = message.text;
 
     const receivedAt = new Date().toISOString();
     await this.queueSideEffect(session, async () => {
@@ -487,9 +543,16 @@ export class AgentRunner implements SessionRuntime {
         ...(args !== undefined ? { args } : {}),
       });
 
+      if (session) {
+        session.status = 'awaiting_approval';
+        session.updatedAt = new Date().toISOString();
+      }
+
       const decision = await gate.request(toolCallId);
 
       if (session) {
+        session.status = 'running';
+        session.updatedAt = new Date().toISOString();
         await this.recordApprovalResolved(session, toolName, toolCallId, decision);
       }
 
@@ -500,6 +563,8 @@ export class AgentRunner implements SessionRuntime {
   private makeToolStartedCallback(session: RunnerSession): ToolStartedCallback {
     return async (toolName, toolCallId, args) => {
       const ts = new Date().toISOString();
+      session.status = 'running';
+      session.updatedAt = ts;
 
       await this.events.publish({
         type: 'tool_started',
@@ -823,6 +888,9 @@ export class AgentRunner implements SessionRuntime {
 
         session.latestAssistantText = assistantText;
         const ts = new Date().toISOString();
+        session.updatedAt = ts;
+        session.messageCount += 1;
+        session.lastMessagePreview = assistantText;
 
         void this.queueSideEffect(session, async () => {
           await Promise.all([
@@ -899,6 +967,8 @@ export class AgentRunner implements SessionRuntime {
       case 'agent_end': {
         const ts = new Date().toISOString();
         const finalText = session.latestAssistantText;
+        session.updatedAt = ts;
+        session.status = 'idle';
 
         void (async () => {
           if (finalText) {
@@ -938,6 +1008,8 @@ export class AgentRunner implements SessionRuntime {
   ): Promise<void> {
     const message = getErrorMessage(error);
     const ts = new Date().toISOString();
+    session.updatedAt = ts;
+    session.status = 'idle';
 
     try {
       await this.events.publish({

@@ -167,3 +167,66 @@ test('createAgentApp validates the events query string', async () => {
     },
   });
 });
+
+test('createAgentApp lists sessions with filters and sorting', async () => {
+  const runtime = new InMemoryAgentRuntime();
+  const app = createAgentApp(runtime, { apiToken: bearer });
+
+  await runtime.openSession({
+    sessionId: 'im:telegram-1',
+    source: {
+      kind: 'im',
+      platform: 'telegram',
+      interactive: true,
+    },
+  });
+  await runtime.openSession({
+    sessionId: 'cli:test-session',
+    source: {
+      kind: 'cli',
+      interactive: true,
+    },
+  });
+  await runtime.postMessage('cli:test-session', {
+    text: 'hello list',
+  });
+
+  const response = await app.request('/sessions?kind=cli&interactive=true&limit=1', {
+    headers: {
+      authorization: `Bearer ${bearer}`,
+    },
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), [
+    {
+      sessionId: 'cli:test-session',
+      source: {
+        kind: 'cli',
+        interactive: true,
+      },
+      createdAt: runtime.getSession('cli:test-session')?.createdAt,
+      lastActivityAt: runtime.getSession('cli:test-session')?.updatedAt,
+      messageCount: 2,
+      lastMessagePreview: 'CloudMind agent scaffold received a cli message: hello list',
+      status: 'idle',
+    },
+  ]);
+});
+
+test('createAgentApp validates session list query parameters', async () => {
+  const app = createAgentApp(new InMemoryAgentRuntime(), { apiToken: bearer });
+  const response = await app.request('/sessions?interactive=maybe&limit=0', {
+    headers: {
+      authorization: `Bearer ${bearer}`,
+    },
+  });
+
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), {
+    error: {
+      code: 'validation_error',
+      message: 'Invalid boolean query value: maybe',
+    },
+  });
+});

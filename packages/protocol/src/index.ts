@@ -29,6 +29,25 @@ export interface SessionMessage {
   attachments?: SessionAttachment[];
 }
 
+export type SessionStatus = 'idle' | 'running' | 'awaiting_approval';
+
+export interface SessionSummary {
+  sessionId: string;
+  source: SessionSource;
+  createdAt: string;
+  lastActivityAt: string;
+  messageCount: number;
+  lastMessagePreview?: string;
+  status: SessionStatus;
+}
+
+export interface SessionListQuery {
+  kind?: SourceKind;
+  platform?: string;
+  interactive?: boolean;
+  limit?: number;
+}
+
 export type OutboundEvent =
   | { type: 'text_delta'; sessionId: string; text: string }
   | { type: 'text_final'; sessionId: string; text: string }

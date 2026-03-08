@@ -2,7 +2,10 @@ import {
   createAgentEndEvent,
   createTextFinalEvent,
   type OutboundEvent,
+  type SessionListQuery,
   type SessionMessage,
+  type SessionStatus,
+  type SessionSummary,
   type SessionSpec,
 } from '@cloudmind/protocol';
 import { NotFoundError } from '@cloudmind/shared';
@@ -12,6 +15,9 @@ export interface SessionRecord {
   messages: SessionMessage[];
   createdAt: string;
   updatedAt: string;
+  status: SessionStatus;
+  messageCount: number;
+  lastMessagePreview?: string;
 }
 
 export interface SessionEventEnvelope {
@@ -28,11 +34,39 @@ export interface SessionDescriptor {
 export interface SessionRuntime {
   readonly events: SessionEventBroker;
   openSession(spec: SessionSpec): Promise<SessionDescriptor>;
+  listSessions(query?: SessionListQuery): Promise<SessionSummary[]>;
   postMessage(
     sessionId: string,
     message: SessionMessage,
   ): Promise<{ sessionId: string; messageId?: string }>;
 }
+
+const matchesSessionListQuery = (
+  summary: SessionSummary,
+  query: SessionListQuery,
+): boolean => {
+  if (query.kind && summary.source.kind !== query.kind) {
+    return false;
+  }
+
+  if (query.platform && summary.source.platform !== query.platform) {
+    return false;
+  }
+
+  if (
+    query.interactive !== undefined &&
+    summary.source.interactive !== query.interactive
+  ) {
+    return false;
+  }
+
+  return true;
+};
+
+const sortSessionSummaries = (
+  left: SessionSummary,
+  right: SessionSummary,
+): number => right.lastActivityAt.localeCompare(left.lastActivityAt);
 
 type SessionSubscriber = (
   envelope: SessionEventEnvelope,
@@ -131,6 +165,8 @@ export class InMemoryAgentRuntime implements SessionRuntime {
       messages: [],
       createdAt: now,
       updatedAt: now,
+      status: 'idle',
+      messageCount: 0,
     };
 
     this.sessions.set(spec.sessionId, session);
@@ -145,6 +181,26 @@ export class InMemoryAgentRuntime implements SessionRuntime {
     return this.sessions.get(sessionId);
   }
 
+  async listSessions(query: SessionListQuery = {}): Promise<SessionSummary[]> {
+    const limit = query.limit;
+    const summaries = [...this.sessions.values()]
+      .map((session) => ({
+        sessionId: session.spec.sessionId,
+        source: session.spec.source,
+        createdAt: session.createdAt,
+        lastActivityAt: session.updatedAt,
+        messageCount: session.messageCount,
+        ...(session.lastMessagePreview
+          ? { lastMessagePreview: session.lastMessagePreview }
+          : {}),
+        status: session.status,
+      }))
+      .filter((summary) => matchesSessionListQuery(summary, query))
+      .sort(sortSessionSummaries);
+
+    return limit !== undefined ? summaries.slice(0, limit) : summaries;
+  }
+
   async postMessage(
     sessionId: string,
     message: SessionMessage,
@@ -157,6 +213,9 @@ export class InMemoryAgentRuntime implements SessionRuntime {
 
     session.messages.push(message);
     session.updatedAt = new Date().toISOString();
+    session.status = 'running';
+    session.messageCount += 1;
+    session.lastMessagePreview = message.text;
 
     // Temporary scaffold response until the LLM loop is wired into the runtime.
     await this.events.publish(
@@ -166,6 +225,10 @@ export class InMemoryAgentRuntime implements SessionRuntime {
       ),
     );
     await this.events.publish(createAgentEndEvent(sessionId));
+    session.updatedAt = new Date().toISOString();
+    session.status = 'idle';
+    session.messageCount += 1;
+    session.lastMessagePreview = `CloudMind agent scaffold received a ${session.spec.source.kind} message: ${message.text}`;
 
     if (message.messageId) {
       return {
