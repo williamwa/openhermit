@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { TestContext } from 'node:test';
 
 import { AgentSecurity, AgentWorkspace } from '../src/core/index.js';
-import type { SecretsMap } from '../src/core/types.js';
+import type { SecretsMap, SecurityPolicy } from '../src/core/types.js';
 
 export interface WorkspaceFixture {
   root: string;
@@ -49,6 +49,7 @@ export const createSecurityFixture = async (
   t: TestContext,
   options?: {
     secrets?: SecretsMap;
+    security?: Partial<SecurityPolicy>;
   },
 ): Promise<SecurityFixture> => {
   const workspaceFixture = await createWorkspaceFixture(t);
@@ -65,6 +66,18 @@ export const createSecurityFixture = async (
     await fs.writeFile(
       security.secretsFilePath,
       `${JSON.stringify(options.secrets, null, 2)}\n`,
+      'utf8',
+    );
+  }
+
+  if (options?.security) {
+    const existing = JSON.parse(
+      await fs.readFile(security.securityFilePath, 'utf8'),
+    ) as SecurityPolicy;
+    const merged: SecurityPolicy = { ...existing, ...options.security };
+    await fs.writeFile(
+      security.securityFilePath,
+      `${JSON.stringify(merged, null, 2)}\n`,
       'utf8',
     );
   }

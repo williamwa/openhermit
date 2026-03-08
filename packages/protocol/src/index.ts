@@ -41,8 +41,20 @@ export type OutboundEvent =
       text?: string;
       details?: unknown;
     }
+  | {
+      type: 'tool_approval_required';
+      sessionId: string;
+      toolName: string;
+      toolCallId: string;
+      args?: unknown;
+    }
   | { type: 'agent_end'; sessionId: string }
   | { type: 'error'; sessionId: string; message: string };
+
+export interface ToolApprovalRequest {
+  toolCallId: string;
+  approved: boolean;
+}
 
 export const agentLocalRoutes = {
   health: '/health',
@@ -50,6 +62,9 @@ export const agentLocalRoutes = {
   sessionMessagesPattern: '/sessions/:sessionId/messages',
   sessionMessages: (sessionId: string): string =>
     `/sessions/${encodeURIComponent(sessionId)}/messages`,
+  sessionApprovePattern: '/sessions/:sessionId/approve',
+  sessionApprove: (sessionId: string): string =>
+    `/sessions/${encodeURIComponent(sessionId)}/approve`,
   events: '/events',
   eventsUrl: (sessionId: string): string =>
     `/events?sessionId=${encodeURIComponent(sessionId)}`,
@@ -157,3 +172,16 @@ export const createAgentEndEvent = (sessionId: string): OutboundEvent => ({
   type: 'agent_end',
   sessionId,
 });
+
+export const isToolApprovalRequest = (
+  value: unknown,
+): value is ToolApprovalRequest => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    typeof value.toolCallId === 'string' &&
+    typeof value.approved === 'boolean'
+  );
+};

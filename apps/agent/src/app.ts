@@ -5,6 +5,7 @@ import {
   agentLocalRoutes,
   isSessionMessage,
   isSessionSpec,
+  isToolApprovalRequest,
 } from '@cloudmind/protocol';
 import {
   CloudMindError,
@@ -19,6 +20,7 @@ import {
   type SessionRuntime,
   type SessionEventEnvelope,
 } from './runtime.js';
+import type { AgentRunner } from './agent-runner.js';
 
 const SSE_PING_INTERVAL_MS = 15_000;
 
@@ -44,7 +46,7 @@ const waitForAbort = async (signal: AbortSignal): Promise<void> => {
 };
 
 export const createAgentApp = (
-  runtime: SessionRuntime = new InMemoryAgentRuntime(),
+  runtime: SessionRuntime | AgentRunner = new InMemoryAgentRuntime(),
   options: { apiToken?: string } = {},
 ): Hono => {
   const app = new Hono();
@@ -88,7 +90,7 @@ export const createAgentApp = (
   });
 
   app.post(agentLocalRoutes.sessionMessagesPattern, async (c) => {
-    const sessionId = c.req.param('sessionId');
+    const sessionId = c.req.param('sessionId') ?? '';
     const payload = await c.req.json().catch(() => null);
 
     if (!isSessionMessage(payload)) {
@@ -97,6 +99,28 @@ export const createAgentApp = (
 
     const result = await runtime.postMessage(sessionId, payload);
     return c.json(result);
+  });
+
+  app.post(agentLocalRoutes.sessionApprovePattern, async (c) => {
+    const sessionId = c.req.param('sessionId') ?? '';
+    const payload = await c.req.json().catch(() => null);
+
+    if (!isToolApprovalRequest(payload)) {
+      throw new ValidationError('Invalid ToolApprovalRequest payload.');
+    }
+
+    // Only AgentRunner (not the stub InMemoryAgentRuntime) exposes respondToApproval.
+    if (!('respondToApproval' in runtime)) {
+      throw new ValidationError('This runtime does not support tool approvals.');
+    }
+
+    const resolved = (runtime as AgentRunner).respondToApproval(
+      sessionId,
+      payload.toolCallId,
+      payload.approved,
+    );
+
+    return c.json({ resolved });
   });
 
   app.get(agentLocalRoutes.events, async (c) => {

@@ -13,6 +13,61 @@ import {
 import type { SessionMessage, SessionSpec } from '@cloudmind/protocol';
 import { NotFoundError, ValidationError, getErrorMessage } from '@cloudmind/shared';
 
+// ---------------------------------------------------------------------------
+// ApprovalGate — per-session registry of pending tool approval Promises.
+// The tool's execute() calls gate.request(), which suspends until the HTTP
+// /approve endpoint resolves it via gate.respond().
+// ---------------------------------------------------------------------------
+
+const APPROVAL_TIMEOUT_MS = 120_000; // 2 minutes before auto-deny
+
+class ApprovalGate {
+  private readonly pending = new Map<
+    string,
+    { resolve: (approved: boolean) => void; timeout: ReturnType<typeof setTimeout> }
+  >();
+
+  /** Suspend until the user approves or denies this toolCallId. */
+  request(toolCallId: string): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      const timeout = setTimeout(() => {
+        this.pending.delete(toolCallId);
+        resolve(false); // auto-deny on timeout
+      }, APPROVAL_TIMEOUT_MS);
+
+      this.pending.set(toolCallId, { resolve, timeout });
+    });
+  }
+
+  /**
+   * Resolve a pending approval.
+   * Returns true if a pending entry was found, false if it was already resolved
+   * or never registered (e.g. the gate timed out).
+   */
+  respond(toolCallId: string, approved: boolean): boolean {
+    const pending = this.pending.get(toolCallId);
+
+    if (!pending) {
+      return false;
+    }
+
+    clearTimeout(pending.timeout);
+    this.pending.delete(toolCallId);
+    pending.resolve(approved);
+    return true;
+  }
+
+  /** Cancel all pending approvals (e.g. on session teardown). */
+  cancelAll(): void {
+    for (const [, entry] of this.pending) {
+      clearTimeout(entry.timeout);
+      entry.resolve(false);
+    }
+
+    this.pending.clear();
+  }
+}
+
 import {
   AgentSecurity,
   AgentWorkspace,
@@ -21,7 +76,7 @@ import {
 } from './core/index.js';
 import { SessionLogWriter, createSessionLogPaths } from './session-logs.js';
 import { type SessionDescriptor, SessionEventBroker, type SessionRuntime } from './runtime.js';
-import { createBuiltInTools } from './tools.js';
+import { type ApprovalCallback, createBuiltInTools } from './tools.js';
 
 const SECRET_NAME_CANDIDATES: Record<string, string[]> = {
   anthropic: ['ANTHROPIC_API_KEY'],
@@ -40,6 +95,7 @@ interface RunnerSession extends SessionDescriptor {
   sessionLogRelativePath: string;
   episodicRelativePath: string;
   latestAssistantText: string | undefined;
+  approvalGate: ApprovalGate;
 }
 
 export interface AgentRunnerOptions {
@@ -219,7 +275,11 @@ export class AgentRunner implements SessionRuntime {
     }
 
     const config = await this.options.workspace.readConfig();
-    const agent = await this.createAgent(spec, config);
+    const approvalGate = new ApprovalGate();
+    const approvalCallback = spec.source.interactive
+      ? this.makeApprovalCallback(spec.sessionId, approvalGate)
+      : undefined;
+    const agent = await this.createAgent(spec, config, approvalCallback);
     const paths = createSessionLogPaths(spec.sessionId, now);
     const session: RunnerSession = {
       spec,
@@ -231,6 +291,7 @@ export class AgentRunner implements SessionRuntime {
       sessionLogRelativePath: paths.sessionLogRelativePath,
       episodicRelativePath: paths.episodicRelativePath,
       latestAssistantText: undefined,
+      approvalGate,
     };
 
     agent.subscribe((event) => {
@@ -272,6 +333,25 @@ export class AgentRunner implements SessionRuntime {
   getEpisodicLogRelativePath(sessionId: string): string {
     const session = this.getRequiredSession(sessionId);
     return session.episodicRelativePath;
+  }
+
+  /**
+   * Resolve a pending tool approval for the given session.
+   * Called by the HTTP `POST /sessions/:id/approve` endpoint.
+   * Returns true if a pending approval was found and resolved, false otherwise.
+   */
+  respondToApproval(
+    sessionId: string,
+    toolCallId: string,
+    approved: boolean,
+  ): boolean {
+    const session = this.sessions.get(sessionId);
+
+    if (!session) {
+      return false;
+    }
+
+    return session.approvalGate.respond(toolCallId, approved);
   }
 
   async waitForSessionIdle(sessionId: string): Promise<void> {
@@ -333,14 +413,33 @@ export class AgentRunner implements SessionRuntime {
     return { sessionId };
   }
 
+  private makeApprovalCallback(
+    sessionId: string,
+    gate: ApprovalGate,
+  ): ApprovalCallback {
+    return async (toolName, toolCallId, args) => {
+      await this.events.publish({
+        type: 'tool_approval_required',
+        sessionId,
+        toolName,
+        toolCallId,
+        ...(args !== undefined ? { args } : {}),
+      });
+
+      return gate.request(toolCallId);
+    };
+  }
+
   private async createAgent(
     spec: SessionSpec,
     config: AgentConfig,
+    approvalCallback?: ApprovalCallback,
   ): Promise<Agent> {
     const tools = createBuiltInTools({
       workspace: this.options.workspace,
       security: this.options.security,
       containerManager: this.containerManager,
+      ...(approvalCallback ? { approvalCallback } : {}),
     });
     const systemPrompt = await this.buildSystemPrompt(config);
 
@@ -366,11 +465,17 @@ export class AgentRunner implements SessionRuntime {
     this.ensureProviderApiKey(config.model.provider);
     session.agent.setModel(resolveModel(config));
     session.agent.setSystemPrompt(await this.buildSystemPrompt(config));
+
+    const approvalCallback = session.spec.source.interactive
+      ? this.makeApprovalCallback(session.spec.sessionId, session.approvalGate)
+      : undefined;
+
     session.agent.setTools(
       createBuiltInTools({
         workspace: this.options.workspace,
         security: this.options.security,
         containerManager: this.containerManager,
+        ...(approvalCallback ? { approvalCallback } : {}),
       }),
     );
     session.agent.sessionId = session.spec.sessionId;

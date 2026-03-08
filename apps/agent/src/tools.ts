@@ -15,10 +15,22 @@ const READONLY_BLOCKED_TOOLS = new Set([
   'container_run',
 ]);
 
+/**
+ * Called before a tool executes when approval is required.
+ * Returns true to allow the call, false to reject it.
+ */
+export type ApprovalCallback = (
+  toolName: string,
+  toolCallId: string,
+  args: unknown,
+) => Promise<boolean>;
+
 interface ToolContext {
   workspace: AgentWorkspace;
   security: AgentSecurity;
   containerManager: DockerContainerManager;
+  /** When present, tools in security.require_approval_for pause for confirmation. */
+  approvalCallback?: ApprovalCallback;
 }
 
 const asTextContent = (text: string) => [
@@ -275,13 +287,58 @@ export const summarizeContainerEntry = (
   container: ContainerRegistryEntry,
 ): string => formatJson(container);
 
+/**
+ * Wraps a tool so that calls to tools listed in security.require_approval_for
+ * will pause and invoke the approval callback before executing.
+ * In `full` autonomy mode or when no callback is provided, tools always proceed.
+ */
+const withApproval = (
+  tool: AgentTool<any>,
+  security: AgentSecurity,
+  approvalCallback: ApprovalCallback | undefined,
+): AgentTool<any> => {
+  if (!approvalCallback) {
+    return tool;
+  }
+
+  return {
+    ...tool,
+    execute: async (toolCallId: string, args: unknown) => {
+      const needsApproval =
+        security.getAutonomyLevel() !== 'full' &&
+        security.requiresApproval(tool.name);
+
+      if (needsApproval) {
+        const approved = await approvalCallback(tool.name, toolCallId, args);
+
+        if (!approved) {
+          return {
+            content: asTextContent(
+              `Tool call "${tool.name}" was rejected by the user.`,
+            ),
+            details: { rejected: true, toolName: tool.name },
+          };
+        }
+      }
+
+      return tool.execute(toolCallId, args);
+    },
+  };
+};
+
 export const createBuiltInTools = (
   context: ToolContext,
-): AgentTool<any>[] => [
-  createReadFileTool(context),
-  createWriteFileTool(context),
-  createListFilesTool(context),
-  createDeleteFileTool(context),
-  createContainerRunTool(context),
-  createContainerStatusTool(context),
-];
+): AgentTool<any>[] => {
+  const { security, approvalCallback } = context;
+
+  const tools = [
+    createReadFileTool(context),
+    createWriteFileTool(context),
+    createListFilesTool(context),
+    createDeleteFileTool(context),
+    createContainerRunTool(context),
+    createContainerStatusTool(context),
+  ];
+
+  return tools.map((tool) => withApproval(tool, security, approvalCallback));
+};
