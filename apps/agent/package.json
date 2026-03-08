@@ -1,5 +1,5 @@
 {
-  "name": "@cloudmind/agent",
+  "name": "@openhermit/agent",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -12,8 +12,8 @@
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
-    "@cloudmind/protocol": "0.1.0",
-    "@cloudmind/shared": "0.1.0",
+    "@openhermit/protocol": "0.1.0",
+    "@openhermit/shared": "0.1.0",
     "@hono/node-server": "^1.14.0",
     "@mariozechner/pi-agent-core": "^0.57.1",
     "@mariozechner/pi-ai": "^0.57.1",

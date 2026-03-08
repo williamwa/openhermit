@@ -5,4 +5,4 @@ export const gatewayResponsibilities = [
   'monitor agent health and availability',
 ] as const;
 
-console.info('[cloudmind-gateway] scaffold present, implementation pending.');
+console.info('[openhermit-gateway] scaffold present, implementation pending.');

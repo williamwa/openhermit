@@ -5,7 +5,7 @@ import type {
   MetadataValue,
   SessionSource,
   SessionSpec,
-} from '@cloudmind/protocol';
+} from '@openhermit/protocol';
 
 import { AgentWorkspace } from './core/index.js';
 

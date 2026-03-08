@@ -33,21 +33,21 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 - [ ] Tests: path escape via `../`, sibling-prefix roots (workspace vs workspace-evil), symlinks, and null bytes all throw
 
 ### 1.2 Security + Secrets Module
-- [ ] Load `~/.cloudmind/{agent-id}/security.json` at startup (read-only, never write from agent)
-- [ ] Load `~/.cloudmind/{agent-id}/secrets.json` at startup into memory (read-only, never logged, never passed to LLM)
+- [ ] Load `~/.openhermit/{agent-id}/security.json` at startup (read-only, never write from agent)
+- [ ] Load `~/.openhermit/{agent-id}/secrets.json` at startup into memory (read-only, never logged, never passed to LLM)
 - [ ] `security.checkPath(path)` — runs three-layer validation (null byte → workspace boundary → symlink escape); no configurable forbidden-paths list needed — the workspace boundary covers it architecturally
 - [ ] `security.getAutonomyLevel()` — returns current level: `readonly | supervised | full`
 - [ ] `security.requiresApproval(toolName)` — checks `require_approval_for` list from security config
 - [ ] `secrets.resolve(names: string[])` — returns `Record<string, string>` of name → value for use as Docker env vars; throws if any name is not found
 - [ ] `secrets.listNames()` — returns key names only (no values), used to inject into system prompt
-- [ ] `security.init()` — scaffolds `~/.cloudmind/{agent-id}/` directory with default `security.json` and empty `secrets.json` if not exists
+- [ ] `security.init()` — scaffolds `~/.openhermit/{agent-id}/` directory with default `security.json` and empty `secrets.json` if not exists
 - [ ] Tests: path escape via `../`, sibling-prefix roots, symlinks, and null bytes all throw; autonomy level correctly loaded; approval list works; secret values never appear in any return value to LLM layer
 
 ### 1.3 Container Manager Module
 - [ ] Wrap Docker CLI with typed runner interface
 - [ ] `container.runEphemeral({ image, command, description?, mount?, env? })` — run and return output, auto-remove
   - Mount: `workspace/containers/{name}/data/` → `/workspace` in container
-  - Parse sentinel markers (`---CLOUDMIND_OUTPUT_START---` / `---CLOUDMIND_OUTPUT_END---`) from stdout
+  - Parse sentinel markers (`---OPENHERMIT_OUTPUT_START---` / `---OPENHERMIT_OUTPUT_END---`) from stdout
   - Return: `{ stdout, stderr, exitCode, durationMs, parsedOutput? }`
   - Persist `description` into `containers/registry.jsonl` so the purpose of the run remains visible after removal
   - Validate mount path through `security.checkPath()` before passing to Docker
@@ -74,24 +74,24 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 
 **Current status snapshot**
 - Implemented: `pi-ai` + `pi-agent-core` integration, runtime system prompt loading from markdown, approval gating, `tool_requested / tool_started / tool_result` event model, agent-local HTTP + SSE API, approval endpoint, session listing, separate `apps/cli` client, and built-in tools for files, containers, and `web_fetch`.
-- Still pending: `file_search`, `agent_doctor`, packaged `cloudmind` commands, and a fuller hook/config story beyond the current built-in approval/logging path.
+- Still pending: `file_search`, `agent_doctor`, packaged `openhermit` commands, and a fuller hook/config story beyond the current built-in approval/logging path.
 
 ### 2.1 Integrate pi-ai + pi-agent-core
 - [ ] `npm install @mariozechner/pi-ai @mariozechner/pi-agent-core`
 - [ ] Define `config.model` as a structured provider/model object, e.g. `{ "provider": "anthropic", "model": "claude-sonnet-4-5", "max_tokens": 8192 }`
-- [ ] Provider API keys (for pi-ai) read from `~/.cloudmind/{agent-id}/secrets.json` at startup — same secrets store, same loading path as other credentials
+- [ ] Provider API keys (for pi-ai) read from `~/.openhermit/{agent-id}/secrets.json` at startup — same secrets store, same loading path as other credentials
 - [ ] `transformContext` callback: fires before every LLM call, injects fresh context:
   - Load `identity/IDENTITY.md`, `SOUL.md`, `USER.md`, `AGENTS.md` into system prompt
   - Load `memory/working.md` as first user-side context block
   - Inject note filenames so agent knows what topics it has stored
-- [ ] Event → hook wiring (pi-agent-core events mapped to CloudMind lifecycle hooks):
+- [ ] Event → hook wiring (pi-agent-core events mapped to OpenHermit lifecycle hooks):
   - `agent_start` → `onSessionStart`
   - `tool_execution_start` → `beforeToolCall`
   - `tool_execution_end` → `afterToolCall`
   - `agent_end` → `onSessionEnd`
   - `error` → `onError`
-- [ ] Model switching helper: `agent.setModel(getModel(provider, model))` exposed as `cloudmind model set <agent-id> <provider> <model> [--max-tokens N]`
-- [ ] `cloudmind models` command — lists all pi-ai supported models + current selection
+- [ ] Model switching helper: `agent.setModel(getModel(provider, model))` exposed as `openhermit model set <agent-id> <provider> <model> [--max-tokens N]`
+- [ ] `openhermit models` command — lists all pi-ai supported models + current selection
 - [ ] Cost tracking: accumulate pi-ai `usage` events per session; write summary to episodic log at session end
 
 ### 2.2 Tool Definitions (TypeBox / AgentTool format)
@@ -140,12 +140,12 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 - [ ] Runtime API token: generate on startup, write to `runtime/api.token` (create `runtime/` dir, add to `.gitignore`)
 - [ ] Dynamic port binding: try `config.http_api.preferred_port` first; if taken, bind to port `0` (OS assigns free port); write actual port to `runtime/api.port` — guarantees zero conflicts when multiple agents run on the same host
 - [ ] Treat the HTTP API as agent-local: clients first choose the target agent by reading its workspace/runtime metadata, then talk to that agent's local port directly; route paths do not repeat `{agentId}`
-- [ ] CLI client (`apps/cli` today; future packaged as `cloudmind chat --agent <id>`): reads `runtime/api.port` and `runtime/api.token`, creates a new `source.kind = "cli"` session by default, supports `/new`, `/sessions`, `/resume <id>`, `--session <id>`, and `--resume`, subscribes to SSE, then posts the first and subsequent user messages to `/sessions/{sessionId}/messages`
-- [ ] `cloudmind run --agent <id> "task"` — same as above but single-shot (no readline loop)
+- [ ] CLI client (`apps/cli` today; future packaged as `openhermit chat --agent <id>`): reads `runtime/api.port` and `runtime/api.token`, creates a new `source.kind = "cli"` session by default, supports `/new`, `/sessions`, `/resume <id>`, `--session <id>`, and `--resume`, subscribes to SSE, then posts the first and subsequent user messages to `/sessions/{sessionId}/messages`
+- [ ] `openhermit run --agent <id> "task"` — same as above but single-shot (no readline loop)
 - [ ] Scheduled triggers in Phase 6 reuse the same `SessionSpec + SessionMessage` lifecycle in-process or over HTTP; no second execution path
-- [ ] `cloudmind models` — list all available models across providers
-- [ ] `cloudmind model set <agent-id> <provider> <model> [--max-tokens N]` — switch model at runtime via `agent.setModel()`
-- [ ] `cloudmind model get <agent-id>` — show current model
+- [ ] `openhermit models` — list all available models across providers
+- [ ] `openhermit model set <agent-id> <provider> <model> [--max-tokens N]` — switch model at runtime via `agent.setModel()`
+- [ ] `openhermit model get <agent-id>` — show current model
 
 **Deliverable**: "Write a Python script that generates the first 20 Fibonacci numbers, run it, and show me the output." → agent writes file into an ephemeral run mount → spawns container → runs script → hooks fire → result streams to terminal via SSE. Run the same task with a different configured model (for example `openai gpt-4o`) to verify multi-provider works.
 
@@ -199,25 +199,25 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 **Goal**: Multiple named agents, clean start/stop, persistent state across process restarts.
 
 ### 4.1 Agent Registry
-- [ ] Global registry at `~/cloudmind/agents.jsonl` — list of all agents + workspace paths
-- [ ] `cloudmind agent create --name "My Agent"` — scaffold workspace + register
-- [ ] `cloudmind agent list` — show all agents + status
-- [ ] `cloudmind agent delete <id>` — remove workspace + registry entry
+- [ ] Global registry at `~/openhermit/agents.jsonl` — list of all agents + workspace paths
+- [ ] `openhermit agent create --name "My Agent"` — scaffold workspace + register
+- [ ] `openhermit agent list` — show all agents + status
+- [ ] `openhermit agent delete <id>` — remove workspace + registry entry
 
 ### 4.2 Process Management
-- [ ] `cloudmind start <agent-id>` — start agent as background process (pm2 or simple fork)
-- [ ] `cloudmind stop <agent-id>` — graceful shutdown
+- [ ] `openhermit start <agent-id>` — start agent as background process (pm2 or simple fork)
+- [ ] `openhermit stop <agent-id>` — graceful shutdown
 - [ ] On startup: reconcile container registry with live Docker state (mark dead containers as removed)
 - [ ] On shutdown: leave service containers running unless they were explicitly stopped, and record shutdown in episodic log
 
 ### 4.3 Config Management
-- [ ] `cloudmind config set <agent-id> <key> <value>` — update config.json
-- [ ] `cloudmind security edit <agent-id>` — open `~/.cloudmind/{id}/security.json` in $EDITOR
-- [ ] Secret handling: secrets stored in `~/.cloudmind/{agent-id}/secrets.json`, never logged or streamed
+- [ ] `openhermit config set <agent-id> <key> <value>` — update config.json
+- [ ] `openhermit security edit <agent-id>` — open `~/.openhermit/{id}/security.json` in $EDITOR
+- [ ] Secret handling: secrets stored in `~/.openhermit/{agent-id}/secrets.json`, never logged or streamed
 - [ ] Runtime API port lives only in `runtime/api.port`; service port bindings live only in `containers/registry.jsonl`
 
 ### 4.4 Doctor Command
-- [ ] `cloudmind doctor <agent-id>` runs a series of checks and prints a status report:
+- [ ] `openhermit doctor <agent-id>` runs a series of checks and prints a status report:
   - Agent process: running / stopped / crashed
   - Security config: present, valid JSON, no unknown keys
   - Workspace: all expected directories exist, no permission errors
@@ -253,8 +253,8 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 - [ ] Network config stored in registry.jsonl
 
 ### 5.4 Telegram Trigger Adapter
-- [ ] Document bridge container spec: reads `TELEGRAM_BOT_TOKEN`, `CLOUDMIND_API_URL`, `CLOUDMIND_API_KEY`, and optional `CLOUDMIND_AGENT_ID` from environment; long-polls Telegram Bot API; creates or resumes `sessionId: "telegram:{chat_id}"` with `source.kind = "im"` and `source.platform = "telegram"`; POSTs each Telegram message to `/sessions/{sessionId}/messages`; subscribes to SSE stream; calls Telegram `sendMessage` with the final response
-- [ ] Agent starts bridge via `container_start`: inject `TELEGRAM_BOT_TOKEN` from `secrets.json` as `env_secrets`; read actual port from `runtime/api.port` and inject `CLOUDMIND_API_URL=http://host.docker.internal:{port}`, `CLOUDMIND_AGENT_ID` (optional metadata), and `CLOUDMIND_API_KEY` (from `runtime/api.token`) as plain env vars
+- [ ] Document bridge container spec: reads `TELEGRAM_BOT_TOKEN`, `OPENHERMIT_API_URL`, `OPENHERMIT_API_KEY`, and optional `OPENHERMIT_AGENT_ID` from environment; long-polls Telegram Bot API; creates or resumes `sessionId: "telegram:{chat_id}"` with `source.kind = "im"` and `source.platform = "telegram"`; POSTs each Telegram message to `/sessions/{sessionId}/messages`; subscribes to SSE stream; calls Telegram `sendMessage` with the final response
+- [ ] Agent starts bridge via `container_start`: inject `TELEGRAM_BOT_TOKEN` from `secrets.json` as `env_secrets`; read actual port from `runtime/api.port` and inject `OPENHERMIT_API_URL=http://host.docker.internal:{port}`, `OPENHERMIT_AGENT_ID` (optional metadata), and `OPENHERMIT_API_KEY` (from `runtime/api.token`) as plain env vars
 - [ ] `config.channels.telegram_bridge.enabled` toggle — false by default, user opts in
 - [ ] `config.channels.telegram_bridge.allowed_chat_ids` — allowlist enforced by the bridge; empty list rejects all messages (safe default)
 - [ ] Session trigger source: bridge always sets `source.interactive = true`

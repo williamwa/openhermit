@@ -1,8 +1,8 @@
-# CloudMind
+# OpenHermit
 
 A host-based autonomous agent platform with persistent workspaces and memory, using Docker as an isolated execution and service sandbox.
 
-`openHermit` is the planned new name for this project. Like a hermit crab living inside its protective shell, an agent can use shells and containers as its sandbox: protected, autonomous, and able to operate safely while still interacting with the outside world. The system is designed for strong agent autonomy, sandboxed execution, and native multi-agent collaboration.
+Like a hermit crab living inside its protective shell, an agent can use shells and containers as its sandbox: protected, autonomous, and able to operate safely while still interacting with the outside world. The system is designed for strong agent autonomy, sandboxed execution, and native multi-agent collaboration.
 
 ## Core Goals
 
@@ -15,7 +15,7 @@ A host-based autonomous agent platform with persistent workspaces and memory, us
 ## Repository Structure
 
 ```text
-cloudmind/
+openhermit/
 ├── apps/
 │   ├── agent/                # Current focus: single-agent runtime (Hono + session API)
 │   ├── cli/                  # Local terminal client for the agent-local API
@@ -31,7 +31,7 @@ cloudmind/
 
 ## Quick Start
 
-1. Add your model API key to `~/.cloudmind/agent-dev/secrets.json`, for example:
+1. Add your model API key to `~/.openhermit/agent-dev/secrets.json`, for example:
 
 ```json
 {

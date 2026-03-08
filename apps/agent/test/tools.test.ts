@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import type { AgentTool, AgentToolUpdateCallback } from '@mariozechner/pi-agent-core';
 import { Type } from '@mariozechner/pi-ai';
-import { ValidationError } from '@cloudmind/shared';
+import { ValidationError } from '@openhermit/shared';
 
 import {
   type DockerCommandResult,
@@ -684,9 +684,9 @@ test('container_exec parses structured output between sentinel markers', async (
 
   const structuredStdout = [
     'some log line',
-    '---CLOUDMIND_OUTPUT_START---',
+    '---OPENHERMIT_OUTPUT_START---',
     JSON.stringify({ rows: 42, table: 'users' }),
-    '---CLOUDMIND_OUTPUT_END---',
+    '---OPENHERMIT_OUTPUT_END---',
   ].join('\n');
 
   const docker = new FakeDockerRunner([

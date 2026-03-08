@@ -37,7 +37,7 @@
 
 ## ADR-003: One workspace per agent, strict boundary enforcement
 
-**Decision**: Each agent owns exactly one workspace directory (`~/cloudmind/agents/{agent-id}/`). All reads and writes are confined to this directory. Container mounts only point into `containers/{name}/data/`.
+**Decision**: Each agent owns exactly one workspace directory (`~/openhermit/agents/{agent-id}/`). All reads and writes are confined to this directory. Container mounts only point into `containers/{name}/data/`.
 
 **Rationale**:
 - Prevents agents from accidentally or intentionally modifying unrelated host files
@@ -85,12 +85,12 @@
 
 ---
 
-## ADR-007: External config directory `~/.cloudmind/{agent-id}/`
+## ADR-007: External config directory `~/.openhermit/{agent-id}/`
 
-**Decision**: Security policy and secrets live outside the workspace in `~/.cloudmind/{agent-id}/`, never inside the workspace the agent can write to.
+**Decision**: Security policy and secrets live outside the workspace in `~/.openhermit/{agent-id}/`, never inside the workspace the agent can write to.
 
 ```
-~/.cloudmind/{agent-id}/
+~/.openhermit/{agent-id}/
 ├── security.json   # autonomy_level + require_approval_for
 └── secrets.json    # API keys, tokens, passwords
 ```
@@ -148,10 +148,10 @@
 **Decision**: Use `@mariozechner/pi-ai` for multi-provider LLM abstraction and `@mariozechner/pi-agent-core` for the tool-calling agent loop. No custom ReAct implementation.
 
 **Rationale**:
-- pi-ai supports Anthropic, OpenAI, Google, Mistral, Groq, Ollama, OpenRouter etc. in one API — CloudMind is not locked to any provider
+- pi-ai supports Anthropic, OpenAI, Google, Mistral, Groq, Ollama, OpenRouter etc. in one API — OpenHermit is not locked to any provider
 - pi-agent-core handles streaming, error recovery, context window management, and abort correctly — no need to reimplement
 - `transformContext` callback is the natural hook for injecting working memory and identity
-- pi-agent-core's events (`agent_start`, `tool_execution_start`, `tool_execution_end`, `agent_end`, `error`) cover the runtime hook points directly; only schedule pre-dispatch is emitted by CloudMind's scheduler layer
+- pi-agent-core's events (`agent_start`, `tool_execution_start`, `tool_execution_end`, `agent_end`, `error`) cover the runtime hook points directly; only schedule pre-dispatch is emitted by OpenHermit's scheduler layer
 
 **Mitigation**: Isolate pi-agent-core behind a thin `AgentRunner` wrapper. If the dependency becomes untenable, only that class needs replacing.
 
@@ -184,7 +184,7 @@ The agent still exposes an HTTP API (Hono) as its sole **external** communicatio
 - The HTTP API is agent-local, not a multi-agent gateway: each agent already has its own port, so the URL does not repeat `{agentId}`
 - `POST /sessions` is metadata-only: it establishes session state, but agent execution advances only when a `SessionMessage` is appended
 - `GET /sessions` is agent-local, not a global per-user inbox; session selection beyond a single agent happens in adapters or a future gateway
-- Auth: bearer token generated at startup, stored at `runtime/api.token`, injected into bridge containers as `CLOUDMIND_API_KEY`
+- Auth: bearer token generated at startup, stored at `runtime/api.token`, injected into bridge containers as `OPENHERMIT_API_KEY`
 - Port: bound dynamically at startup (try `config.http_api.preferred_port` first; fall back to OS-assigned port `0`); actual port written to `runtime/api.port` — clients read it from there
 - A future gateway may proxy these agent-local endpoints behind `/agents/{id}/...`, but that is a separate control-plane layer, not part of the v1 agent contract
 

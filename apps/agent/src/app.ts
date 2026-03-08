@@ -7,14 +7,14 @@ import {
   isSessionSpec,
   type SessionListQuery,
   isToolApprovalRequest,
-} from '@cloudmind/protocol';
+} from '@openhermit/protocol';
 import {
-  CloudMindError,
+  OpenHermitError,
   UnauthorizedError,
   ValidationError,
   getErrorMessage,
   jsonError,
-} from '@cloudmind/shared';
+} from '@openhermit/shared';
 
 import {
   InMemoryAgentRuntime,
@@ -238,11 +238,11 @@ export const createAgentApp = (
   });
 
   app.onError((error, c) => {
-    if (error instanceof CloudMindError) {
+    if (error instanceof OpenHermitError) {
       return c.json(jsonError(error), error.statusCode);
     }
 
-    console.error('[cloudmind-agent] unhandled error', error);
+    console.error('[openhermit-agent] unhandled error', error);
     return c.json(jsonError(getErrorMessage(error), 'internal_error'), 500);
   });
 

@@ -1,5 +1,5 @@
 {
-  "name": "@cloudmind/cli",
+  "name": "@openhermit/cli",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -12,7 +12,7 @@
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
-    "@cloudmind/sdk": "0.1.0",
-    "@cloudmind/shared": "0.1.0"
+    "@openhermit/sdk": "0.1.0",
+    "@openhermit/shared": "0.1.0"
   }
 }

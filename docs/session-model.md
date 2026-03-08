@@ -1,6 +1,6 @@
 # Session Model
 
-This document defines how CloudMind treats sessions, active runs, adapter bindings, and cross-channel control commands such as `/new`.
+This document defines how OpenHermit treats sessions, active runs, adapter bindings, and cross-channel control commands such as `/new`.
 
 The main design goal is to keep the agent core session model simple:
 
@@ -67,7 +67,7 @@ This binding belongs to the adapter layer, not the agent core.
 
 ## No Closed Session State
 
-CloudMind should not treat sessions as permanently closed.
+OpenHermit should not treat sessions as permanently closed.
 
 Reasons:
 

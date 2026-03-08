@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { agentLocalRoutes } from '@cloudmind/protocol';
+import { agentLocalRoutes } from '@openhermit/protocol';
 
 import { createAgentApp } from '../src/app.js';
 import { InMemoryAgentRuntime } from '../src/runtime.js';
@@ -146,7 +146,7 @@ test('createAgentApp opens a session, accepts a message, and streams the backlog
   assert.match(sseText, /event: agent_end/);
   assert.match(
     sseText,
-    /CloudMind agent scaffold received a cli message: hello from test/,
+    /OpenHermit agent scaffold received a cli message: hello from test/,
   );
   assert.match(sseText, /event: ready/);
 });
@@ -210,7 +210,7 @@ test('createAgentApp lists sessions with filters and sorting', async () => {
       lastEventId: runtime.events.getBacklog('cli:test-session').at(-1)?.id ?? 0,
       messageCount: 2,
       description: 'hello list',
-      lastMessagePreview: 'CloudMind agent scaffold received a cli message: hello list',
+      lastMessagePreview: 'OpenHermit agent scaffold received a cli message: hello list',
       status: 'idle',
     },
   ]);

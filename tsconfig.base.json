@@ -5,13 +5,13 @@
     "moduleResolution": "NodeNext",
     "baseUrl": ".",
     "paths": {
-      "@cloudmind/protocol": [
+      "@openhermit/protocol": [
         "packages/protocol/src/index.ts"
       ],
-      "@cloudmind/shared": [
+      "@openhermit/shared": [
         "packages/shared/src/index.ts"
       ],
-      "@cloudmind/sdk": [
+      "@openhermit/sdk": [
         "packages/sdk/src/index.ts"
       ]
     },

@@ -1,7 +1,7 @@
 import { promises as fs, type Dirent } from 'node:fs';
 import path from 'node:path';
 
-import { NotFoundError, ValidationError } from '@cloudmind/shared';
+import { NotFoundError, ValidationError } from '@openhermit/shared';
 
 import type { AgentConfig } from './types.js';
 

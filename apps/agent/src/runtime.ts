@@ -7,8 +7,8 @@ import {
   type SessionStatus,
   type SessionSummary,
   type SessionSpec,
-} from '@cloudmind/protocol';
-import { NotFoundError } from '@cloudmind/shared';
+} from '@openhermit/protocol';
+import { NotFoundError } from '@openhermit/shared';
 
 export interface SessionRecord {
   spec: SessionSpec;
@@ -244,14 +244,14 @@ export class InMemoryAgentRuntime implements SessionRuntime {
     await this.events.publish(
       createTextFinalEvent(
         sessionId,
-        `CloudMind agent scaffold received a ${session.spec.source.kind} message: ${message.text}`,
+        `OpenHermit agent scaffold received a ${session.spec.source.kind} message: ${message.text}`,
       ),
     );
     await this.events.publish(createAgentEndEvent(sessionId));
     session.updatedAt = new Date().toISOString();
     session.status = 'idle';
     session.messageCount += 1;
-    session.lastMessagePreview = `CloudMind agent scaffold received a ${session.spec.source.kind} message: ${message.text}`;
+    session.lastMessagePreview = `OpenHermit agent scaffold received a ${session.spec.source.kind} message: ${message.text}`;
 
     if (message.messageId) {
       return {

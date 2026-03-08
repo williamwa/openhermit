@@ -1,4 +1,4 @@
-import { AgentLocalClient } from '@cloudmind/sdk';
+import { AgentLocalClient } from '@openhermit/sdk';
 
 export interface TelegramBridgeConfig {
   agentBaseUrl: string;
@@ -14,4 +14,4 @@ export const createTelegramBridgeClient = (
     token: config.agentToken,
   });
 
-console.info('[cloudmind-channel-telegram] scaffold present, implementation pending.');
+console.info('[openhermit-channel-telegram] scaffold present, implementation pending.');

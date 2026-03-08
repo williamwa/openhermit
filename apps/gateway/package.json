@@ -1,5 +1,5 @@
 {
-  "name": "@cloudmind/gateway",
+  "name": "@openhermit/gateway",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -11,7 +11,7 @@
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
-    "@cloudmind/protocol": "0.1.0",
-    "@cloudmind/shared": "0.1.0"
+    "@openhermit/protocol": "0.1.0",
+    "@openhermit/shared": "0.1.0"
   }
 }

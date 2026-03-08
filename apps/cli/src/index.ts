@@ -5,9 +5,9 @@ import { pathToFileURL } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stdout, stderr } from 'node:process';
 
-import { AgentLocalClient } from '@cloudmind/sdk';
-import type { SessionSummary } from '@cloudmind/protocol';
-import { runtimeFiles } from '@cloudmind/shared';
+import { AgentLocalClient } from '@openhermit/sdk';
+import type { SessionSummary } from '@openhermit/protocol';
+import { runtimeFiles } from '@openhermit/shared';
 
 interface ChatCliOptions {
   agentId: string;
@@ -61,15 +61,15 @@ export const resolveWorkspaceRoot = (
 ): string =>
   explicitWorkspaceRoot
     ? path.resolve(cwd, explicitWorkspaceRoot)
-    : path.join(cwd, '.cloudmind-dev', agentId);
+    : path.join(cwd, '.openhermit-dev', agentId);
 
 export const parseChatCliArgs = (
   argv: string[],
   cwd = process.cwd(),
   env: NodeJS.ProcessEnv = process.env,
 ): ChatCliOptions => {
-  let agentId = env.CLOUDMIND_AGENT_ID ?? 'agent-dev';
-  let explicitWorkspaceRoot = env.CLOUDMIND_WORKSPACE_ROOT;
+  let agentId = env.OPENHERMIT_AGENT_ID ?? 'agent-dev';
+  let explicitWorkspaceRoot = env.OPENHERMIT_WORKSPACE_ROOT;
   let sessionId: string | undefined;
   let resume = false;
 

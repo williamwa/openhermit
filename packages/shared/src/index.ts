@@ -5,32 +5,32 @@ export interface JsonErrorBody {
   };
 }
 
-export type CloudMindStatusCode = 400 | 401 | 404 | 500;
+export type OpenHermitStatusCode = 400 | 401 | 404 | 500;
 
-export class CloudMindError extends Error {
+export class OpenHermitError extends Error {
   constructor(
     message: string,
     public readonly code: string,
-    public readonly statusCode: CloudMindStatusCode,
+    public readonly statusCode: OpenHermitStatusCode,
   ) {
     super(message);
     this.name = new.target.name;
   }
 }
 
-export class ValidationError extends CloudMindError {
+export class ValidationError extends OpenHermitError {
   constructor(message: string) {
     super(message, 'validation_error', 400);
   }
 }
 
-export class NotFoundError extends CloudMindError {
+export class NotFoundError extends OpenHermitError {
   constructor(message: string) {
     super(message, 'not_found', 404);
   }
 }
 
-export class UnauthorizedError extends CloudMindError {
+export class UnauthorizedError extends OpenHermitError {
   constructor(message: string) {
     super(message, 'unauthorized', 401);
   }
@@ -57,7 +57,7 @@ export const jsonError = (
   error: unknown,
   fallbackCode = 'internal_error',
 ): JsonErrorBody => {
-  if (error instanceof CloudMindError) {
+  if (error instanceof OpenHermitError) {
     return {
       error: {
         code: error.code,

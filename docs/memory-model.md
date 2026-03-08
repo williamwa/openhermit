@@ -11,7 +11,7 @@ The goal is simple:
 
 ## Overview
 
-CloudMind uses four distinct layers:
+OpenHermit uses four distinct layers:
 
 | Layer | Location | Purpose | Retention Shape |
 | --- | --- | --- | --- |

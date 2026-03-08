@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { NotFoundError, ValidationError } from '@cloudmind/shared';
+import { NotFoundError, ValidationError } from '@openhermit/shared';
 
 import type { ResolvePathOptions } from './workspace.js';
 import { AgentWorkspace } from './workspace.js';
@@ -16,7 +16,7 @@ import {
 export interface AgentSecurityOptions {
   agentId: string;
   workspace: AgentWorkspace;
-  cloudMindHome?: string;
+  openHermitHome?: string;
 }
 
 const ensureJsonFile = async (
@@ -43,9 +43,9 @@ export class AgentSecurity {
 
   constructor(private readonly options: AgentSecurityOptions) {
     const baseDir =
-      options.cloudMindHome ??
-      process.env.CLOUDMIND_HOME ??
-      path.join(os.homedir(), '.cloudmind');
+      options.openHermitHome ??
+      process.env.OPENHERMIT_HOME ??
+      path.join(os.homedir(), '.openhermit');
 
     this.rootDir = path.join(baseDir, options.agentId);
     this.securityFilePath = path.join(this.rootDir, 'security.json');

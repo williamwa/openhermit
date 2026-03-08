@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 
-import { NotFoundError, ValidationError } from '@cloudmind/shared';
+import { NotFoundError, ValidationError } from '@openhermit/shared';
 
 import { createWorkspaceFixture, createTempDir } from './helpers.js';
 
@@ -68,7 +68,7 @@ test('AgentWorkspace rejects lexical path escapes', async (t) => {
 
 test('AgentWorkspace rejects symlink escapes for new files', async (t) => {
   const { root, workspace } = await createWorkspaceFixture(t);
-  const outsideDir = await createTempDir(t, 'cloudmind-outside-');
+  const outsideDir = await createTempDir(t, 'openhermit-outside-');
   const linkPath = path.join(root, 'files', 'outside-link');
 
   await fs.symlink(outsideDir, linkPath);

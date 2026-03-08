@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { SessionSummary } from '@cloudmind/protocol';
-import type { AgentLocalClient } from '@cloudmind/sdk';
+import type { SessionSummary } from '@openhermit/protocol';
+import type { AgentLocalClient } from '@openhermit/sdk';
 
 import {
   formatSessionList,
@@ -40,7 +40,7 @@ test('parseChatCliArgs supports --resume', () => {
 
   assert.deepEqual(parsed, {
     agentId: 'agent-dev',
-    workspaceRoot: '/repo/.cloudmind-dev/agent-dev',
+    workspaceRoot: '/repo/.openhermit-dev/agent-dev',
     resume: true,
   });
 });
@@ -56,7 +56,7 @@ test('parseChatCliArgs falls back to default dev workspace', () => {
   const parsed = parseChatCliArgs([], '/repo', {});
 
   assert.equal(parsed.agentId, 'agent-dev');
-  assert.equal(parsed.workspaceRoot, '/repo/.cloudmind-dev/agent-dev');
+  assert.equal(parsed.workspaceRoot, '/repo/.openhermit-dev/agent-dev');
 });
 
 test('parseSlashCommand parses session control commands', () => {

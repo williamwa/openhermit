@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import { test } from 'node:test';
 
-import { NotFoundError, ValidationError } from '@cloudmind/shared';
+import { NotFoundError, ValidationError } from '@openhermit/shared';
 
 import { createSecurityFixture } from './helpers.js';
 

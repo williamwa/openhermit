@@ -13,7 +13,7 @@ When the agent needs to run code, install dependencies, or provide a service —
 ## High-Level Diagram
 
 ```
-CLI user ──► cloudmind CLI ──────────────────────────────────┐
+CLI user ──► openhermit CLI ────────────────────────────────┐
                                                               │ HTTP (localhost)
 Telegram user ──► Telegram Bot API                           │
                        │ long-poll                            │
@@ -65,11 +65,11 @@ Scheduler / Cron ─────────────────────
 Every agent gets one workspace directory. Everything the agent owns lives here.
 
 ```
-~/.cloudmind/{agent-id}/                 # ← OUTSIDE workspace (agent cannot read/modify)
+~/.openhermit/{agent-id}/                # ← OUTSIDE workspace (agent cannot read/modify)
 ├── security.json                        # autonomy_level + require_approval_for (tamper-resistant)
 └── secrets.json                         # API keys, tokens, passwords (values NEVER exposed to LLM)
 
-{workspace_root}/                        # e.g., ~/cloudmind/agents/{agent-id}/
+{workspace_root}/                        # e.g., ~/openhermit/agents/{agent-id}/
 │
 ├── config.json                          # Agent identity, model, schedule, and hooks config
 │
@@ -113,7 +113,7 @@ Every agent gets one workspace directory. Everything the agent owns lives here.
     └── {YYYY-MM-DD}.log                 # Agent runtime logs
 ```
 
-**Note on `~/.cloudmind/{agent-id}/`**: This directory is intentionally stored **outside the workspace**. The agent has write/delete access to its workspace — if security policy or secrets lived inside, the agent could modify or remove its own permission boundaries or read credential values directly. Both files in this directory are read by the agent process at startup but never written to by the agent. Only the user (or deployment scripts) should edit them.
+**Note on `~/.openhermit/{agent-id}/`**: This directory is intentionally stored **outside the workspace**. The agent has write/delete access to its workspace — if security policy or secrets lived inside, the agent could modify or remove its own permission boundaries or read credential values directly. Both files in this directory are read by the agent process at startup but never written to by the agent. Only the user (or deployment scripts) should edit them.
 
 ### Key Principles
 - The agent **only reads, writes, and deletes within its workspace**
@@ -142,7 +142,7 @@ It does **not** run inside Docker. It is a plain Node.js process.
 
 ### 2. LLM Core (pi-ai + pi-agent-core)
 
-CloudMind does **not** implement its own ReAct loop. It uses two libraries from the `pi-mono` ecosystem:
+OpenHermit does **not** implement its own ReAct loop. It uses two libraries from the `pi-mono` ecosystem:
 
 ```
 @mariozechner/pi-ai          — unified multi-provider LLM API
@@ -152,7 +152,7 @@ CloudMind does **not** implement its own ReAct loop. It uses two libraries from 
 #### Layer diagram
 
 ```
-CloudMind Tool Handlers
+OpenHermit Tool Handlers
   (container_run, file_search, read_file, …)
            │ implements AgentTool[]
            ▼
@@ -175,9 +175,9 @@ CloudMind Tool Handlers
   └──────────────────────────────────────────┘
 ```
 
-#### How pi-agent-core events map to CloudMind hooks
+#### How pi-agent-core events map to OpenHermit hooks
 
-| pi-agent-core event | CloudMind hook point |
+| pi-agent-core event | OpenHermit hook point |
 |--------------------|---------------------|
 | `agent_start` | `onSessionStart` |
 | `agent_end` | `onSessionEnd` |
@@ -192,7 +192,7 @@ Most hook handlers subscribe to pi-agent-core events; `onScheduleTrigger` is fir
 
 #### Context injection via `transformContext`
 
-pi-agent-core's `transformContext` callback runs before every LLM turn. CloudMind uses it to:
+pi-agent-core's `transformContext` callback runs before every LLM turn. OpenHermit uses it to:
 1. Inject `identity/*.md` files into the system prompt (once per session)
 2. Inject `memory/working.md` as a system context block
 3. Trim / summarise history if approaching token budget
@@ -239,7 +239,7 @@ const containerRunTool: AgentTool = {
   }),
   execute: async (args) => {
     // The tool layer enforces autonomy policy and validates mount paths first.
-    return containerManager.runEphemeral(args)   // CloudMind container module
+    return containerManager.runEphemeral(args)   // OpenHermit container module
   },
 }
 ```
@@ -318,9 +318,9 @@ Manages two container types:
 Container stdout can contain noise (package install logs, warnings, etc.). Structured output uses sentinel markers so the host can reliably extract just the result:
 
 ```
----CLOUDMIND_OUTPUT_START---
+---OPENHERMIT_OUTPUT_START---
 {"result": "...", "exitCode": 0}
----CLOUDMIND_OUTPUT_END---
+---OPENHERMIT_OUTPUT_END---
 ```
 
 Scripts that need to return structured data to the agent write to stdout between these markers. Raw stdout/stderr outside the markers is still captured and available for debugging.
@@ -349,7 +349,7 @@ The agent polls `ipc/out/` on a configurable interval. This avoids the need for 
 
 The architecture already provides the primary security boundary: the agent only speaks to the host via typed tools (no raw Bash), and all file tools are hard-coded to operate within the workspace via three-layer path validation. This means there is no meaningful "host escape" surface to configure away with a list of blocked paths.
 
-The security config (`~/.cloudmind/{agent-id}/security.json`) therefore focuses exclusively on **autonomy policy** — *what the agent is allowed to do on its own*, not *what the host allows*. It lives outside the workspace so the agent cannot modify its own permission boundaries.
+The security config (`~/.openhermit/{agent-id}/security.json`) therefore focuses exclusively on **autonomy policy** — *what the agent is allowed to do on its own*, not *what the host allows*. It lives outside the workspace so the agent cannot modify its own permission boundaries.
 
 #### Autonomy Levels
 
@@ -383,7 +383,7 @@ Commands run inside containers via `container_exec` or `container_run` execute i
 
 The default `container_defaults` in `config.json` sets memory + CPU caps on all containers. Raw command execution belongs in session logs; episodic memory should only receive summarized outcomes worth remembering later.
 
-#### `~/.cloudmind/{agent-id}/security.json`
+#### `~/.openhermit/{agent-id}/security.json`
 
 Only the fields that genuinely need tamper-resistance live here:
 
@@ -401,7 +401,7 @@ Only the fields that genuinely need tamper-resistance live here:
 
 Everything else (container resource limits, command preferences) lives in `config.json` inside the workspace — it's operational config, not a security boundary.
 
-#### `~/.cloudmind/{agent-id}/secrets.json`
+#### `~/.openhermit/{agent-id}/secrets.json`
 
 Sensitive credentials the agent's containers may need at runtime. The LLM **never sees the values** — only the key names, which are injected into the system prompt as a reference list.
 
@@ -664,11 +664,11 @@ HTTP API port is runtime state only: it lives in `runtime/api.port`, not `config
 
 #### Auth — Runtime API Token
 
-At startup the agent generates a random token, writes it to `runtime/api.token`, and requires it on every HTTP request (`Authorization: Bearer <token>`). The `runtime/` directory is gitignored. Bridge containers receive the token via the `CLOUDMIND_API_KEY` environment variable.
+At startup the agent generates a random token, writes it to `runtime/api.token`, and requires it on every HTTP request (`Authorization: Bearer <token>`). The `runtime/` directory is gitignored. Bridge containers receive the token via the `OPENHERMIT_API_KEY` environment variable.
 
 #### CLI Client
 
-`cloudmind chat --agent <id>` and `cloudmind run --agent <id> "task"` are thin external programs. In the current repository layout this client lives in `apps/cli` and is typically run through `npm run chat:agent`. The CLI:
+`openhermit chat --agent <id>` and `openhermit run --agent <id> "task"` are thin external programs. In the current repository layout this client lives in `apps/cli` and is typically run through `npm run chat:agent`. The CLI:
 1. Read `runtime/api.port` and `runtime/api.token` from the agent workspace
 2. Create a session via `POST /sessions` with `source.kind = "cli"` and a session ID like `cli:{YYYY-MM-DD}-{nanoid}`
 3. Subscribe to `GET /events?sessionId=xxx`
@@ -695,9 +695,9 @@ Telegram is handled by a service container the agent starts via `container_start
 
 The bridge container is configured with these environment variables:
 - `TELEGRAM_BOT_TOKEN` — injected from `secrets.json`
-- `CLOUDMIND_API_URL=http://host.docker.internal:{port}` — port read from `runtime/api.port` at container launch time
-- `CLOUDMIND_API_KEY` — runtime token from `runtime/api.token`
-- `CLOUDMIND_AGENT_ID` — optional metadata for bridge logs/metrics; not needed for routing
+- `OPENHERMIT_API_URL=http://host.docker.internal:{port}` — port read from `runtime/api.port` at container launch time
+- `OPENHERMIT_API_KEY` — runtime token from `runtime/api.token`
+- `OPENHERMIT_AGENT_ID` — optional metadata for bridge logs/metrics; not needed for routing
 
 `config.channels.telegram_bridge.allowed_chat_ids` — allowlist of Telegram chat IDs the bridge enforces; empty list rejects all.
 
@@ -713,7 +713,7 @@ No agent loop changes are needed.
 
 #### Future: Optional Gateway / Control Plane
 
-Current CloudMind is intentionally agent-local: each agent exposes its own HTTP API and manages its own runtime. A future gateway may sit above those agent-local APIs without changing the per-agent contract.
+Current OpenHermit is intentionally agent-local: each agent exposes its own HTTP API and manages its own runtime. A future gateway may sit above those agent-local APIs without changing the per-agent contract.
 
 Possible gateway responsibilities:
 - Provision and manage many agents from one place
@@ -740,7 +740,7 @@ The agent is designed to be minimally invasive to the host. Here is the complete
 |--------|---------|
 | **Firewall rules** | If a service container needs to be reachable from outside, UFW/iptables may need a rule opened. Agent can note this but cannot do it automatically (requires root). |
 | **Tailscale Funnel** | Agent cannot run `tailscale funnel` directly — host networking is out of scope for agent tools. If external access via Tailscale Funnel is needed, the agent will instruct the user to run `tailscale funnel <port>` themselves. |
-| **Secrets / env vars** | API keys or credentials that containers need. Stored in `~/.cloudmind/{agent-id}/secrets.json` (outside workspace). Agent reads at startup, injects as Docker `--env` flags at container launch. Values never written to container images and never passed to LLM. |
+| **Secrets / env vars** | API keys or credentials that containers need. Stored in `~/.openhermit/{agent-id}/secrets.json` (outside workspace). Agent reads at startup, injects as Docker `--env` flags at container launch. Values never written to container images and never passed to LLM. |
 | **Docker networks** | Agent may create named Docker networks for multi-container setups. These are Docker-managed, not host-level. |
 | **DNS** | If containers need to resolve custom hostnames, may need `/etc/hosts` entries on the host. Edge case. |
 | **GPU access** | If a container needs GPU, host must have nvidia-container-toolkit. Not needed for v1. |
@@ -805,7 +805,7 @@ The agent is designed to be minimally invasive to the host. Here is the complete
 }
 ```
 
-**`~/.cloudmind/{agent-id}/security.json`** — user only, agent cannot write
+**`~/.openhermit/{agent-id}/security.json`** — user only, agent cannot write
 
 ```json
 {
@@ -814,7 +814,7 @@ The agent is designed to be minimally invasive to the host. Here is the complete
 }
 ```
 
-**`~/.cloudmind/{agent-id}/secrets.json`** — user only, agent reads at startup but never logs or passes to LLM
+**`~/.openhermit/{agent-id}/secrets.json`** — user only, agent reads at startup but never logs or passes to LLM
 
 ```json
 {

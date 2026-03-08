@@ -12,7 +12,7 @@ export interface WorkspaceFixture {
 }
 
 export interface SecurityFixture extends WorkspaceFixture {
-  cloudMindHome: string;
+  openHermitHome: string;
   security: AgentSecurity;
 }
 
@@ -30,7 +30,7 @@ export const createTempDir = async (
 export const createWorkspaceFixture = async (
   t: TestContext,
 ): Promise<WorkspaceFixture> => {
-  const root = await createTempDir(t, 'cloudmind-workspace-');
+  const root = await createTempDir(t, 'openhermit-workspace-');
   const workspace = new AgentWorkspace(root);
 
   await workspace.init({
@@ -54,11 +54,11 @@ export const createSecurityFixture = async (
   },
 ): Promise<SecurityFixture> => {
   const workspaceFixture = await createWorkspaceFixture(t);
-  const cloudMindHome = await createTempDir(t, 'cloudmind-home-');
+  const openHermitHome = await createTempDir(t, 'openhermit-home-');
   const security = new AgentSecurity({
     agentId: 'agent-test',
     workspace: workspaceFixture.workspace,
-    cloudMindHome,
+    openHermitHome,
   });
 
   await security.init();
@@ -85,7 +85,7 @@ export const createSecurityFixture = async (
 
   return {
     ...workspaceFixture,
-    cloudMindHome,
+    openHermitHome,
     security,
   };
 };

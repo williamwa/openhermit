@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 
 import { createAdaptorServer } from '@hono/node-server';
 
-import { runtimeFiles } from '@cloudmind/shared';
+import { runtimeFiles } from '@openhermit/shared';
 
 import { AgentRunner } from './agent-runner.js';
 import { createAgentApp } from './app.js';
@@ -71,11 +71,12 @@ const listen = async (
   }
 };
 
-const agentId = process.env.CLOUDMIND_AGENT_ID ?? 'agent-dev';
+const agentId = process.env.OPENHERMIT_AGENT_ID ?? 'agent-dev';
 const workspaceRoot =
-  process.env.CLOUDMIND_WORKSPACE_ROOT ??
-  path.join(process.cwd(), '.cloudmind-dev', agentId);
-const agentName = process.env.CLOUDMIND_AGENT_NAME ?? 'CloudMind Dev Agent';
+  process.env.OPENHERMIT_WORKSPACE_ROOT ??
+  path.join(process.cwd(), '.openhermit-dev', agentId);
+const agentName =
+  process.env.OPENHERMIT_AGENT_NAME ?? 'OpenHermit Dev Agent';
 
 const workspace = new AgentWorkspace(workspaceRoot);
 await workspace.init({
@@ -115,7 +116,7 @@ await Promise.all([
 ]);
 
 console.log(
-  `[cloudmind-agent] listening on http://localhost:${info.port} (workspace: ${workspaceRoot})${
+  `[openhermit-agent] listening on http://localhost:${info.port} (workspace: ${workspaceRoot})${
     usedFallback ? `; preferred port ${preferredPort} was unavailable` : ''
   }`,
 );

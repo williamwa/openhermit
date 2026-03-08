@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { NotFoundError } from '@cloudmind/shared';
+import { NotFoundError } from '@openhermit/shared';
 
 import { InMemoryAgentRuntime } from '../src/runtime.js';
 
@@ -62,7 +62,7 @@ test('InMemoryAgentRuntime publishes a scaffold response for posted messages', a
   assert.deepEqual(backlog[0]?.event, {
     type: 'text_final',
     sessionId: 'cli:test-session',
-    text: 'CloudMind agent scaffold received a cli message: hello',
+    text: 'OpenHermit agent scaffold received a cli message: hello',
   });
   assert.deepEqual(backlog[1]?.event, {
     type: 'agent_end',
@@ -117,7 +117,7 @@ test('InMemoryAgentRuntime lists sessions by last activity and applies filters',
     lastEventId: runtime.events.getBacklog('cli:test-session').at(-1)?.id ?? 0,
     messageCount: 2,
     description: 'hello list',
-    lastMessagePreview: 'CloudMind agent scaffold received a cli message: hello list',
+    lastMessagePreview: 'OpenHermit agent scaffold received a cli message: hello list',
     status: 'idle',
   });
 

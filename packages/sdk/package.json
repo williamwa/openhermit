@@ -1,5 +1,5 @@
 {
-  "name": "@cloudmind/sdk",
+  "name": "@openhermit/sdk",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -16,7 +16,7 @@
     "typecheck": "tsc -p tsconfig.json --pretty false --noEmit"
   },
   "dependencies": {
-    "@cloudmind/protocol": "0.1.0",
-    "@cloudmind/shared": "0.1.0"
+    "@openhermit/protocol": "0.1.0",
+    "@openhermit/shared": "0.1.0"
   }
 }

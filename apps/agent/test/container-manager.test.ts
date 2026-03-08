@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
-  CloudMindError,
+  OpenHermitError,
   NotFoundError,
   ValidationError,
-} from '@cloudmind/shared';
+} from '@openhermit/shared';
 
 import {
   type DockerCommandResult,
@@ -94,9 +94,9 @@ test('DockerContainerManager runEphemeral records the container and parses struc
     okResult({
       stdout: [
         'starting',
-        '---CLOUDMIND_OUTPUT_START---',
+        '---OPENHERMIT_OUTPUT_START---',
         '{"ok":true,"count":2}',
-        '---CLOUDMIND_OUTPUT_END---',
+        '---OPENHERMIT_OUTPUT_END---',
       ].join('\n'),
       durationMs: 17,
     }),
@@ -168,7 +168,7 @@ test('DockerContainerManager startService and stopService persist service lifecy
     env: {
       ALLOW_EMPTY_PASSWORD: 'yes',
     },
-    network: 'cloudmind',
+    network: 'openhermit',
   });
 
   assert.equal(started.name, 'redis-cache');
@@ -190,7 +190,7 @@ test('DockerContainerManager startService and stopService persist service lifecy
     '-e',
     'ALLOW_EMPTY_PASSWORD=yes',
     '--network',
-    'cloudmind',
+    'openhermit',
     'redis:7',
   ]);
 
@@ -311,7 +311,7 @@ test('DockerContainerManager surfaces docker failures from startService', async 
         image: 'redis:7',
       }),
     (error: unknown) => {
-      assert.ok(error instanceof CloudMindError);
+      assert.ok(error instanceof OpenHermitError);
       assert.equal(error.code, 'docker_run_failed');
       assert.match(error.message, /port already in use/);
       return true;

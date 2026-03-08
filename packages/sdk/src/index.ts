@@ -5,12 +5,12 @@ import {
   type SessionSummary,
   type SessionSpec,
   type ToolApprovalRequest,
-} from '@cloudmind/protocol';
+} from '@openhermit/protocol';
 import {
-  CloudMindError,
-  type CloudMindStatusCode,
+  OpenHermitError,
+  type OpenHermitStatusCode,
   joinUrl,
-} from '@cloudmind/shared';
+} from '@openhermit/shared';
 
 type FetchLike = typeof fetch;
 
@@ -85,7 +85,7 @@ export class AgentLocalClient {
 
     if (!response.ok) {
       const responseText = await response.text();
-      const statusCode: CloudMindStatusCode =
+      const statusCode: OpenHermitStatusCode =
         response.status === 400 ||
         response.status === 401 ||
         response.status === 404 ||
@@ -93,7 +93,7 @@ export class AgentLocalClient {
           ? response.status
           : 500;
 
-      throw new CloudMindError(
+      throw new OpenHermitError(
         `Agent local API request failed (${response.status}): ${responseText || response.statusText}`,
         'agent_api_error',
         statusCode,
@@ -115,7 +115,7 @@ export class AgentLocalClient {
 
     if (!response.ok) {
       const responseText = await response.text();
-      const statusCode: CloudMindStatusCode =
+      const statusCode: OpenHermitStatusCode =
         response.status === 400 ||
         response.status === 401 ||
         response.status === 404 ||
@@ -123,7 +123,7 @@ export class AgentLocalClient {
           ? response.status
           : 500;
 
-      throw new CloudMindError(
+      throw new OpenHermitError(
         `Agent local API request failed (${response.status}): ${responseText || response.statusText}`,
         'agent_api_error',
         statusCode,

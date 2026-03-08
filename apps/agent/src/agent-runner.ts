@@ -12,9 +12,9 @@ import {
   type Message,
   type Model,
 } from '@mariozechner/pi-ai';
-import type { SessionMessage, SessionSpec } from '@cloudmind/protocol';
-import type { SessionListQuery, SessionStatus, SessionSummary } from '@cloudmind/protocol';
-import { NotFoundError, ValidationError, getErrorMessage } from '@cloudmind/shared';
+import type { SessionMessage, SessionSpec } from '@openhermit/protocol';
+import type { SessionListQuery, SessionStatus, SessionSummary } from '@openhermit/protocol';
+import { NotFoundError, ValidationError, getErrorMessage } from '@openhermit/shared';
 
 // ---------------------------------------------------------------------------
 // ApprovalGate — per-session registry of pending tool approval Promises.
@@ -1204,7 +1204,7 @@ export class AgentRunner implements SessionRuntime {
       });
     } catch (persistenceError) {
       console.error(
-        `[cloudmind-agent] failed to surface run error for ${session.spec.sessionId}`,
+        `[openhermit-agent] failed to surface run error for ${session.spec.sessionId}`,
         persistenceError,
       );
     }
@@ -1217,7 +1217,7 @@ export class AgentRunner implements SessionRuntime {
     const queued = session.sideEffects.then(work, work);
     session.sideEffects = queued.catch((error) => {
       console.error(
-        `[cloudmind-agent] failed to persist session side effect for ${session.spec.sessionId}`,
+        `[openhermit-agent] failed to persist session side effect for ${session.spec.sessionId}`,
         error,
       );
     });
@@ -1231,7 +1231,7 @@ export class AgentRunner implements SessionRuntime {
     const queued = session.backgroundTasks.then(work, work);
     session.backgroundTasks = queued.catch((error) => {
       console.error(
-        `[cloudmind-agent] failed to run background task for ${session.spec.sessionId}`,
+        `[openhermit-agent] failed to run background task for ${session.spec.sessionId}`,
         error,
       );
     });

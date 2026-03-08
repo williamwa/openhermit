@@ -1,6 +1,6 @@
 # Gateway
 
-This app is the future CloudMind control plane. It is intentionally a scaffold for now.
+This app is the future OpenHermit control plane. It is intentionally a scaffold for now.
 
 Planned responsibilities:
 

@@ -1,6 +1,6 @@
 import { Type, type Static } from '@mariozechner/pi-ai';
 import type { AgentTool } from '@mariozechner/pi-agent-core';
-import { ValidationError } from '@cloudmind/shared';
+import { ValidationError } from '@openhermit/shared';
 
 import {
   type DockerContainerManager,

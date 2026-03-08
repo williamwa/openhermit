@@ -3,7 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 
-import { CloudMindError, NotFoundError, ValidationError } from '@cloudmind/shared';
+import { OpenHermitError, NotFoundError, ValidationError } from '@openhermit/shared';
 
 import type {
   ContainerListEntry,
@@ -15,8 +15,8 @@ import type {
 } from './types.js';
 import { AgentWorkspace } from './workspace.js';
 
-const OUTPUT_START = '---CLOUDMIND_OUTPUT_START---';
-const OUTPUT_END = '---CLOUDMIND_OUTPUT_END---';
+const OUTPUT_START = '---OPENHERMIT_OUTPUT_START---';
+const OUTPUT_END = '---OPENHERMIT_OUTPUT_END---';
 
 const normalizeContainerRelativePath = (relativePath: string): string =>
   path.posix.normalize(relativePath.split(path.sep).join(path.posix.sep));
@@ -97,7 +97,11 @@ export interface DockerRunner {
 }
 
 class DockerCliRunner implements DockerRunner {
-  constructor(private readonly binary = process.env.CLOUDMIND_DOCKER_BIN ?? 'docker') {}
+  constructor(
+    private readonly binary =
+      process.env.OPENHERMIT_DOCKER_BIN ??
+      'docker',
+  ) {}
 
   async run(args: string[]): Promise<DockerCommandResult> {
     const startedAt = Date.now();
@@ -120,7 +124,7 @@ class DockerCliRunner implements DockerRunner {
 
       child.on('error', (error) => {
         reject(
-          new CloudMindError(
+          new OpenHermitError(
             `Failed to execute docker command: ${error.message}`,
             'docker_unavailable',
             500,
@@ -363,7 +367,7 @@ export class DockerContainerManager {
     const result = await this.docker.run(dockerArgs);
 
     if (result.exitCode !== 0) {
-      throw new CloudMindError(
+      throw new OpenHermitError(
         `Failed to start service container: ${result.stderr || result.stdout}`,
         'docker_run_failed',
         500,
@@ -402,7 +406,7 @@ export class DockerContainerManager {
       /No such container/i.test(`${result.stdout}\n${result.stderr}`);
 
     if (result.exitCode !== 0 && !missingContainer) {
-      throw new CloudMindError(
+      throw new OpenHermitError(
         `Failed to stop service container: ${result.stderr || result.stdout}`,
         'docker_remove_failed',
         500,
@@ -465,7 +469,7 @@ export class DockerContainerManager {
     const result = await this.docker.run(['ps', '-a', '--format', '{{json .}}']);
 
     if (result.exitCode !== 0) {
-      throw new CloudMindError(
+      throw new OpenHermitError(
         `Failed to inspect docker containers: ${result.stderr || result.stdout}`,
         'docker_ps_failed',
         500,
