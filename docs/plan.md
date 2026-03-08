@@ -120,7 +120,7 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 - [ ] `source.platform` captures adapter-specific detail when needed, e.g. `telegram | discord | feishu`
 - [ ] `source.interactive` determines whether the caller subscribes to SSE or the run is treated as a non-interactive scheduled session
 - [ ] `POST /sessions` is metadata-only: it creates or resumes session state, but the runner should not advance until the first `SessionMessage` is posted
-- [ ] Define `OutboundEvent` SSE types: `text_delta | text_final | tool_start | error`
+- [ ] Define `OutboundEvent` SSE types: `text_delta | text_final | tool_requested | tool_started | tool_result | error`
 - [ ] Expose `AgentRunner.openSession(spec)` and `AgentRunner.postMessage(sessionId, message)` inside the agent process; all adapters call this lifecycle interface
 - [ ] Implement Hono HTTP adapter inside the agent process:
   - `POST /sessions` — validates bearer token, accepts `SessionSpec`, creates or resumes the session, returns `{ sessionId }`
@@ -318,7 +318,8 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 ```jsonl
 {"ts":"2026-03-07T10:00:00Z","session":"s1","type":"session_started","data":{}}
 {"ts":"2026-03-07T10:00:05Z","session":"s1","type":"message_received","data":{"role":"user","content":"hello"}}
-{"ts":"2026-03-07T10:00:08Z","session":"s1","type":"tool_called","data":{"tool":"read_file","args":{"path":"memory/notes/facts.md"}}}
+{"ts":"2026-03-07T10:00:08Z","session":"s1","type":"tool_requested","data":{"tool":"read_file","args":{"path":"memory/notes/facts.md"}}}
+{"ts":"2026-03-07T10:00:08Z","session":"s1","type":"tool_started","data":{"tool":"read_file","args":{"path":"memory/notes/facts.md"}}}
 {"ts":"2026-03-07T10:00:09Z","session":"s1","type":"tool_result","data":{"tool":"read_file","result":"..."}}
 {"ts":"2026-03-07T10:00:12Z","session":"s1","type":"message_sent","data":{"role":"assistant","content":"Hi!"}}
 {"ts":"2026-03-07T10:00:12Z","session":"s1","type":"session_ended","data":{"turns":2}}
@@ -329,9 +330,11 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 ```jsonl
 {"ts":"2026-03-07T10:00:05Z","role":"user","content":"Write me a fibonacci script"}
 {"ts":"2026-03-07T10:00:08Z","role":"assistant","type":"thought","content":"I should write the script to a file then run it"}
-{"ts":"2026-03-07T10:00:08Z","role":"tool_call","name":"write_file","args":{"path":"containers/run-1/data/fib.py","content":"..."}}
+{"ts":"2026-03-07T10:00:08Z","role":"tool_call","type":"tool_requested","name":"write_file","args":{"path":"containers/run-1/data/fib.py","content":"..."}}
+{"ts":"2026-03-07T10:00:08Z","role":"tool_call","type":"tool_started","name":"write_file","args":{"path":"containers/run-1/data/fib.py","content":"..."}}
 {"ts":"2026-03-07T10:00:09Z","role":"tool_result","name":"write_file","content":"ok"}
-{"ts":"2026-03-07T10:00:09Z","role":"tool_call","name":"container_run","args":{"image":"python:3.12","command":"python /workspace/fib.py","mount":"containers/run-1/data"}}
+{"ts":"2026-03-07T10:00:09Z","role":"tool_call","type":"tool_requested","name":"container_run","args":{"image":"python:3.12","command":"python /workspace/fib.py","mount":"containers/run-1/data"}}
+{"ts":"2026-03-07T10:00:09Z","role":"tool_call","type":"tool_started","name":"container_run","args":{"image":"python:3.12","command":"python /workspace/fib.py","mount":"containers/run-1/data"}}
 {"ts":"2026-03-07T10:00:14Z","role":"tool_result","name":"container_run","content":{"stdout":"1 1 2 3 5...","exitCode":0}}
 {"ts":"2026-03-07T10:00:15Z","role":"assistant","type":"answer","content":"Here are the first 20 Fibonacci numbers: ..."}
 ```

@@ -159,10 +159,11 @@ test('waitForAssistantTurn prints tool calls and tool results for debugging', as
             encoder.encode(
               [
                 'event: ready\ndata: {"sessionId":"cli:test"}\n\n',
-                'id: 1\nevent: tool_start\ndata: {"tool":"write_file","args":{"path":"files/test.py","content":"print(1)"}}\n\n',
-                'id: 2\nevent: tool_result\ndata: {"tool":"write_file","isError":false,"text":"Wrote files/test.py","details":{"path":"files/test.py","bytes":8}}\n\n',
-                'id: 3\nevent: text_final\ndata: {"text":"Done."}\n\n',
-                'id: 4\nevent: agent_end\ndata: {"sessionId":"cli:test"}\n\n',
+                'id: 1\nevent: tool_requested\ndata: {"tool":"write_file","args":{"path":"files/test.py","content":"print(1)"}}\n\n',
+                'id: 2\nevent: tool_started\ndata: {"tool":"write_file","args":{"path":"files/test.py","content":"print(1)"}}\n\n',
+                'id: 3\nevent: tool_result\ndata: {"tool":"write_file","isError":false,"text":"Wrote files/test.py","details":{"path":"files/test.py","bytes":8}}\n\n',
+                'id: 4\nevent: text_final\ndata: {"text":"Done."}\n\n',
+                'id: 5\nevent: agent_end\ndata: {"sessionId":"cli:test"}\n\n',
               ].join(''),
             ),
           );
@@ -187,7 +188,8 @@ test('waitForAssistantTurn prints tool calls and tool results for debugging', as
       0,
     );
 
-    assert.equal(nextEventId, 4);
+    assert.equal(nextEventId, 5);
+    assert.match(stdoutChunks.join(''), /\[tool requested\] write_file/);
     assert.match(stdoutChunks.join(''), /\[tool\] write_file/);
     assert.match(stdoutChunks.join(''), /"path":"files\/test.py"/);
     assert.match(stdoutChunks.join(''), /\[tool result\] write_file/);

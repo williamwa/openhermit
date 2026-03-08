@@ -18,10 +18,40 @@ const READONLY_BLOCKED_TOOLS = new Set([
   'container_exec',
 ]);
 
+/**
+ * Called before a tool executes when approval is required.
+ * Returns an explicit decision so timeout and user denial are distinguishable.
+ */
+export type ApprovalDecision = 'approved' | 'rejected' | 'timed_out' | 'cancelled';
+
+export type ApprovalCallback = (
+  toolName: string,
+  toolCallId: string,
+  args: unknown,
+) => Promise<ApprovalDecision>;
+
+export type ToolStartedCallback = (
+  toolName: string,
+  toolCallId: string,
+  args: unknown,
+) => Promise<void> | void;
+
+export type ToolRequestedCallback = (
+  toolName: string,
+  toolCallId: string,
+  args: unknown,
+) => Promise<void> | void;
+
 interface ToolContext {
   workspace: AgentWorkspace;
   security: AgentSecurity;
   containerManager: DockerContainerManager;
+  /** When present, tools in security.require_approval_for pause for confirmation. */
+  approvalCallback?: ApprovalCallback;
+  /** Called as soon as the agent decides to invoke the tool. */
+  onToolRequested?: ToolRequestedCallback;
+  /** Called immediately before the underlying tool.execute() runs. */
+  onToolStarted?: ToolStartedCallback;
 }
 
 const asTextContent = (text: string) => [
@@ -446,16 +476,105 @@ export const summarizeContainerEntry = (
   container: ContainerRegistryEntry,
 ): string => formatJson(container);
 
+/**
+ * Wraps a tool so that calls to tools listed in security.require_approval_for
+ * will pause and invoke the approval callback before executing.
+ * In `full` autonomy mode or when no callback is provided, tools always proceed.
+ */
+export const withApproval = (
+  tool: AgentTool<any>,
+  security: AgentSecurity,
+  approvalCallback: ApprovalCallback | undefined,
+  onToolRequested?: ToolRequestedCallback,
+  onToolStarted?: ToolStartedCallback,
+): AgentTool<any> => {
+  if (!approvalCallback) {
+    if (!onToolRequested && !onToolStarted) {
+      return tool;
+    }
+
+    return {
+      ...tool,
+      execute: async (
+        toolCallId: string,
+        args: unknown,
+        signal?: AbortSignal,
+        onUpdate?: Parameters<AgentTool<any>['execute']>[3],
+      ) => {
+        await onToolRequested?.(tool.name, toolCallId, args);
+        await onToolStarted?.(tool.name, toolCallId, args);
+        return tool.execute(toolCallId, args, signal, onUpdate);
+      },
+    };
+  }
+
+  return {
+    ...tool,
+    execute: async (
+      toolCallId: string,
+      args: unknown,
+      signal?: AbortSignal,
+      onUpdate?: Parameters<AgentTool<any>['execute']>[3],
+    ) => {
+      const needsApproval =
+        security.getAutonomyLevel() !== 'full' &&
+        security.requiresApproval(tool.name);
+
+      await onToolRequested?.(tool.name, toolCallId, args);
+
+      if (needsApproval) {
+        const decision = await approvalCallback(tool.name, toolCallId, args);
+
+        if (decision !== 'approved') {
+          const text =
+            decision === 'timed_out'
+              ? `Tool call "${tool.name}" timed out waiting for user approval.`
+              : decision === 'cancelled'
+                ? `Tool call "${tool.name}" was cancelled before approval was received.`
+                : `Tool call "${tool.name}" was rejected by the user.`;
+
+          return {
+            content: asTextContent(text),
+            details: {
+              rejected: true,
+              toolName: tool.name,
+              approvalStatus: decision,
+            },
+          };
+        }
+      }
+
+      await onToolStarted?.(tool.name, toolCallId, args);
+      return tool.execute(toolCallId, args, signal, onUpdate);
+    },
+  };
+};
+
 export const createBuiltInTools = (
   context: ToolContext,
-): AgentTool<any>[] => [
-  createReadFileTool(context),
-  createWriteFileTool(context),
-  createListFilesTool(context),
-  createDeleteFileTool(context),
-  createContainerRunTool(context),
-  createContainerStatusTool(context),
-  createContainerStartTool(context),
-  createContainerStopTool(context),
-  createContainerExecTool(context),
-];
+): AgentTool<any>[] => {
+  const { security, approvalCallback, onToolStarted } = context;
+  const { onToolRequested } = context;
+
+  const tools = [
+    createReadFileTool(context),
+    createWriteFileTool(context),
+    createListFilesTool(context),
+    createDeleteFileTool(context),
+    createContainerRunTool(context),
+    createContainerStatusTool(context),
+    createContainerStartTool(context),
+    createContainerStopTool(context),
+    createContainerExecTool(context),
+  ];
+
+  return tools.map((tool) =>
+    withApproval(
+      tool,
+      security,
+      approvalCallback,
+      onToolRequested,
+      onToolStarted,
+    ),
+  );
+};

@@ -171,7 +171,23 @@ const formatDebugValue = (value: unknown): string => {
   return JSON.stringify(value, null, 2);
 };
 
-const writeToolCall = (tool: string, args: unknown): void => {
+const writeToolRequested = (tool: string, args: unknown): void => {
+  const formattedArgs = formatDebugValue(args);
+
+  if (!formattedArgs) {
+    stdout.write(`\n[tool requested] ${tool}\n`);
+    return;
+  }
+
+  if (formattedArgs.includes('\n')) {
+    stdout.write(`\n[tool requested] ${tool}\n${formattedArgs}\n`);
+    return;
+  }
+
+  stdout.write(`\n[tool requested] ${tool} ${formattedArgs}\n`);
+};
+
+const writeToolStarted = (tool: string, args: unknown): void => {
   const formattedArgs = formatDebugValue(args);
 
   if (!formattedArgs) {
@@ -209,11 +225,25 @@ const writeToolResult = (
   stdout.write(`${label} ${tool} ${body}\n`);
 };
 
+export interface AssistantTurnOptions {
+  /**
+   * Called when the agent requires user approval before executing a tool.
+   * Return true to approve, false to deny.
+   * When undefined, approval requests are auto-denied.
+   */
+  onApprovalRequired?: (
+    toolName: string,
+    toolCallId: string,
+    args: unknown,
+  ) => Promise<boolean>;
+}
+
 export const waitForAssistantTurn = async (
   client: AgentLocalClient,
   token: string,
   sessionId: string,
   lastEventId: number,
+  options?: AssistantTurnOptions,
 ): Promise<number> => {
   const response = await fetch(client.buildEventsUrl(sessionId), {
     headers: {
@@ -263,8 +293,41 @@ export const waitForAssistantTurn = async (
             ? (JSON.parse(frame.data) as Record<string, unknown>)
             : {};
 
-        if (frame.event === 'tool_start') {
-          writeToolCall(String(payload.tool ?? 'unknown'), payload.args);
+        if (frame.event === 'tool_approval_required') {
+          const toolName = String(payload.toolName ?? 'unknown');
+          const toolCallId = String(payload.toolCallId ?? '');
+
+          stdout.write(`\n[approval required] ${toolName}`);
+
+          if (payload.args !== undefined) {
+            const formatted = formatDebugValue(payload.args);
+
+            if (formatted) {
+              stdout.write(formatted.includes('\n') ? `\n${formatted}` : ` ${formatted}`);
+            }
+          }
+
+          stdout.write('\n');
+
+          let approved = false;
+
+          if (options?.onApprovalRequired) {
+            approved = await options.onApprovalRequired(toolName, toolCallId, payload.args);
+          } else {
+            stdout.write('[approval required] No approval handler configured — auto-denying.\n');
+          }
+
+          await client.submitApproval(sessionId, { toolCallId, approved });
+          continue;
+        }
+
+        if (frame.event === 'tool_requested') {
+          writeToolRequested(String(payload.tool ?? 'unknown'), payload.args);
+          continue;
+        }
+
+        if (frame.event === 'tool_started') {
+          writeToolStarted(String(payload.tool ?? 'unknown'), payload.args);
           continue;
         }
 
@@ -358,12 +421,16 @@ export const main = async (): Promise<void> => {
 
       stdout.write('agent> ');
       await client.postMessage(sessionId, { text: input });
-      lastEventId = await waitForAssistantTurn(
-        client,
-        token,
-        sessionId,
-        lastEventId,
-      );
+      lastEventId = await waitForAssistantTurn(client, token, sessionId, lastEventId, {
+        onApprovalRequired: async (toolName, toolCallId, args) => {
+          // The approval prompt was already printed by waitForAssistantTurn.
+          // We just need to ask y/n here.
+          const answer = await rl.question('Approve? [y/N]: ');
+          const approved = answer.trim().toLowerCase() === 'y';
+          stdout.write(approved ? '[approved]\n' : '[denied]\n');
+          return approved;
+        },
+      });
       stdout.write('\n');
     }
   } finally {
