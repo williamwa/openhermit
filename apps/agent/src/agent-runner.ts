@@ -103,6 +103,16 @@ const formatMissingApiKeyMessage = (
 
 const serializeDetails = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
 
+const CONTAINER_TOOL_GUIDANCE = [
+  'Container tool rules:',
+  '- Container tools do not see the whole workspace. They only see the mounted subdirectory.',
+  '- Valid mounts must stay under containers/{name}/data.',
+  '- Files under files/ or the workspace root are not mounted automatically.',
+  '- Before running code in a container, write or copy the needed files into the chosen mount directory first.',
+  '- For ephemeral runs, mounted files appear under /workspace inside the container.',
+  '- If a container tool fails, inspect the tool result details and correct the mount or in-container path before retrying.',
+].join('\n');
+
 const extractToolResultText = (result: unknown): string | undefined => {
   if (!result || typeof result !== 'object') {
     return undefined;
@@ -385,6 +395,7 @@ export class AgentRunner implements SessionRuntime {
       'You are a pragmatic autonomous coding agent operating inside a dedicated workspace.',
       `Autonomy level: ${this.options.security.getAutonomyLevel()}.`,
       'Stay within the workspace boundaries and use tools for file and container access.',
+      CONTAINER_TOOL_GUIDANCE,
       'Identity context:',
       identitySections,
       secretNames.length > 0

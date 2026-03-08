@@ -220,6 +220,44 @@ test('AgentRunner publishes SSE text events and writes minimal logs', async (t) 
   );
 });
 
+test('AgentRunner injects container mount guidance into the system prompt', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: {
+      ANTHROPIC_API_KEY: 'test-anthropic-key',
+    },
+  });
+  await security.load();
+
+  let capturedSystemPrompt = '';
+  const runner = await AgentRunner.create({
+    workspace,
+    security,
+    streamFn: createSequentialStreamFn([
+      (context) => {
+        capturedSystemPrompt = context.systemPrompt ?? '';
+        return createTextResponseStream('captured');
+      },
+    ]),
+  });
+
+  await runner.openSession({
+    sessionId: 'cli:prompt-guidance',
+    source: {
+      kind: 'cli',
+      interactive: true,
+    },
+  });
+  await runner.postMessage('cli:prompt-guidance', {
+    text: 'Run a script in a container.',
+  });
+  await runner.waitForSessionIdle('cli:prompt-guidance');
+
+  assert.match(capturedSystemPrompt, /Container tool rules:/);
+  assert.match(capturedSystemPrompt, /containers\/\{name\}\/data/);
+  assert.match(capturedSystemPrompt, /Files under files\/ or the workspace root are not mounted automatically/);
+  assert.match(capturedSystemPrompt, /mounted files appear under \/workspace inside the container/);
+});
+
 test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: {

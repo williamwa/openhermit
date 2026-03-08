@@ -55,7 +55,7 @@ Describe the human this agent is helping.
 `,
   'identity/AGENTS.md': `# AGENTS
 
-Follow repository-local instructions and preserve workspace boundaries.
+Use this file for workspace-specific instructions, preferences, and collaboration rules.
 `,
 } as const;
 
