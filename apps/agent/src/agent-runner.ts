@@ -82,6 +82,8 @@ import { type SessionDescriptor, SessionEventBroker, type SessionRuntime } from 
 import {
   type ApprovalCallback,
   type ApprovalDecision,
+  type ToolRequestedCallback,
+  type ToolStartedCallback,
   createBuiltInTools,
 } from './tools.js';
 
@@ -286,9 +288,28 @@ export class AgentRunner implements SessionRuntime {
     const approvalCallback = spec.source.interactive
       ? this.makeApprovalCallback(spec.sessionId, approvalGate)
       : undefined;
-    const agent = await this.createAgent(spec, config, approvalCallback);
+    let session: RunnerSession | undefined;
+    const agent = await this.createAgent(
+      spec,
+      config,
+      approvalCallback,
+      (...args) => {
+        if (!session) {
+          throw new Error('Session was not initialized before tool execution was requested.');
+        }
+
+        return this.makeToolRequestedCallback(session)(...args);
+      },
+      (...args) => {
+        if (!session) {
+          throw new Error('Session was not initialized before tool execution started.');
+        }
+
+        return this.makeToolStartedCallback(session)(...args);
+      },
+    );
     const paths = createSessionLogPaths(spec.sessionId, now);
-    const session: RunnerSession = {
+    session = {
       spec,
       createdAt: now,
       updatedAt: now,
@@ -449,6 +470,78 @@ export class AgentRunner implements SessionRuntime {
     };
   }
 
+  private makeToolStartedCallback(session: RunnerSession): ToolStartedCallback {
+    return async (toolName, toolCallId, args) => {
+      const ts = new Date().toISOString();
+
+      await this.events.publish({
+        type: 'tool_started',
+        sessionId: session.spec.sessionId,
+        tool: toolName,
+        ...(args !== undefined ? { args } : {}),
+      });
+
+      await this.queueSideEffect(session, async () => {
+        await Promise.all([
+          this.logWriter.appendSession(session.sessionLogRelativePath, {
+            ts,
+            role: 'tool_call',
+            type: 'tool_started',
+            name: toolName,
+            args,
+            toolCallId,
+          }),
+          this.logWriter.appendEpisodic(session.episodicRelativePath, {
+            ts,
+            session: session.spec.sessionId,
+            type: 'tool_started',
+            data: {
+              tool: toolName,
+              args,
+              toolCallId,
+            },
+          }),
+        ]);
+      });
+    };
+  }
+
+  private makeToolRequestedCallback(session: RunnerSession): ToolRequestedCallback {
+    return async (toolName, toolCallId, args) => {
+      const ts = new Date().toISOString();
+
+      await this.events.publish({
+        type: 'tool_requested',
+        sessionId: session.spec.sessionId,
+        tool: toolName,
+        ...(args !== undefined ? { args } : {}),
+      });
+
+      await this.queueSideEffect(session, async () => {
+        await Promise.all([
+          this.logWriter.appendSession(session.sessionLogRelativePath, {
+            ts,
+            role: 'tool_call',
+            type: 'tool_requested',
+            name: toolName,
+            args,
+            toolCallId,
+          }),
+          this.logWriter.appendEpisodic(session.episodicRelativePath, {
+            ts,
+            session: session.spec.sessionId,
+            type: 'tool_requested',
+            data: {
+              tool: toolName,
+              args,
+              toolCallId,
+            },
+          }),
+        ]);
+      });
+    };
+  }
+
   private async recordApprovalRequested(
     session: RunnerSession,
     toolName: string,
@@ -517,12 +610,16 @@ export class AgentRunner implements SessionRuntime {
     spec: SessionSpec,
     config: AgentConfig,
     approvalCallback?: ApprovalCallback,
+    onToolRequested?: ToolRequestedCallback,
+    onToolStarted?: ToolStartedCallback,
   ): Promise<Agent> {
     const tools = createBuiltInTools({
       workspace: this.options.workspace,
       security: this.options.security,
       containerManager: this.containerManager,
       ...(approvalCallback ? { approvalCallback } : {}),
+      ...(onToolRequested ? { onToolRequested } : {}),
+      ...(onToolStarted ? { onToolStarted } : {}),
     });
     const systemPrompt = await this.buildSystemPrompt(config);
 
@@ -559,6 +656,8 @@ export class AgentRunner implements SessionRuntime {
         security: this.options.security,
         containerManager: this.containerManager,
         ...(approvalCallback ? { approvalCallback } : {}),
+        onToolRequested: this.makeToolRequestedCallback(session),
+        onToolStarted: this.makeToolStartedCallback(session),
       }),
     );
     session.agent.sessionId = session.spec.sessionId;
@@ -729,35 +828,6 @@ export class AgentRunner implements SessionRuntime {
       }
 
       case 'tool_execution_start': {
-        const ts = new Date().toISOString();
-
-        void this.events.publish({
-          type: 'tool_start',
-          sessionId: session.spec.sessionId,
-          tool: event.toolName,
-          args: event.args,
-        });
-        void this.queueSideEffect(session, async () => {
-          await Promise.all([
-            this.logWriter.appendSession(session.sessionLogRelativePath, {
-              ts,
-              role: 'tool_call',
-              name: event.toolName,
-              args: event.args,
-              toolCallId: event.toolCallId,
-            }),
-            this.logWriter.appendEpisodic(session.episodicRelativePath, {
-              ts,
-              session: session.spec.sessionId,
-              type: 'tool_called',
-              data: {
-                tool: event.toolName,
-                args: event.args,
-                toolCallId: event.toolCallId,
-              },
-            }),
-          ]);
-        });
         break;
       }
 

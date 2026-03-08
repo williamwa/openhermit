@@ -32,7 +32,8 @@ export interface SessionMessage {
 export type OutboundEvent =
   | { type: 'text_delta'; sessionId: string; text: string }
   | { type: 'text_final'; sessionId: string; text: string }
-  | { type: 'tool_start'; sessionId: string; tool: string; args?: unknown }
+  | { type: 'tool_requested'; sessionId: string; tool: string; args?: unknown }
+  | { type: 'tool_started'; sessionId: string; tool: string; args?: unknown }
   | {
       type: 'tool_result';
       sessionId: string;

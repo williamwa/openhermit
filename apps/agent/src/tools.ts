@@ -27,12 +27,28 @@ export type ApprovalCallback = (
   args: unknown,
 ) => Promise<ApprovalDecision>;
 
+export type ToolStartedCallback = (
+  toolName: string,
+  toolCallId: string,
+  args: unknown,
+) => Promise<void> | void;
+
+export type ToolRequestedCallback = (
+  toolName: string,
+  toolCallId: string,
+  args: unknown,
+) => Promise<void> | void;
+
 interface ToolContext {
   workspace: AgentWorkspace;
   security: AgentSecurity;
   containerManager: DockerContainerManager;
   /** When present, tools in security.require_approval_for pause for confirmation. */
   approvalCallback?: ApprovalCallback;
+  /** Called as soon as the agent decides to invoke the tool. */
+  onToolRequested?: ToolRequestedCallback;
+  /** Called immediately before the underlying tool.execute() runs. */
+  onToolStarted?: ToolStartedCallback;
 }
 
 const asTextContent = (text: string) => [
@@ -298,9 +314,27 @@ export const withApproval = (
   tool: AgentTool<any>,
   security: AgentSecurity,
   approvalCallback: ApprovalCallback | undefined,
+  onToolRequested?: ToolRequestedCallback,
+  onToolStarted?: ToolStartedCallback,
 ): AgentTool<any> => {
   if (!approvalCallback) {
-    return tool;
+    if (!onToolRequested && !onToolStarted) {
+      return tool;
+    }
+
+    return {
+      ...tool,
+      execute: async (
+        toolCallId: string,
+        args: unknown,
+        signal?: AbortSignal,
+        onUpdate?: Parameters<AgentTool<any>['execute']>[3],
+      ) => {
+        await onToolRequested?.(tool.name, toolCallId, args);
+        await onToolStarted?.(tool.name, toolCallId, args);
+        return tool.execute(toolCallId, args, signal, onUpdate);
+      },
+    };
   }
 
   return {
@@ -314,6 +348,8 @@ export const withApproval = (
       const needsApproval =
         security.getAutonomyLevel() !== 'full' &&
         security.requiresApproval(tool.name);
+
+      await onToolRequested?.(tool.name, toolCallId, args);
 
       if (needsApproval) {
         const decision = await approvalCallback(tool.name, toolCallId, args);
@@ -337,6 +373,7 @@ export const withApproval = (
         }
       }
 
+      await onToolStarted?.(tool.name, toolCallId, args);
       return tool.execute(toolCallId, args, signal, onUpdate);
     },
   };
@@ -345,7 +382,8 @@ export const withApproval = (
 export const createBuiltInTools = (
   context: ToolContext,
 ): AgentTool<any>[] => {
-  const { security, approvalCallback } = context;
+  const { security, approvalCallback, onToolStarted } = context;
+  const { onToolRequested } = context;
 
   const tools = [
     createReadFileTool(context),
@@ -356,5 +394,13 @@ export const createBuiltInTools = (
     createContainerStatusTool(context),
   ];
 
-  return tools.map((tool) => withApproval(tool, security, approvalCallback));
+  return tools.map((tool) =>
+    withApproval(
+      tool,
+      security,
+      approvalCallback,
+      onToolRequested,
+      onToolStarted,
+    ),
+  );
 };

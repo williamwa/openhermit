@@ -171,7 +171,23 @@ const formatDebugValue = (value: unknown): string => {
   return JSON.stringify(value, null, 2);
 };
 
-const writeToolCall = (tool: string, args: unknown): void => {
+const writeToolRequested = (tool: string, args: unknown): void => {
+  const formattedArgs = formatDebugValue(args);
+
+  if (!formattedArgs) {
+    stdout.write(`\n[tool requested] ${tool}\n`);
+    return;
+  }
+
+  if (formattedArgs.includes('\n')) {
+    stdout.write(`\n[tool requested] ${tool}\n${formattedArgs}\n`);
+    return;
+  }
+
+  stdout.write(`\n[tool requested] ${tool} ${formattedArgs}\n`);
+};
+
+const writeToolStarted = (tool: string, args: unknown): void => {
   const formattedArgs = formatDebugValue(args);
 
   if (!formattedArgs) {
@@ -305,8 +321,13 @@ export const waitForAssistantTurn = async (
           continue;
         }
 
-        if (frame.event === 'tool_start') {
-          writeToolCall(String(payload.tool ?? 'unknown'), payload.args);
+        if (frame.event === 'tool_requested') {
+          writeToolRequested(String(payload.tool ?? 'unknown'), payload.args);
+          continue;
+        }
+
+        if (frame.event === 'tool_started') {
+          writeToolStarted(String(payload.tool ?? 'unknown'), payload.args);
           continue;
         }
 

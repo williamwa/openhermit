@@ -30,6 +30,8 @@ test('withApproval forwards signal and onUpdate to the wrapped tool', async (t) 
   let capturedSignal: AbortSignal | undefined;
   let capturedOnUpdate: AgentToolUpdateCallback<{ status: string }> | undefined;
   let approvalArgs: unknown;
+  const requestedCalls: Array<{ toolName: string; toolCallId: string; args: unknown }> = [];
+  const startedCalls: Array<{ toolName: string; toolCallId: string; args: unknown }> = [];
 
   const tool: AgentTool<typeof Params, { status: string }> = {
     name: 'dangerous_tool',
@@ -51,10 +53,20 @@ test('withApproval forwards signal and onUpdate to the wrapped tool', async (t) 
     },
   };
 
-  const wrapped = withApproval(tool, security, async (_toolName, _toolCallId, args) => {
-    approvalArgs = args;
-    return 'approved';
-  });
+  const wrapped = withApproval(
+    tool,
+    security,
+    async (_toolName, _toolCallId, args) => {
+      approvalArgs = args;
+      return 'approved';
+    },
+    async (toolName, toolCallId, args) => {
+      requestedCalls.push({ toolName, toolCallId, args });
+    },
+    async (toolName, toolCallId, args) => {
+      startedCalls.push({ toolName, toolCallId, args });
+    },
+  );
 
   const abortController = new AbortController();
   const updates: Array<{ status: string }> = [];
@@ -71,6 +83,20 @@ test('withApproval forwards signal and onUpdate to the wrapped tool', async (t) 
   assert.equal(capturedSignal, abortController.signal);
   assert.ok(capturedOnUpdate);
   assert.deepEqual(approvalArgs, { value: 'payload' });
+  assert.deepEqual(requestedCalls, [
+    {
+      toolName: 'dangerous_tool',
+      toolCallId: 'call-1',
+      args: { value: 'payload' },
+    },
+  ]);
+  assert.deepEqual(startedCalls, [
+    {
+      toolName: 'dangerous_tool',
+      toolCallId: 'call-1',
+      args: { value: 'payload' },
+    },
+  ]);
   assert.deepEqual(updates, [{ status: 'midway' }]);
   assert.deepEqual(result.details, { status: 'done' });
 });
@@ -98,8 +124,31 @@ test('withApproval distinguishes timeout from explicit rejection', async (t) => 
     },
   };
 
-  const timedOut = withApproval(tool, security, async () => 'timed_out');
-  const rejected = withApproval(tool, security, async () => 'rejected');
+  const requestedCalls: string[] = [];
+  const startedCalls: string[] = [];
+
+  const timedOut = withApproval(
+    tool,
+    security,
+    async () => 'timed_out',
+    async (toolName) => {
+      requestedCalls.push(toolName);
+    },
+    async (toolName) => {
+      startedCalls.push(toolName);
+    },
+  );
+  const rejected = withApproval(
+    tool,
+    security,
+    async () => 'rejected',
+    async (toolName) => {
+      requestedCalls.push(toolName);
+    },
+    async (toolName) => {
+      startedCalls.push(toolName);
+    },
+  );
 
   const timedOutResult = await timedOut.execute('call-timeout', { value: 'payload' });
   const rejectedResult = await rejected.execute('call-rejected', { value: 'payload' });
@@ -117,4 +166,6 @@ test('withApproval distinguishes timeout from explicit rejection', async (t) => 
     toolName: 'dangerous_tool',
     approvalStatus: 'rejected',
   });
+  assert.deepEqual(requestedCalls, ['dangerous_tool', 'dangerous_tool']);
+  assert.deepEqual(startedCalls, []);
 });

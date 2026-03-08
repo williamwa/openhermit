@@ -28,6 +28,14 @@ const zeroUsage: Usage = {
   },
 };
 
+const trackedToolEventTypes = new Set([
+  'tool_requested',
+  'tool_approval_requested',
+  'tool_approval_resolved',
+  'tool_started',
+  'tool_result',
+]);
+
 const createAssistantMessage = (
   content: AssistantMessage['content'],
   stopReason: AssistantMessage['stopReason'],
@@ -301,7 +309,16 @@ test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
   assert.ok(
     backlog.some(
       (entry) =>
-        entry.event.type === 'tool_start' &&
+        entry.event.type === 'tool_requested' &&
+        entry.event.tool === 'read_file' &&
+        'args' in entry.event &&
+        JSON.stringify(entry.event.args) === JSON.stringify({ path: 'files/fact.txt' }),
+      ),
+  );
+  assert.ok(
+    backlog.some(
+      (entry) =>
+        entry.event.type === 'tool_started' &&
         entry.event.tool === 'read_file' &&
         'args' in entry.event &&
         JSON.stringify(entry.event.args) === JSON.stringify({ path: 'files/fact.txt' }),
@@ -334,6 +351,15 @@ test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
     sessionEntries.some(
       (entry) =>
         entry.role === 'tool_call' &&
+        entry.type === 'tool_requested' &&
+        entry.name === 'read_file',
+    ),
+  );
+  assert.ok(
+    sessionEntries.some(
+      (entry) =>
+        entry.role === 'tool_call' &&
+        entry.type === 'tool_started' &&
         entry.name === 'read_file',
     ),
   );
@@ -441,6 +467,14 @@ test('AgentRunner pauses on require_approval_for and resumes after respondToAppr
     backlogBefore.some((e) => e.event.type === 'tool_approval_required'),
     'tool_approval_required event was published',
   );
+  assert.ok(
+    backlogBefore.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'write_file'),
+    'tool_requested is published before approval resolves',
+  );
+  assert.ok(
+    !backlogBefore.some((e) => e.event.type === 'tool_started' && e.event.tool === 'write_file'),
+    'tool_started is not published before approval resolves',
+  );
   const approvalEvent = backlogBefore.find((e) => e.event.type === 'tool_approval_required');
   assert.equal(approvalEvent?.event.type, 'tool_approval_required');
 
@@ -459,6 +493,10 @@ test('AgentRunner pauses on require_approval_for and resumes after respondToAppr
   await runner.waitForSessionIdle('cli:approval-session');
 
   const backlogAfter = runner.events.getBacklog('cli:approval-session');
+  assert.ok(
+    backlogAfter.some((e) => e.event.type === 'tool_started' && e.event.tool === 'write_file'),
+    'write_file only starts after approval',
+  );
   assert.ok(
     backlogAfter.some((e) => e.event.type === 'tool_result' && e.event.tool === 'write_file' && !e.event.isError),
     'write_file completed successfully after approval',
@@ -514,6 +552,16 @@ test('AgentRunner pauses on require_approval_for and resumes after respondToAppr
         entry.data.decision === 'approved',
     ),
   );
+  const approvalFlow = episodicEntries
+    .map((entry) => String(entry.type))
+    .filter((type) => trackedToolEventTypes.has(type));
+  assert.deepEqual(approvalFlow, [
+    'tool_requested',
+    'tool_approval_requested',
+    'tool_approval_resolved',
+    'tool_started',
+    'tool_result',
+  ]);
 });
 
 test('AgentRunner rejects tool call when respondToApproval sends false', async (t) => {
@@ -575,6 +623,14 @@ test('AgentRunner rejects tool call when respondToApproval sends false', async (
   assert.equal(fileExists, false, 'rejected write_file must not create the file');
 
   const backlog = runner.events.getBacklog('cli:deny-session');
+  assert.ok(
+    backlog.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'write_file'),
+    'tool_requested is still published before a denied approval',
+  );
+  assert.ok(
+    !backlog.some((e) => e.event.type === 'tool_started' && e.event.tool === 'write_file'),
+    'tool_started is not published when approval is denied',
+  );
   const toolResult = backlog.find((e) => e.event.type === 'tool_result' && e.event.tool === 'write_file');
   assert.ok(toolResult, 'tool_result event was published');
   assert.equal(
@@ -623,6 +679,15 @@ test('AgentRunner rejects tool call when respondToApproval sends false', async (
         entry.data.decision === 'rejected',
     ),
   );
+  const deniedFlow = episodicEntries
+    .map((entry) => String(entry.type))
+    .filter((type) => trackedToolEventTypes.has(type));
+  assert.deepEqual(deniedFlow, [
+    'tool_requested',
+    'tool_approval_requested',
+    'tool_approval_resolved',
+    'tool_result',
+  ]);
 });
 
 test('AgentRunner skips approval for full autonomy level', async (t) => {
@@ -661,6 +726,14 @@ test('AgentRunner skips approval for full autonomy level', async (t) => {
   assert.ok(
     !backlog.some((e) => e.event.type === 'tool_approval_required'),
     'no approval event for full autonomy',
+  );
+  assert.ok(
+    backlog.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'write_file'),
+    'tool_requested is published for full autonomy',
+  );
+  assert.ok(
+    backlog.some((e) => e.event.type === 'tool_started' && e.event.tool === 'write_file'),
+    'tool_started is published for full autonomy',
   );
   assert.ok(
     backlog.some((e) => e.event.type === 'tool_result' && e.event.tool === 'write_file' && !e.event.isError),
@@ -706,6 +779,14 @@ test('AgentRunner skips approval for non-interactive sessions', async (t) => {
   assert.ok(
     !backlog.some((e) => e.event.type === 'tool_approval_required'),
     'no approval event for non-interactive session',
+  );
+  assert.ok(
+    backlog.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'write_file'),
+    'tool_requested is published for non-interactive sessions',
+  );
+  assert.ok(
+    backlog.some((e) => e.event.type === 'tool_started' && e.event.tool === 'write_file'),
+    'tool_started is published for non-interactive sessions',
   );
   assert.ok(
     backlog.some((e) => e.event.type === 'tool_result' && e.event.tool === 'write_file' && !e.event.isError),
