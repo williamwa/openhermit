@@ -10,6 +10,12 @@ import {
 } from '@openhermit/protocol';
 import { NotFoundError } from '@openhermit/shared';
 
+import {
+  createFallbackDescription,
+  matchesSessionListQuery,
+  sortSessionSummaries,
+} from './session-utils.js';
+
 export interface SessionRecord {
   spec: SessionSpec;
   messages: SessionMessage[];
@@ -41,45 +47,6 @@ export interface SessionRuntime {
     message: SessionMessage,
   ): Promise<{ sessionId: string; messageId?: string }>;
 }
-
-const matchesSessionListQuery = (
-  summary: SessionSummary,
-  query: SessionListQuery,
-): boolean => {
-  if (query.kind && summary.source.kind !== query.kind) {
-    return false;
-  }
-
-  if (query.platform && summary.source.platform !== query.platform) {
-    return false;
-  }
-
-  if (
-    query.interactive !== undefined &&
-    summary.source.interactive !== query.interactive
-  ) {
-    return false;
-  }
-
-  return true;
-};
-
-const sortSessionSummaries = (
-  left: SessionSummary,
-  right: SessionSummary,
-): number => right.lastActivityAt.localeCompare(left.lastActivityAt);
-
-const createFallbackDescription = (text: string): string | undefined => {
-  const normalized = text.replace(/\s+/g, ' ').trim();
-
-  if (!normalized) {
-    return undefined;
-  }
-
-  return normalized.length <= 80
-    ? normalized
-    : `${normalized.slice(0, 77)}...`;
-};
 
 type SessionSubscriber = (
   envelope: SessionEventEnvelope,

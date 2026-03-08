@@ -1,0 +1,63 @@
+import type { SessionListQuery, SessionSummary } from '@openhermit/protocol';
+
+export const matchesSessionListQuery = (
+  summary: SessionSummary,
+  query: SessionListQuery,
+): boolean => {
+  if (query.kind && summary.source.kind !== query.kind) {
+    return false;
+  }
+
+  if (query.platform && summary.source.platform !== query.platform) {
+    return false;
+  }
+
+  if (
+    query.interactive !== undefined &&
+    summary.source.interactive !== query.interactive
+  ) {
+    return false;
+  }
+
+  return true;
+};
+
+export const sortSessionSummaries = (
+  left: SessionSummary,
+  right: SessionSummary,
+): number => right.lastActivityAt.localeCompare(left.lastActivityAt);
+
+const toSingleLine = (value: string): string =>
+  value.replace(/\s+/g, ' ').trim();
+
+export const createFallbackDescription = (text: string): string | undefined => {
+  const normalized = toSingleLine(text);
+
+  if (!normalized) {
+    return undefined;
+  }
+
+  return normalized.length <= 80
+    ? normalized
+    : `${normalized.slice(0, 77)}...`;
+};
+
+export const normalizeGeneratedDescription = (
+  value: string | undefined,
+): string | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = toSingleLine(value)
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .replace(/^[#*\-\s]+/, '');
+
+  if (!normalized) {
+    return undefined;
+  }
+
+  return normalized.length <= 80
+    ? normalized
+    : `${normalized.slice(0, 77)}...`;
+};

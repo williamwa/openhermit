@@ -1,78 +1,7 @@
-import { promises as fs } from 'node:fs';
-import {
-  Agent,
-  type AgentEvent,
-  type AgentMessage,
-  type StreamFn,
-} from '@mariozechner/pi-agent-core';
-import {
-  complete,
-  getModel,
-  type AssistantMessage,
-  type Message,
-  type Model,
-} from '@mariozechner/pi-ai';
-import type { SessionMessage, SessionSpec } from '@openhermit/protocol';
-import type { SessionListQuery, SessionStatus, SessionSummary } from '@openhermit/protocol';
+import { Agent, type AgentEvent, type AgentMessage } from '@mariozechner/pi-agent-core';
+import { complete } from '@mariozechner/pi-ai';
+import type { SessionListQuery, SessionMessage, SessionSpec, SessionSummary } from '@openhermit/protocol';
 import { NotFoundError, ValidationError, getErrorMessage } from '@openhermit/shared';
-
-// ---------------------------------------------------------------------------
-// ApprovalGate — per-session registry of pending tool approval Promises.
-// The tool's execute() calls gate.request(), which suspends until the HTTP
-// /approve endpoint resolves it via gate.respond().
-// ---------------------------------------------------------------------------
-
-const APPROVAL_TIMEOUT_MS = 120_000; // 2 minutes before auto-deny
-
-class ApprovalGate {
-  private readonly pending = new Map<
-    string,
-    {
-      resolve: (decision: ApprovalDecision) => void;
-      timeout: ReturnType<typeof setTimeout>;
-    }
-  >();
-
-  /** Suspend until the user approves or denies this toolCallId. */
-  request(toolCallId: string): Promise<ApprovalDecision> {
-    return new Promise<ApprovalDecision>((resolve) => {
-      const timeout = setTimeout(() => {
-        this.pending.delete(toolCallId);
-        resolve('timed_out');
-      }, APPROVAL_TIMEOUT_MS);
-
-      this.pending.set(toolCallId, { resolve, timeout });
-    });
-  }
-
-  /**
-   * Resolve a pending approval.
-   * Returns true if a pending entry was found, false if it was already resolved
-   * or never registered (e.g. the gate timed out).
-   */
-  respond(toolCallId: string, approved: boolean): boolean {
-    const pending = this.pending.get(toolCallId);
-
-    if (!pending) {
-      return false;
-    }
-
-    clearTimeout(pending.timeout);
-    this.pending.delete(toolCallId);
-    pending.resolve(approved ? 'approved' : 'rejected');
-    return true;
-  }
-
-  /** Cancel all pending approvals (e.g. on session teardown). */
-  cancelAll(): void {
-    for (const [, entry] of this.pending) {
-      clearTimeout(entry.timeout);
-      entry.resolve('cancelled');
-    }
-
-    this.pending.clear();
-  }
-}
 
 import {
   AgentSecurity,
@@ -80,12 +9,32 @@ import {
   DockerContainerManager,
   type AgentConfig,
 } from './core/index.js';
+import { ApprovalGate } from './agent-runner/approval-gate.js';
+import { buildSystemPrompt } from './agent-runner/prompt.js';
+import { buildSessionSummaries, createPersistedSessionIndexEntry } from './agent-runner/session-index.js';
+import type { AgentRunnerOptions, RunnerSession } from './agent-runner/types.js';
+import {
+  createProviderSecretCandidates,
+  formatMissingApiKeyMessage,
+  resolveModel,
+} from './agent-runner/model-utils.js';
+import {
+  createUserMessage,
+  extractAssistantText,
+  extractToolResultDetails,
+  extractToolResultText,
+  isAssistantMessage,
+  serializeDetails,
+} from './agent-runner/message-utils.js';
 import {
   SessionIndexStore,
   SessionLogWriter,
   createSessionLogPaths,
-  type PersistedSessionIndexEntry,
 } from './session-logs.js';
+import {
+  createFallbackDescription,
+  normalizeGeneratedDescription,
+} from './session-utils.js';
 import { type SessionDescriptor, SessionEventBroker, type SessionRuntime } from './runtime.js';
 import {
   type ApprovalCallback,
@@ -94,255 +43,6 @@ import {
   type ToolStartedCallback,
   createBuiltInTools,
 } from './tools.js';
-
-const SECRET_NAME_CANDIDATES: Record<string, string[]> = {
-  anthropic: ['ANTHROPIC_API_KEY'],
-  openai: ['OPENAI_API_KEY'],
-  google: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
-  groq: ['GROQ_API_KEY'],
-  mistral: ['MISTRAL_API_KEY'],
-  xai: ['XAI_API_KEY'],
-  openrouter: ['OPENROUTER_API_KEY'],
-};
-
-interface RunnerSession extends SessionDescriptor {
-  agent: Agent;
-  queue: Promise<void>;
-  sideEffects: Promise<void>;
-  backgroundTasks: Promise<void>;
-  sessionLogRelativePath: string;
-  episodicRelativePath: string;
-  latestAssistantText: string | undefined;
-  lastUserMessageText?: string;
-  approvalGate: ApprovalGate;
-  status: SessionStatus;
-  messageCount: number;
-  description?: string;
-  descriptionSource?: 'fallback' | 'ai';
-  lastMessagePreview?: string;
-}
-
-export interface AgentRunnerOptions {
-  workspace: AgentWorkspace;
-  security: AgentSecurity;
-  containerManager?: DockerContainerManager;
-  streamFn?: StreamFn;
-  sessionDescriptionGenerator?: (
-    input: {
-      userText: string;
-      assistantText?: string;
-      config: AgentConfig;
-    },
-  ) => Promise<string | undefined>;
-}
-
-const isAssistantMessage = (message: AgentMessage): message is AssistantMessage =>
-  typeof message === 'object' &&
-  message !== null &&
-  'role' in message &&
-  message.role === 'assistant';
-
-const extractAssistantText = (message: AssistantMessage): string =>
-  message.content
-    .filter((content): content is Extract<typeof content, { type: 'text' }> => content.type === 'text')
-    .map((content) => content.text)
-    .join('');
-
-const createUserMessage = (message: SessionMessage): Message => {
-  const text =
-    message.attachments && message.attachments.length > 0
-      ? `${message.text}\n\n[Attachments are not yet mapped into the model context. Count: ${message.attachments.length}]`
-      : message.text;
-
-  return {
-    role: 'user',
-    content: [
-      {
-        type: 'text',
-        text,
-      },
-    ],
-    timestamp: Date.now(),
-  };
-};
-
-const createProviderSecretCandidates = (provider: string): string[] => {
-  const configured = SECRET_NAME_CANDIDATES[provider];
-
-  if (configured) {
-    return configured;
-  }
-
-  return [`${provider.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`];
-};
-
-const formatMissingApiKeyMessage = (
-  provider: string,
-  secretsFilePath: string,
-): string => {
-  const candidateNames = createProviderSecretCandidates(provider);
-
-  return [
-    `Missing API key for provider "${provider}".`,
-    `Add one of [${candidateNames.join(', ')}] to ${secretsFilePath}, or export it in the environment before starting the agent.`,
-  ].join(' ');
-};
-
-const serializeDetails = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
-
-const CONTAINER_TOOL_GUIDANCE = [
-  'Container tool rules:',
-  '- Container tools do not see the whole workspace. They only see the mounted subdirectory.',
-  '- Valid mounts must stay under containers/{name}/data.',
-  '- Files under files/ or the workspace root are not mounted automatically.',
-  '- Before running code in a container, write or copy the needed files into the chosen mount directory first.',
-  '- For ephemeral runs, mounted files appear under /workspace inside the container.',
-  '- If a container tool fails, inspect the tool result details and correct the mount or in-container path before retrying.',
-].join('\n');
-
-const RUNTIME_PROMPT_TEMPLATE_CANDIDATES = [
-  new URL('./prompts/runtime-system.md', import.meta.url),
-  new URL('../src/prompts/runtime-system.md', import.meta.url),
-];
-
-const replacePromptTokens = (
-  template: string,
-  values: Record<string, string>,
-): string =>
-  Object.entries(values).reduce(
-    (content, [key, value]) => content.replaceAll(`{${key}}`, value),
-    template,
-  );
-
-const loadRuntimePromptTemplate = async (): Promise<string> => {
-  for (const candidate of RUNTIME_PROMPT_TEMPLATE_CANDIDATES) {
-    try {
-      return await fs.readFile(candidate, 'utf8');
-    } catch {
-      // Try the next candidate so both tsx (src) and compiled dist can work.
-    }
-  }
-
-  throw new Error('Unable to load runtime system prompt template.');
-};
-
-const extractToolResultText = (result: unknown): string | undefined => {
-  if (!result || typeof result !== 'object') {
-    return undefined;
-  }
-
-  const content = 'content' in result ? result.content : undefined;
-
-  if (!Array.isArray(content)) {
-    return undefined;
-  }
-
-  const textParts = content
-    .filter(
-      (entry): entry is { type: 'text'; text: string } =>
-        typeof entry === 'object' &&
-        entry !== null &&
-        'type' in entry &&
-        entry.type === 'text' &&
-        'text' in entry &&
-        typeof entry.text === 'string',
-    )
-    .map((entry) => entry.text.trim())
-    .filter((entry) => entry.length > 0);
-
-  if (textParts.length === 0) {
-    return undefined;
-  }
-
-  return textParts.join('\n');
-};
-
-const extractToolResultDetails = (result: unknown): unknown => {
-  if (!result || typeof result !== 'object') {
-    return undefined;
-  }
-
-  if (!('details' in result)) {
-    return undefined;
-  }
-
-  return result.details;
-};
-
-const toSingleLine = (value: string): string =>
-  value.replace(/\s+/g, ' ').trim();
-
-const createFallbackDescription = (text: string): string | undefined => {
-  const normalized = toSingleLine(text);
-
-  if (!normalized) {
-    return undefined;
-  }
-
-  return normalized.length <= 80
-    ? normalized
-    : `${normalized.slice(0, 77)}...`;
-};
-
-const normalizeGeneratedDescription = (
-  value: string | undefined,
-): string | undefined => {
-  if (!value) {
-    return undefined;
-  }
-
-  const normalized = toSingleLine(value)
-    .replace(/^["'`]+|["'`]+$/g, '')
-    .replace(/^[#*\-\s]+/, '');
-
-  if (!normalized) {
-    return undefined;
-  }
-
-  return normalized.length <= 80
-    ? normalized
-    : `${normalized.slice(0, 77)}...`;
-};
-
-const matchesSessionListQuery = (
-  summary: SessionSummary,
-  query: SessionListQuery,
-): boolean => {
-  if (query.kind && summary.source.kind !== query.kind) {
-    return false;
-  }
-
-  if (query.platform && summary.source.platform !== query.platform) {
-    return false;
-  }
-
-  if (
-    query.interactive !== undefined &&
-    summary.source.interactive !== query.interactive
-  ) {
-    return false;
-  }
-
-  return true;
-};
-
-const sortSessionSummaries = (
-  left: SessionSummary,
-  right: SessionSummary,
-): number => right.lastActivityAt.localeCompare(left.lastActivityAt);
-
-const resolveModel = (config: AgentConfig): Model<any> => {
-  try {
-    return getModel(
-      config.model.provider as never,
-      config.model.model as never,
-    ) as Model<any>;
-  } catch (error) {
-    throw new ValidationError(
-      `Unsupported model configuration: ${config.model.provider}/${config.model.model}`,
-    );
-  }
-};
 
 export class AgentRunner implements SessionRuntime {
   readonly events = new SessionEventBroker();
@@ -506,69 +206,12 @@ export class AgentRunner implements SessionRuntime {
   async listSessions(query: SessionListQuery = {}): Promise<SessionSummary[]> {
     const persistedSessions = await this.sessionIndex.list();
     const limit = query.limit;
-    const summaries = persistedSessions
-      .map((session) => ({
-        sessionId: session.sessionId,
-        source: session.source,
-        createdAt: session.createdAt,
-        lastActivityAt: session.lastActivityAt,
-        lastEventId: 0,
-        messageCount: session.messageCount,
-        ...(session.description ? { description: session.description } : {}),
-        ...(session.lastMessagePreview
-          ? { lastMessagePreview: session.lastMessagePreview }
-          : {}),
-        status: 'idle' as const,
-      }))
-      .map((summary) => {
-        const activeSession = this.sessions.get(summary.sessionId);
-
-        if (!activeSession) {
-          return summary;
-        }
-
-        return {
-          sessionId: activeSession.spec.sessionId,
-          source: activeSession.spec.source,
-          createdAt: activeSession.createdAt,
-          lastActivityAt: activeSession.updatedAt,
-          lastEventId:
-            this.events.getBacklog(activeSession.spec.sessionId).at(-1)?.id ?? 0,
-          messageCount: activeSession.messageCount,
-          ...(activeSession.description
-            ? { description: activeSession.description }
-            : {}),
-          ...(activeSession.lastMessagePreview
-            ? { lastMessagePreview: activeSession.lastMessagePreview }
-            : {}),
-          status: activeSession.status,
-        };
-      })
-      .concat(
-        [...this.sessions.values()]
-          .filter(
-            (session) =>
-              !persistedSessions.some(
-                (entry) => entry.sessionId === session.spec.sessionId,
-              ),
-          )
-          .map((session) => ({
-            sessionId: session.spec.sessionId,
-            source: session.spec.source,
-            createdAt: session.createdAt,
-            lastActivityAt: session.updatedAt,
-            lastEventId:
-              this.events.getBacklog(session.spec.sessionId).at(-1)?.id ?? 0,
-            messageCount: session.messageCount,
-            ...(session.description ? { description: session.description } : {}),
-            ...(session.lastMessagePreview
-              ? { lastMessagePreview: session.lastMessagePreview }
-              : {}),
-            status: session.status,
-          })),
-      )
-      .filter((summary) => matchesSessionListQuery(summary, query))
-      .sort(sortSessionSummaries);
+    const summaries = buildSessionSummaries(
+      persistedSessions,
+      this.sessions.values(),
+      query,
+      (sessionId) => this.events.getBacklog(sessionId).at(-1)?.id ?? 0,
+    );
 
     return limit !== undefined ? summaries.slice(0, limit) : summaries;
   }
@@ -865,7 +508,11 @@ export class AgentRunner implements SessionRuntime {
       ...(onToolRequested ? { onToolRequested } : {}),
       ...(onToolStarted ? { onToolStarted } : {}),
     });
-    const systemPrompt = await this.buildSystemPrompt(config);
+    const systemPrompt = await buildSystemPrompt(
+      config,
+      this.options.workspace,
+      this.options.security,
+    );
 
     return new Agent({
       initialState: {
@@ -888,7 +535,9 @@ export class AgentRunner implements SessionRuntime {
     const config = await this.options.workspace.readConfig();
     this.ensureProviderApiKey(config.model.provider);
     session.agent.setModel(resolveModel(config));
-    session.agent.setSystemPrompt(await this.buildSystemPrompt(config));
+    session.agent.setSystemPrompt(
+      await buildSystemPrompt(config, this.options.workspace, this.options.security),
+    );
 
     const approvalCallback = session.spec.source.interactive
       ? this.makeApprovalCallback(session.spec.sessionId, session.approvalGate)
@@ -905,32 +554,6 @@ export class AgentRunner implements SessionRuntime {
       }),
     );
     session.agent.sessionId = session.spec.sessionId;
-  }
-
-  private async buildSystemPrompt(config: AgentConfig): Promise<string> {
-    const identityFiles = await Promise.all(
-      config.identity.files.map(async (relativePath) => ({
-        relativePath,
-        content: await this.options.workspace.readFile(relativePath).catch(() => ''),
-      })),
-    );
-    const identitySections = identityFiles
-      .map(
-        ({ relativePath, content }) =>
-          `File: ${relativePath}\n${content.trim() || '(empty)'}`,
-      )
-      .join('\n\n');
-    const secretNames = this.options.security.listSecretNames();
-    const promptTemplate = await loadRuntimePromptTemplate();
-
-    return replacePromptTokens(promptTemplate, {
-      autonomyLevel: this.options.security.getAutonomyLevel(),
-      containerToolGuidance: CONTAINER_TOOL_GUIDANCE,
-      identitySections,
-      secretReference: secretNames.length > 0
-        ? `Available secret names for tool calls: ${secretNames.join(', ')}. Secret values are never shown in the prompt.`
-        : 'No secret names are currently configured.',
-    }).trim();
   }
 
   private async transformContext(
@@ -1249,31 +872,7 @@ export class AgentRunner implements SessionRuntime {
   }
 
   private async persistSessionIndex(session: RunnerSession): Promise<void> {
-    await this.sessionIndex.upsert(
-      this.createPersistedSessionIndexEntry(session),
-    );
-  }
-
-  private createPersistedSessionIndexEntry(
-    session: RunnerSession,
-  ): PersistedSessionIndexEntry {
-    return {
-      sessionId: session.spec.sessionId,
-      source: session.spec.source,
-      createdAt: session.createdAt,
-      lastActivityAt: session.updatedAt,
-      messageCount: session.messageCount,
-      ...(session.description ? { description: session.description } : {}),
-      ...(session.descriptionSource
-        ? { descriptionSource: session.descriptionSource }
-        : {}),
-      ...(session.lastMessagePreview
-        ? { lastMessagePreview: session.lastMessagePreview }
-        : {}),
-      sessionLogRelativePath: session.sessionLogRelativePath,
-      episodicRelativePath: session.episodicRelativePath,
-      ...(session.spec.metadata ? { metadata: session.spec.metadata } : {}),
-    };
+    await this.sessionIndex.upsert(createPersistedSessionIndexEntry(session));
   }
 
   private async maybeGenerateSessionDescription(
