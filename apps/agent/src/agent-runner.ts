@@ -109,6 +109,7 @@ interface RunnerSession extends SessionDescriptor {
   agent: Agent;
   queue: Promise<void>;
   sideEffects: Promise<void>;
+  backgroundTasks: Promise<void>;
   sessionLogRelativePath: string;
   episodicRelativePath: string;
   latestAssistantText: string | undefined;
@@ -452,6 +453,7 @@ export class AgentRunner implements SessionRuntime {
       agent,
       queue: Promise.resolve(),
       sideEffects: Promise.resolve(),
+      backgroundTasks: Promise.resolve(),
       sessionLogRelativePath: paths.sessionLogRelativePath,
       episodicRelativePath: paths.episodicRelativePath,
       latestAssistantText: undefined,
@@ -604,6 +606,7 @@ export class AgentRunner implements SessionRuntime {
     const session = this.getRequiredSession(sessionId);
     await session.queue;
     await session.sideEffects;
+    await session.backgroundTasks;
     await this.sessionIndex.waitForIdle();
   }
 
@@ -1117,12 +1120,18 @@ export class AgentRunner implements SessionRuntime {
       case 'agent_end': {
         const ts = new Date().toISOString();
         const finalText = session.latestAssistantText;
+        const lastUserMessageText = session.lastUserMessageText;
         session.updatedAt = ts;
         session.status = 'idle';
         void this.persistSessionIndex(session);
-        void this.queueSideEffect(session, async () => {
-          await this.maybeGenerateSessionDescription(session, finalText);
-        });
+        if (lastUserMessageText) {
+          void this.queueBackgroundTask(session, async () => {
+            await this.maybeGenerateSessionDescription(session, {
+              userText: lastUserMessageText,
+              ...(finalText ? { assistantText: finalText } : {}),
+            });
+          });
+        }
 
         void (async () => {
           if (finalText) {
@@ -1215,6 +1224,20 @@ export class AgentRunner implements SessionRuntime {
     return queued;
   }
 
+  private async queueBackgroundTask(
+    session: RunnerSession,
+    work: () => Promise<void>,
+  ): Promise<void> {
+    const queued = session.backgroundTasks.then(work, work);
+    session.backgroundTasks = queued.catch((error) => {
+      console.error(
+        `[cloudmind-agent] failed to run background task for ${session.spec.sessionId}`,
+        error,
+      );
+    });
+    return queued;
+  }
+
   private getRequiredSession(sessionId: string): RunnerSession {
     const session = this.sessions.get(sessionId);
 
@@ -1255,17 +1278,19 @@ export class AgentRunner implements SessionRuntime {
 
   private async maybeGenerateSessionDescription(
     session: RunnerSession,
-    assistantText: string | undefined,
+    input: {
+      userText: string;
+      assistantText?: string;
+    },
   ): Promise<void> {
-    if (session.descriptionSource === 'ai' || !session.lastUserMessageText) {
+    if (session.descriptionSource === 'ai') {
       return;
     }
 
     const config = await this.options.workspace.readConfig();
     const description = await this.generateSessionDescription({
-      userText: session.lastUserMessageText,
+      ...input,
       config,
-      ...(assistantText ? { assistantText } : {}),
     });
 
     if (!description) {
