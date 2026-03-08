@@ -15,6 +15,8 @@
     "@cloudmind/protocol": "0.1.0",
     "@cloudmind/shared": "0.1.0",
     "@hono/node-server": "^1.14.0",
+    "@mariozechner/pi-agent-core": "^0.57.1",
+    "@mariozechner/pi-ai": "^0.57.1",
     "hono": "^4.7.2"
   }
 }

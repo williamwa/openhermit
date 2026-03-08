@@ -5,10 +5,10 @@ import { NotFoundError } from '@cloudmind/shared';
 
 import { InMemoryAgentRuntime } from '../src/runtime.js';
 
-test('InMemoryAgentRuntime merges session metadata when reopening a session', () => {
+test('InMemoryAgentRuntime merges session metadata when reopening a session', async () => {
   const runtime = new InMemoryAgentRuntime();
 
-  runtime.openSession({
+  await runtime.openSession({
     sessionId: 'cli:test-session',
     source: {
       kind: 'cli',
@@ -19,7 +19,7 @@ test('InMemoryAgentRuntime merges session metadata when reopening a session', ()
     },
   });
 
-  const reopened = runtime.openSession({
+  const reopened = await runtime.openSession({
     sessionId: 'cli:test-session',
     source: {
       kind: 'cli',

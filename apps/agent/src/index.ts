@@ -5,6 +5,7 @@ import { serve } from '@hono/node-server';
 
 import { runtimeFiles } from '@cloudmind/shared';
 
+import { AgentRunner } from './agent-runner.js';
 import { createAgentApp } from './app.js';
 import { AgentSecurity, AgentWorkspace } from './core/index.js';
 
@@ -35,10 +36,15 @@ const security = new AgentSecurity({
 await security.init();
 await security.load();
 
+const runner = await AgentRunner.create({
+  workspace,
+  security,
+});
+
 const apiToken = randomBytes(24).toString('hex');
 await workspace.writeFile(runtimeFiles.apiToken, `${apiToken}\n`);
 
-const app = createAgentApp(undefined, { apiToken });
+const app = createAgentApp(runner, { apiToken });
 
 serve(
   {

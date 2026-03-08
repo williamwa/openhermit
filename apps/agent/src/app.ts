@@ -16,6 +16,7 @@ import {
 
 import {
   InMemoryAgentRuntime,
+  type SessionRuntime,
   type SessionEventEnvelope,
 } from './runtime.js';
 
@@ -43,7 +44,7 @@ const waitForAbort = async (signal: AbortSignal): Promise<void> => {
 };
 
 export const createAgentApp = (
-  runtime = new InMemoryAgentRuntime(),
+  runtime: SessionRuntime = new InMemoryAgentRuntime(),
   options: { apiToken?: string } = {},
 ): Hono => {
   const app = new Hono();
@@ -82,7 +83,7 @@ export const createAgentApp = (
       throw new ValidationError('Invalid SessionSpec payload.');
     }
 
-    const session = runtime.openSession(payload);
+    const session = await runtime.openSession(payload);
     return c.json({ sessionId: session.spec.sessionId });
   });
 

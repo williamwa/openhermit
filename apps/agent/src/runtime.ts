@@ -18,11 +18,26 @@ export interface SessionEventEnvelope {
   event: OutboundEvent;
 }
 
+export interface SessionDescriptor {
+  spec: SessionSpec;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SessionRuntime {
+  readonly events: SessionEventBroker;
+  openSession(spec: SessionSpec): Promise<SessionDescriptor>;
+  postMessage(
+    sessionId: string,
+    message: SessionMessage,
+  ): Promise<{ sessionId: string; messageId?: string }>;
+}
+
 type SessionSubscriber = (
   envelope: SessionEventEnvelope,
 ) => void | Promise<void>;
 
-class SessionEventBroker {
+export class SessionEventBroker {
   private readonly subscribers = new Map<string, Set<SessionSubscriber>>();
 
   private readonly backlog = new Map<string, SessionEventEnvelope[]>();
@@ -77,12 +92,12 @@ class SessionEventBroker {
   }
 }
 
-export class InMemoryAgentRuntime {
+export class InMemoryAgentRuntime implements SessionRuntime {
   readonly events = new SessionEventBroker();
 
   private readonly sessions = new Map<string, SessionRecord>();
 
-  openSession(spec: SessionSpec): SessionRecord {
+  async openSession(spec: SessionSpec): Promise<SessionDescriptor> {
     const now = new Date().toISOString();
     const existing = this.sessions.get(spec.sessionId);
 
@@ -103,7 +118,11 @@ export class InMemoryAgentRuntime {
           : {}),
       };
       existing.updatedAt = now;
-      return existing;
+      return {
+        spec: existing.spec,
+        createdAt: existing.createdAt,
+        updatedAt: existing.updatedAt,
+      };
     }
 
     const session: SessionRecord = {
@@ -114,7 +133,11 @@ export class InMemoryAgentRuntime {
     };
 
     this.sessions.set(spec.sessionId, session);
-    return session;
+    return {
+      spec: session.spec,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+    };
   }
 
   getSession(sessionId: string): SessionRecord | undefined {
