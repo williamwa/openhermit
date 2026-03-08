@@ -91,7 +91,7 @@ Rule:
 - Episodic memory should store only events with future retrieval value.
 - If an event would not help a later session, it probably should stay only in `sessions/`.
 - The default summarization cadence is:
-  - once when a session ends
+  - once when a session becomes idle for the configured timeout
   - once every 50 conversation turns for a long-running session
 
 ## 3. Working Memory
@@ -253,7 +253,7 @@ For implementation purposes, the preferred defaults are:
 
 Suggested future automation:
 
-- create an episodic summary when a session ends
+- create an episodic checkpoint when a session becomes idle for a configured timeout
 - create an episodic checkpoint every 50 conversation turns in long-running sessions
 - periodically compact working memory
 - promote stable recurring facts from episodic memory into `memory/long-term.md` and topic notes
@@ -265,8 +265,10 @@ This document describes the intended model.
 The current implementation already has:
 
 - session logs
+- durable `sessions/index.json` for listing and resume metadata
 - episodic logs
 - working memory injection
+- session descriptions for easier session recall
 - plain markdown/file storage that can support long-term indexing
 
 But the boundary between `sessions` and `episodic` is still looser than intended, and `memory/long-term.md` is not yet acting as the long-term entry point. Future memory work should move the implementation toward the model defined here.
@@ -275,10 +277,10 @@ But the boundary between `sessions` and `episodic` is still looser than intended
 
 The memory model above depends on a few runtime assumptions:
 
-- Starting a new session explicitly matters. In the CLI flow, `/new` should be used to end the current session and begin a new one.
-- The default CLI behavior should be session continuation, not automatic session creation for every prompt. This is necessary so session-end summarization has a clear boundary.
-- Episodic summarization depends on reliable session boundaries:
-  - once when the current session ends
+- Starting a new session explicitly matters. In the CLI flow, `/new` should switch the local binding to a fresh session without closing or deleting the previous one.
+- Session listings and explicit recovery matter. The CLI should be able to inspect prior sessions via `/sessions` and rebind via `/resume <id>` or `--resume`.
+- Episodic summarization depends on reliable checkpoint triggers:
+  - once when a session has been idle for the configured timeout
   - once every 50 conversation turns for a long-running session
 - Long-term memory remains plain markdown. The agent should manage `memory/long-term.md` and `memory/notes/*.md` through normal file operations.
 - A `file_search` tool is required so the agent can efficiently discover and retrieve relevant memory files without loading the entire workspace.

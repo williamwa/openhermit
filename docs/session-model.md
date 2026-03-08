@@ -31,6 +31,8 @@ Properties:
 
 A session is not "the current chat" globally. It is just one thread among many.
 
+Durable session metadata should also exist separately from the raw session log so adapters can list and resume sessions efficiently after a restart. In the current implementation this metadata lives in `sessions/index.json`, while `sessions/{date}-{session-id}.jsonl` remains the full append-only history.
+
 ### 2. Run
 
 A run is one active execution period on a session.
@@ -165,9 +167,13 @@ Recommended response fields:
 - `source`
 - `createdAt`
 - `lastActivityAt`
+- `lastEventId`
 - `messageCount`
+- `description`
 - `lastMessagePreview`
 - runtime execution `status` such as `idle | running | awaiting_approval`
+
+`description` is especially useful for adapters that need a compact recovery UI. A short fallback description may come from the first user message, and later be upgraded to an AI-generated summary better suited for session recall.
 
 This endpoint exists for:
 
@@ -213,9 +219,10 @@ For v1, the simplest consistent behavior is:
 1. Agent core remains session-ID based only.
 2. CLI keeps a current in-process binding to one session.
 3. `/new` switches the CLI binding to a fresh session.
-4. Future Telegram bridge uses the same rule for each chat.
-5. Older sessions remain resumable through explicit selection.
-6. Checkpoint summarization is triggered by idle timeout and every 50 turns.
+4. CLI can list and recover older sessions through `/sessions`, `/resume <id>`, `--session <id>`, and `--resume`.
+5. Future Telegram bridge uses the same rule for each chat.
+6. Older sessions remain resumable through explicit selection.
+7. Checkpoint summarization is triggered by idle timeout and every 50 turns.
 
 ## Status
 

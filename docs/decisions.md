@@ -24,6 +24,7 @@
 | Long-term notes | `memory/notes/{topic}.md` |
 | Episodic log | `memory/episodic/{YYYY-MM}.jsonl` (monthly split) |
 | Session history | `sessions/{date}-{id}.jsonl` |
+| Session index | `sessions/index.json` |
 | Container registry | `containers/registry.jsonl` (status + metadata, including purpose/description) |
 
 **Rationale**:
@@ -80,7 +81,7 @@
 - Single language across the whole codebase
 - pi-ai and pi-agent-core are TypeScript-native
 - Strong typing makes tool schema generation and path validation straightforward
-- Rich async/streaming ecosystem (Dockerode, Hono, etc.)
+- Rich async/streaming ecosystem (Hono, pi-agent-core, CLI tooling, etc.)
 
 ---
 
@@ -177,6 +178,7 @@ The agent still exposes an HTTP API (Hono) as its sole **external** communicatio
 **External HTTP API contract**:
 - `POST /sessions` — accepts `SessionSpec` JSON, creates or resumes the session, returns `{ sessionId }`
 - `GET /sessions` — lists sessions known to the current agent; callers may filter by source metadata such as `kind`, `platform`, or `interactive`; default sort is `lastActivityAt desc`
+- `POST /sessions/{sessionId}/approve` — resolves one pending tool approval in supervised mode
 - `POST /sessions/{sessionId}/messages` — accepts `SessionMessage` JSON, appends one inbound message, returns `{ sessionId, messageId? }`
 - `GET /events?sessionId=xxx` — SSE stream of `OutboundEvent` (`text_delta | text_final | tool_requested | tool_started | tool_result | error`)
 - The HTTP API is agent-local, not a multi-agent gateway: each agent already has its own port, so the URL does not repeat `{agentId}`
@@ -198,5 +200,6 @@ The agent still exposes an HTTP API (Hono) as its sole **external** communicatio
 **Key details**:
 - Session IDs are namespaced by the concrete adapter/source, not just the semantic kind: `cli:{YYYY-MM-DD}-{nanoid}`, `telegram:{chat_id}`, `heartbeat:{ts}`, `cron:{job-id}:{ts}`
 - Sessions from different trigger sources share agent memory (`working.md`, `notes/`) but have separate conversation histories
+- Session metadata for listing/resume is persisted in `sessions/index.json`; runtime-only state such as active approval gates remains in memory
 - `config.channels.telegram_bridge.allowed_chat_ids` — allowlist enforced by the bridge container; empty list rejects all (safe default)
 - The `runtime/` workspace directory is gitignored; both token and port are regenerated/rewritten on each agent startup

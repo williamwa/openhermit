@@ -18,6 +18,10 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 
 **Goal**: Define the workspace layout and prove that the agent can spin up, use, and tear down Docker containers — mounting files from the workspace.
 
+**Current status snapshot**
+- Implemented: workspace scaffold, typed config read/write, three-layer path validation, security/secrets loading, readonly/supervised/full policy checks, Docker CLI runner abstraction, container registry with `description`, service start/stop/exec, and core test coverage.
+- Still pending: a dedicated end-to-end integration script and any additional ergonomics beyond the current tested primitives.
+
 ### 1.1 Workspace Module
 - [ ] Define workspace directory structure (as per architecture)
 - [ ] `workspace.init(path)` — scaffold a new agent workspace with empty dirs, default config.json, and identity/ files
@@ -40,7 +44,7 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 - [ ] Tests: path escape via `../`, sibling-prefix roots, symlinks, and null bytes all throw; autonomy level correctly loaded; approval list works; secret values never appear in any return value to LLM layer
 
 ### 1.3 Container Manager Module
-- [ ] Wrap Dockerode with typed interface
+- [ ] Wrap Docker CLI with typed runner interface
 - [ ] `container.runEphemeral({ image, command, description?, mount?, env? })` — run and return output, auto-remove
   - Mount: `workspace/containers/{name}/data/` → `/workspace` in container
   - Parse sentinel markers (`---CLOUDMIND_OUTPUT_START---` / `---CLOUDMIND_OUTPUT_END---`) from stdout
@@ -67,6 +71,10 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 ## Phase 2 — Agent Core (pi-ai + pi-agent-core + Tools)
 
 **Goal**: A running agent that receives a message, thinks, calls tools, executes them, and returns an answer — built on `@mariozechner/pi-ai` (multi-provider LLM abstraction) and `@mariozechner/pi-agent-core` (stateful tool-calling loop), not a custom ReAct implementation.
+
+**Current status snapshot**
+- Implemented: `pi-ai` + `pi-agent-core` integration, runtime system prompt loading from markdown, approval gating, `tool_requested / tool_started / tool_result` event model, agent-local HTTP + SSE API, approval endpoint, session listing, separate `apps/cli` client, and built-in tools for files, containers, and `web_fetch`.
+- Still pending: `file_search`, `agent_doctor`, packaged `cloudmind` commands, and a fuller hook/config story beyond the current built-in approval/logging path.
 
 ### 2.1 Integrate pi-ai + pi-agent-core
 - [ ] `npm install @mariozechner/pi-ai @mariozechner/pi-agent-core`
@@ -127,11 +135,12 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
   - `POST /sessions` — validates bearer token, accepts `SessionSpec`, creates or resumes the session, returns `{ sessionId }`
   - `GET /sessions` — validates bearer token, lists sessions known to this agent; supports filters like `kind`, `platform`, `interactive`, `limit`; default sort is `lastActivityAt desc`
   - `POST /sessions/{sessionId}/messages` — validates bearer token, accepts `SessionMessage`, appends one inbound message, returns `{ sessionId, messageId? }`
+  - `POST /sessions/{sessionId}/approve` — validates bearer token, resolves one pending tool approval, returns `{ resolved }`
   - `GET /events?sessionId=xxx` — SSE stream, pushes `OutboundEvent`s as the agent processes the session
 - [ ] Runtime API token: generate on startup, write to `runtime/api.token` (create `runtime/` dir, add to `.gitignore`)
 - [ ] Dynamic port binding: try `config.http_api.preferred_port` first; if taken, bind to port `0` (OS assigns free port); write actual port to `runtime/api.port` — guarantees zero conflicts when multiple agents run on the same host
 - [ ] Treat the HTTP API as agent-local: clients first choose the target agent by reading its workspace/runtime metadata, then talk to that agent's local port directly; route paths do not repeat `{agentId}`
-- [ ] CLI client (`cloudmind chat --agent <id>`): reads `runtime/api.port` and `runtime/api.token`, creates a new `source.kind = "cli"` session by default, can resume older sessions explicitly via `GET /sessions?kind=cli`, subscribes to SSE, then posts the first and subsequent user messages to `/sessions/{sessionId}/messages`
+- [ ] CLI client (`apps/cli` today; future packaged as `cloudmind chat --agent <id>`): reads `runtime/api.port` and `runtime/api.token`, creates a new `source.kind = "cli"` session by default, supports `/new`, `/sessions`, `/resume <id>`, `--session <id>`, and `--resume`, subscribes to SSE, then posts the first and subsequent user messages to `/sessions/{sessionId}/messages`
 - [ ] `cloudmind run --agent <id> "task"` — same as above but single-shot (no readline loop)
 - [ ] Scheduled triggers in Phase 6 reuse the same `SessionSpec + SessionMessage` lifecycle in-process or over HTTP; no second execution path
 - [ ] `cloudmind models` — list all available models across providers
@@ -146,6 +155,10 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 
 **Goal**: Agent reads/writes memory files correctly, context stays coherent across tool calls and sessions.
 
+**Current status snapshot**
+- Implemented: session logs, durable `sessions/index.json`, working memory injection, scaffolded `memory/long-term.md`, and session metadata such as descriptions for easier recall/resume.
+- Still pending: `file_search`, checkpoint summarization, working-memory maintenance, and a cleaner episodic/long-term promotion flow.
+
 ### 3.1 Working Memory
 - [ ] Load `memory/working.md` at session start → inject into system prompt
 - [ ] Agent rewrites `memory/working.md` using normal file tools (`read_file` / `write_file`)
@@ -156,9 +169,9 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 - [ ] Write to `memory/episodic/{YYYY-MM}.jsonl` — auto-create new file each month
 - [ ] Episodic memory is summary-oriented, not a raw mirror of `sessions/*.jsonl`
 - [ ] Summarization triggers:
-  - once when a session ends
+  - once when a session becomes idle for a configurable timeout
   - once every 50 conversation turns for a long-running session
-- [ ] Starting a new CLI session (for example via `/new`) is treated as ending the previous one
+- [ ] `/new` switches the adapter binding to a fresh session; it does not close the previous session
 - [ ] All writes go through the `log` / summarization path rather than direct ad hoc episodic writes
 - [ ] Event schema: `{ ts, session, type, data }`
 - [ ] Agent queries episodic history through normal file reads plus `file_search`
@@ -171,8 +184,10 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 
 ### 3.4 Session Log
 - [ ] Auto-create `sessions/{date}-{id}.jsonl` at session start
+- [ ] Maintain `sessions/index.json` as the durable session metadata index used for listing and resume
 - [ ] Append every message + tool call/result during session
-- [ ] Session summary: at session end, generate an episodic summary entry
+- [ ] Store session `description` metadata so session lists are easy to scan and recover
+- [ ] Session checkpoint summary: when a session goes idle, generate an episodic summary entry
 - [ ] Long sessions also emit intermediate episodic summaries every 50 turns
 
 **Deliverable**: Agent remembers a user's name and preferred programming language across two separate sessions without being told again.

@@ -92,6 +92,7 @@ Every agent gets one workspace directory. Everything the agent owns lives here.
 │       └── {topic}.md
 │
 ├── sessions/
+│   ├── index.json                       # Durable session metadata index for listing/resume
 │   └── {YYYY-MM-DD}-{session-id}.jsonl  # Per-session conversation log (messages + tool calls)
 │
 ├── containers/
@@ -134,7 +135,7 @@ The agent is a long-running process on the host. It:
 - Delegates LLM calls and loop management to `pi-agent-core`
 - Provides all custom tools (container, memory, workspace, etc.)
 - Reads/writes memory files via the Memory Manager
-- Calls the Docker SDK to manage containers via Dockerode
+- Calls the Docker CLI through a typed runner abstraction
 - Streams output back to the caller via pi-agent-core's event system
 
 It does **not** run inside Docker. It is a plain Node.js process.
@@ -273,7 +274,7 @@ Four layers, all stored as plain files in the workspace:
 - Append-only JSONL log, one summary/event per line, **split by month** to avoid unbounded file growth
 - Written by summarization, not by blindly mirroring every raw session event
 - Primary triggers:
-  - once when a session ends
+  - once when a session has been idle for the configured timeout
   - once every 50 conversation turns for a long-running session
 - Used for reviewing history, understanding what happened and when across sessions
 - Format: `{"ts": "ISO8601", "type": "...", "session": "...", "data": {...}}`
@@ -433,7 +434,7 @@ A lightweight event bus that fires at fixed points in the agent's execution. Hoo
 | Hook | Fires when | Can block? |
 |------|-----------|------------|
 | `onSessionStart` | A new session begins | No |
-| `onSessionEnd` | A session ends (normal or error) | No |
+| `onSessionEnd` | One session run finishes (normal or error) | No |
 | `beforeInbound` | An inbound message payload is prepared, before the LLM sees it | Yes |
 | `beforeToolCall` | LLM has chosen a tool, before execution | Yes |
 | `afterToolCall` | Tool has returned its result | No |
@@ -619,6 +620,10 @@ POST /sessions/{sessionId}/messages
   Body: SessionMessage JSON
   Returns: { sessionId, messageId? }
 
+POST /sessions/{sessionId}/approve
+  Body: { toolCallId, approved }
+  Returns: { resolved }
+
 GET /events?sessionId=xxx
   Returns: SSE stream of OutboundEvent
 ```
@@ -628,6 +633,8 @@ These are agent-local routes. Each agent already runs on its own port, so the ca
 `POST /sessions` is metadata-only: it creates or resumes session state, but it does not carry user text and does not advance the agent loop on its own. The loop advances only when a `SessionMessage` is posted.
 
 `GET /sessions` is agent-local. It lists sessions known to this agent, not a globally unified "current user's sessions" view. Callers filter by source metadata such as `kind`, `platform`, or `interactive`.
+
+Session listing is backed by a durable metadata index at `sessions/index.json`. The current process overlays live runtime state such as `running` or `awaiting_approval` on top of that persisted index, so session lists survive agent restarts without forcing the server to rescan every session log on each request.
 
 Recommended default sort:
 
@@ -639,7 +646,9 @@ Recommended response fields:
 - `source`
 - `createdAt`
 - `lastActivityAt`
+- `lastEventId`
 - `messageCount`
+- `description`
 - `lastMessagePreview`
 - runtime `status` (`idle | running | awaiting_approval`)
 
@@ -659,14 +668,22 @@ At startup the agent generates a random token, writes it to `runtime/api.token`,
 
 #### CLI Client
 
-`cloudmind chat --agent <id>` and `cloudmind run --agent <id> "task"` are thin external programs. They:
+`cloudmind chat --agent <id>` and `cloudmind run --agent <id> "task"` are thin external programs. In the current repository layout this client lives in `apps/cli` and is typically run through `npm run chat:agent`. The CLI:
 1. Read `runtime/api.port` and `runtime/api.token` from the agent workspace
 2. Create a session via `POST /sessions` with `source.kind = "cli"` and a session ID like `cli:{YYYY-MM-DD}-{nanoid}`
 3. Subscribe to `GET /events?sessionId=xxx`
 4. Send the first or next user message via `POST /sessions/{sessionId}/messages`
 5. Stream `text_delta` events to stdout
 
-If the CLI wants to resume an older session explicitly, it should first query `GET /sessions?kind=cli` and then bind the local conversation to the chosen `sessionId`.
+Current CLI controls:
+
+- `/new` — create a fresh CLI session and switch the local binding to it
+- `/sessions` — list recent CLI sessions ordered by `lastActivityAt desc`
+- `/resume <id>` — switch the local binding to an existing session
+- `--session <id>` — start the CLI already bound to the specified session
+- `--resume` — start the CLI already bound to the most recent CLI session
+
+`/new` does not close or delete the previous session. It only changes the adapter binding to a fresh `sessionId`.
 
 #### Telegram Bridge Container
 
@@ -818,7 +835,7 @@ The agent is designed to be minimally invasive to the host. Here is the complete
 | LLM provider abstraction | `@mariozechner/pi-ai` (Anthropic, OpenAI, Google, Ollama, OpenRouter…) |
 | Agent loop | `@mariozechner/pi-agent-core` (multi-turn, tool calling, streaming events) |
 | Tool schemas | TypeBox (via pi-ai) |
-| Container management | Dockerode (Docker SDK for Node) |
+| Container management | Docker CLI via typed runner abstraction |
 | Memory / sessions | Plain files: `.md` + `.jsonl` |
 | Database | None in v1. SQLite optional later. |
 | Telegram bridge | container image (any language) |
