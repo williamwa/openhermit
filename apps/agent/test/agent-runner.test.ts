@@ -228,7 +228,7 @@ test('AgentRunner publishes SSE text events and writes minimal logs', async (t) 
   );
 });
 
-test('AgentRunner injects container mount guidance into the system prompt', async (t) => {
+test('AgentRunner injects runtime mission and container guidance into the system prompt', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: {
       ANTHROPIC_API_KEY: 'test-anthropic-key',
@@ -260,6 +260,11 @@ test('AgentRunner injects container mount guidance into the system prompt', asyn
   });
   await runner.waitForSessionIdle('cli:prompt-guidance');
 
+  assert.match(capturedSystemPrompt, /You are a pragmatic AI agent operating inside a dedicated workspace/);
+  assert.match(capturedSystemPrompt, /Your primary job is to help the user accomplish real tasks safely and effectively/);
+  assert.match(capturedSystemPrompt, /Your specific identity, role, style, and priorities are defined by the workspace identity context/);
+  assert.match(capturedSystemPrompt, /Built-in tools are execution primitives, not product goals/);
+  assert.match(capturedSystemPrompt, /Do not frame yourself as a container-management assistant/);
   assert.match(capturedSystemPrompt, /Container tool rules:/);
   assert.match(capturedSystemPrompt, /containers\/\{name\}\/data/);
   assert.match(capturedSystemPrompt, /Files under files\/ or the workspace root are not mounted automatically/);
