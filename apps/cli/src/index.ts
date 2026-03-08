@@ -13,6 +13,7 @@ interface ChatCliOptions {
   agentId: string;
   workspaceRoot: string;
   sessionId?: string;
+  resume?: boolean;
 }
 
 interface SseFrame {
@@ -29,7 +30,7 @@ type CliCommand =
   | { type: 'resume'; sessionId: string };
 
 const HELP_TEXT = [
-  'Usage: npm run chat:agent -- [--agent-id <id>] [--workspace <path>] [--session <sessionId>]',
+  'Usage: npm run chat:agent -- [--agent-id <id>] [--workspace <path>] [--session <sessionId>] [--resume]',
   '',
   'Commands:',
   '  /new              Create and switch to a new CLI session',
@@ -70,6 +71,7 @@ export const parseChatCliArgs = (
   let agentId = env.CLOUDMIND_AGENT_ID ?? 'agent-dev';
   let explicitWorkspaceRoot = env.CLOUDMIND_WORKSPACE_ROOT;
   let sessionId: string | undefined;
+  let resume = false;
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -92,6 +94,11 @@ export const parseChatCliArgs = (
       continue;
     }
 
+    if (arg === '--resume') {
+      resume = true;
+      continue;
+    }
+
     if (arg === '--help' || arg === '-h') {
       throw new Error(HELP_TEXT);
     }
@@ -99,10 +106,15 @@ export const parseChatCliArgs = (
     throw new Error(`Unknown argument: ${arg}\n\n${HELP_TEXT}`);
   }
 
+  if (resume && sessionId) {
+    throw new Error('Cannot use --resume together with --session.');
+  }
+
   return {
     agentId,
     workspaceRoot: resolveWorkspaceRoot(cwd, agentId, explicitWorkspaceRoot),
     ...(sessionId ? { sessionId } : {}),
+    ...(resume ? { resume } : {}),
   };
 };
 
@@ -197,7 +209,7 @@ export const formatSessionList = (
       ? ` ${truncateSingleLine(label)}`
       : '';
 
-    return `${marker} ${session.sessionId} [${session.status}] ${session.lastActivityAt} messages=${session.messageCount}${preview}`;
+    return `${marker} ${session.sessionId} ${session.lastActivityAt} messages=${session.messageCount}${preview}`;
   });
 
   return ['CLI sessions (most recent first):', ...lines].join('\n');
@@ -495,6 +507,46 @@ const findCliSession = async (
   return sessions.find((session) => session.sessionId === sessionId);
 };
 
+interface StartupSessionSelection {
+  sessionId: string;
+  lastEventId: number;
+  resumed: boolean;
+}
+
+export const selectStartupSession = (
+  options: Pick<ChatCliOptions, 'sessionId' | 'resume'>,
+  sessions: SessionSummary[],
+  createSession: () => string = createSessionId,
+): StartupSessionSelection => {
+  if (options.sessionId) {
+    const existing = sessions.find((session) => session.sessionId === options.sessionId);
+
+    return {
+      sessionId: options.sessionId,
+      lastEventId: existing?.lastEventId ?? 0,
+      resumed: Boolean(existing),
+    };
+  }
+
+  if (options.resume) {
+    const latest = sessions[0];
+
+    if (latest) {
+      return {
+        sessionId: latest.sessionId,
+        lastEventId: latest.lastEventId,
+        resumed: true,
+      };
+    }
+  }
+
+  return {
+    sessionId: createSession(),
+    lastEventId: 0,
+    resumed: false,
+  };
+};
+
 export const main = async (): Promise<void> => {
   const options = parseChatCliArgs(process.argv.slice(2));
   const port = await readRuntimeValue(options.workspaceRoot, runtimeFiles.apiPort);
@@ -504,25 +556,19 @@ export const main = async (): Promise<void> => {
     token,
   });
   const knownEventIds = new Map<string, number>();
-  let currentSessionId = options.sessionId ?? createSessionId();
-
-  if (options.sessionId) {
-    const existing = await findCliSession(client, options.sessionId);
-
-    if (existing) {
-      knownEventIds.set(existing.sessionId, existing.lastEventId);
-    }
-  }
+  const initialSessions = await listCliSessions(client);
+  const startupSession = selectStartupSession(options, initialSessions);
+  let currentSessionId = startupSession.sessionId;
 
   await client.openSession(createCliSessionSpec(currentSessionId));
-  knownEventIds.set(
-    currentSessionId,
-    knownEventIds.get(currentSessionId) ?? 0,
-  );
+  knownEventIds.set(currentSessionId, startupSession.lastEventId);
 
   stdout.write(`Connected to agent ${options.agentId}\n`);
   stdout.write(`Workspace: ${options.workspaceRoot}\n`);
   stdout.write(`Session: ${currentSessionId}\n`);
+  if (options.resume && startupSession.resumed) {
+    stdout.write('[session] Resumed most recent CLI session\n');
+  }
   stdout.write('Type /help for commands.\n\n');
 
   const rl = createInterface({

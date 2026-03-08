@@ -57,6 +57,7 @@ CLI options:
 npm run chat:agent -- --agent-id agent-dev
 npm run chat:agent -- --workspace /absolute/path/to/workspace
 npm run chat:agent -- --session cli:resume-me
+npm run chat:agent -- --resume
 ```
 
 If `tsx` is not suitable in your environment, you can build first and run the compiled entrypoints from `apps/agent/dist/` and `apps/cli/dist/`.

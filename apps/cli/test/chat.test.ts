@@ -10,6 +10,7 @@ import {
   parseSlashCommand,
   parseSseFrames,
   resolveWorkspaceRoot,
+  selectStartupSession,
   waitForAssistantTurn,
 } from '../src/index.js';
 
@@ -32,6 +33,23 @@ test('parseChatCliArgs resolves agent id, workspace, and session', () => {
     workspaceRoot: '/repo/runtime/agent-a',
     sessionId: 'cli:123',
   });
+});
+
+test('parseChatCliArgs supports --resume', () => {
+  const parsed = parseChatCliArgs(['--resume'], '/repo', {});
+
+  assert.deepEqual(parsed, {
+    agentId: 'agent-dev',
+    workspaceRoot: '/repo/.cloudmind-dev/agent-dev',
+    resume: true,
+  });
+});
+
+test('parseChatCliArgs rejects --resume together with --session', () => {
+  assert.throws(
+    () => parseChatCliArgs(['--resume', '--session', 'cli:123'], '/repo', {}),
+    /Cannot use --resume together with --session/,
+  );
 });
 
 test('parseChatCliArgs falls back to default dev workspace', () => {
@@ -91,9 +109,44 @@ test('formatSessionList highlights current session and truncates previews', () =
   const output = formatSessionList(sessions, 'cli:current');
 
   assert.match(output, /CLI sessions \(most recent first\):/);
-  assert.match(output, /\* cli:current \[idle\] 2026-03-08T01:00:00.000Z messages=4/);
+  assert.match(output, /\* cli:current 2026-03-08T01:00:00.000Z messages=4/);
   assert.match(output, /Build Telegram bridge retry strategy/);
-  assert.match(output, /  cli:older \[awaiting_approval\] 2026-03-08T00:30:00.000Z messages=2 Short preview/);
+  assert.match(output, /  cli:older 2026-03-08T00:30:00.000Z messages=2 Short preview/);
+});
+
+test('selectStartupSession resumes latest session when requested', () => {
+  const sessions: SessionSummary[] = [
+    {
+      sessionId: 'cli:latest',
+      source: {
+        kind: 'cli',
+        interactive: true,
+      },
+      createdAt: '2026-03-08T00:00:00.000Z',
+      lastActivityAt: '2026-03-08T01:00:00.000Z',
+      lastEventId: 9,
+      messageCount: 4,
+      description: 'Most recent session',
+      status: 'idle',
+    },
+  ];
+
+  assert.deepEqual(selectStartupSession({ resume: true }, sessions), {
+    sessionId: 'cli:latest',
+    lastEventId: 9,
+    resumed: true,
+  });
+});
+
+test('selectStartupSession creates a new session when --resume has no history', () => {
+  assert.deepEqual(
+    selectStartupSession({ resume: true }, [], () => 'cli:new-session'),
+    {
+      sessionId: 'cli:new-session',
+      lastEventId: 0,
+      resumed: false,
+    },
+  );
 });
 
 test('parseSseFrames parses multiple frames and preserves incomplete remainder', () => {
