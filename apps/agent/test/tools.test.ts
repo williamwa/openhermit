@@ -247,6 +247,135 @@ test('withApproval distinguishes timeout from explicit rejection', async (t) => 
   assert.deepEqual(startedCalls, []);
 });
 
+test('file_search finds literal matches across workspace files', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  await workspace.writeFile(
+    'files/notes.txt',
+    ['hello world', 'alpha hello beta', 'goodbye'].join('\n'),
+  );
+  await workspace.writeFile(
+    'memory/notes/preferences.md',
+    ['preferred language: TypeScript', 'say hello politely'].join('\n'),
+  );
+
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+  });
+  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tool = findTool(tools, 'file_search');
+
+  const result = await tool.execute('call-search-1', {
+    pattern: 'hello',
+  });
+
+  const text = getFirstText(result);
+  assert.match(text, /Found 3 matches in 2 file\(s\)/);
+  assert.match(text, /files\/notes.txt:1:1 hello world/);
+  assert.match(text, /memory\/notes\/preferences.md:2:5 say hello politely/);
+
+  const details = result.details as Record<string, unknown>;
+  assert.equal(details.pattern, 'hello');
+  assert.equal(details.path, '.');
+  assert.ok(Number(details.scannedFiles) >= 2);
+  assert.equal(details.matchedFiles, 2);
+  assert.equal(details.totalMatches, 3);
+  assert.equal(details.returnedMatches, 3);
+  assert.equal(details.truncated, false);
+});
+
+test('file_search supports path scoping and glob filters', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  await workspace.writeFile('files/app.ts', 'const greeting = "hello";\n');
+  await workspace.writeFile('files/app.md', 'hello from markdown\n');
+  await workspace.writeFile('memory/notes/topic.md', 'hello from notes\n');
+
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+  });
+  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tool = findTool(tools, 'file_search');
+
+  const result = await tool.execute('call-search-2', {
+    pattern: 'hello',
+    path: 'files',
+    glob: 'files/**/*.md',
+  });
+
+  const text = getFirstText(result);
+  assert.match(text, /Found 1 matches in 1 file\(s\)/);
+  assert.match(text, /files\/app.md:1:1 hello from markdown/);
+  assert.doesNotMatch(text, /app\.ts/);
+
+  const details = result.details as Record<string, unknown>;
+  assert.equal(details.path, 'files');
+  assert.equal(details.glob, 'files/**/*.md');
+  assert.equal(details.matchedFiles, 1);
+  assert.equal(details.totalMatches, 1);
+});
+
+test('file_search rejects an empty pattern', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+  });
+  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tool = findTool(tools, 'file_search');
+
+  await assert.rejects(
+    () => tool.execute('call-search-3', { pattern: '' }),
+    ValidationError,
+  );
+});
+
+test('file_search truncates large result sets and skips oversized files', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  await workspace.writeFile(
+    'files/many.txt',
+    Array.from({ length: 120 }, () => 'needle').join('\n'),
+  );
+  await workspace.writeFile(
+    'files/too-large.txt',
+    'x'.repeat(1_000_001),
+  );
+
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+  });
+  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tool = findTool(tools, 'file_search');
+
+  const result = await tool.execute('call-search-4', {
+    pattern: 'needle',
+    path: 'files',
+  });
+
+  const text = getFirstText(result);
+  assert.match(text, /Results truncated to the first 100 matches/);
+  assert.match(text, /Skipped 1 large file\(s\): files\/too-large.txt/);
+
+  const details = result.details as Record<string, unknown>;
+  assert.equal(details.totalMatches, 120);
+  assert.equal(details.returnedMatches, 100);
+  assert.equal(details.truncated, true);
+  assert.deepEqual(details.skippedLargeFiles, ['files/too-large.txt']);
+});
+
 test('web_fetch returns status headers and body for a successful GET', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: { ANTHROPIC_API_KEY: 'key' },

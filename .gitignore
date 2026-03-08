@@ -5,4 +5,5 @@ dist/
 *.log
 *.tsbuildinfo
 .cloudmind-dev/
+.openhermit-dev/
 .DS_Store
