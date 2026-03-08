@@ -292,7 +292,7 @@ export const summarizeContainerEntry = (
  * will pause and invoke the approval callback before executing.
  * In `full` autonomy mode or when no callback is provided, tools always proceed.
  */
-const withApproval = (
+export const withApproval = (
   tool: AgentTool<any>,
   security: AgentSecurity,
   approvalCallback: ApprovalCallback | undefined,
@@ -303,7 +303,12 @@ const withApproval = (
 
   return {
     ...tool,
-    execute: async (toolCallId: string, args: unknown) => {
+    execute: async (
+      toolCallId: string,
+      args: unknown,
+      signal?: AbortSignal,
+      onUpdate?: Parameters<AgentTool<any>['execute']>[3],
+    ) => {
       const needsApproval =
         security.getAutonomyLevel() !== 'full' &&
         security.requiresApproval(tool.name);
@@ -321,7 +326,7 @@ const withApproval = (
         }
       }
 
-      return tool.execute(toolCallId, args);
+      return tool.execute(toolCallId, args, signal, onUpdate);
     },
   };
 };
