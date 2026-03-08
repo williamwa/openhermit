@@ -267,6 +267,103 @@ const createContainerStatusTool = ({
   },
 });
 
+// ---------------------------------------------------------------------------
+// web_fetch
+// ---------------------------------------------------------------------------
+
+const MAX_RESPONSE_BYTES = 200_000; // 200 KB — keeps responses inside context window
+
+const WebFetchParams = Type.Object({
+  url: Type.String({
+    description: 'Fully-qualified URL to fetch (http or https).',
+  }),
+  method: Type.Optional(
+    Type.Union(
+      [
+        Type.Literal('GET'),
+        Type.Literal('POST'),
+        Type.Literal('PUT'),
+        Type.Literal('PATCH'),
+        Type.Literal('DELETE'),
+        Type.Literal('HEAD'),
+      ],
+      { description: 'HTTP method. Defaults to GET.' },
+    ),
+  ),
+  headers: Type.Optional(
+    Type.Record(Type.String(), Type.String(), {
+      description: 'Additional request headers.',
+    }),
+  ),
+  body: Type.Optional(
+    Type.String({
+      description: 'Request body (for POST/PUT/PATCH). Send as a string; set Content-Type in headers.',
+    }),
+  ),
+  max_bytes: Type.Optional(
+    Type.Number({
+      description: `Maximum response body bytes to return. Defaults to ${MAX_RESPONSE_BYTES}.`,
+    }),
+  ),
+});
+
+type WebFetchArgs = Static<typeof WebFetchParams>;
+
+const createWebFetchTool = (): AgentTool<typeof WebFetchParams> => ({
+  name: 'web_fetch',
+  label: 'Web Fetch',
+  description:
+    'Perform an HTTP request and return the response body as text. Useful for reading documentation, calling external APIs, or checking URLs. Responses are truncated at max_bytes to avoid flooding the context window.',
+  parameters: WebFetchParams,
+  execute: async (_toolCallId, args: WebFetchArgs) => {
+    const url = new URL(args.url); // throws on invalid URL
+
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      throw new ValidationError(`web_fetch only supports http/https URLs, got: ${url.protocol}`);
+    }
+
+    const method = args.method ?? 'GET';
+    const limit = Math.min(args.max_bytes ?? MAX_RESPONSE_BYTES, MAX_RESPONSE_BYTES);
+
+    const response = await fetch(args.url, {
+      method,
+      ...(args.headers ? { headers: args.headers } : {}),
+      ...(args.body !== undefined ? { body: args.body } : {}),
+    });
+
+    const rawBuffer = await response.arrayBuffer();
+    const rawBytes = rawBuffer.byteLength;
+    const truncated = rawBytes > limit;
+    const bodyBytes = truncated ? rawBuffer.slice(0, limit) : rawBuffer;
+    const body = new TextDecoder('utf-8', { fatal: false }).decode(bodyBytes);
+
+    const responseHeaders: Record<string, string> = {};
+    response.headers.forEach((value, key) => {
+      responseHeaders[key] = value;
+    });
+
+    const details = {
+      url: args.url,
+      method,
+      status: response.status,
+      statusText: response.statusText,
+      headers: responseHeaders,
+      body,
+      bodyBytes: rawBytes,
+      ...(truncated ? { truncated: true, returnedBytes: limit } : {}),
+    };
+
+    const summary = truncated
+      ? `HTTP ${response.status} ${response.statusText} — ${rawBytes} bytes (truncated to ${limit})\n\n${body}`
+      : `HTTP ${response.status} ${response.statusText} — ${rawBytes} bytes\n\n${body}`;
+
+    return {
+      content: asTextContent(summary),
+      details,
+    };
+  },
+});
+
 export const summarizeContainerList = (
   containers: ContainerListEntry[],
 ): string => formatJson(containers);
@@ -284,4 +381,5 @@ export const createBuiltInTools = (
   createDeleteFileTool(context),
   createContainerRunTool(context),
   createContainerStatusTool(context),
+  createWebFetchTool(),
 ];
