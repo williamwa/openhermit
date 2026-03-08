@@ -23,7 +23,7 @@
 | Long-term notes | `memory/notes/{topic}.md` |
 | Episodic log | `memory/episodic/{YYYY-MM}.jsonl` (monthly split) |
 | Session history | `sessions/{date}-{id}.jsonl` |
-| Container registry | `containers/registry.jsonl` |
+| Container registry | `containers/registry.jsonl` (status + metadata, including purpose/description) |
 
 **Rationale**:
 - Zero infrastructure to set up or maintain
@@ -95,7 +95,7 @@
 
 **`security.json` contains only**:
 - `autonomy_level` (`readonly | supervised | full`) — if this were inside the workspace, the agent could write-escalate itself from `supervised` to `full`
-- `require_approval_for` — list of tools that always require confirmation; same risk applies
+- `require_approval_for` — list of tools that always require confirmation; same risk applies (for example `container_start` or `delete_file`)
 
 **`security.json` does NOT contain** `forbidden_paths` or `allowed_commands` — both are redundant given the architecture:
 - Path access is structurally blocked by three-layer workspace boundary validation (not a config list)
@@ -109,24 +109,24 @@
 
 **Decision**: Every file path goes through three mandatory checks before use:
 1. **Null byte** — `path.includes('\0')` → reject
-2. **Workspace boundary** — `resolve(root, path).startsWith(workspaceRoot)` → reject if not
-3. **Symlink escape** — `realpathSync(resolved).startsWith(workspaceRoot)` → reject if not
+2. **Workspace boundary** — `resolved = path.resolve(root, candidate)` and `relative = path.relative(root, resolved)`; reject if `relative` is absolute or starts with `..`
+3. **Symlink escape** — canonicalize the target if it exists; otherwise canonicalize the nearest existing ancestor (usually `dirname(resolved)`) before create/write; delete operations canonicalize the target itself; reject if that real path escapes the workspace
 
-**Rationale**: Each layer catches a distinct attack class. Layer 2 alone is bypassed by a symlink inside the workspace pointing outside; layer 3 catches that. All three are required.
+**Rationale**: Each layer catches a distinct attack class. A plain `startsWith(workspaceRoot)` check is unsafe because sibling prefixes like `/workspace-evil` still match lexically. Layer 3 must also work for paths that do not exist yet, otherwise valid writes and scaffolding operations fail. All three are required.
 
 ---
 
 ## ADR-009: Three autonomy levels
 
-**Decision**: Agent operates at `readonly`, `supervised` (default), or `full` — configured in `security.json`. Heartbeat sessions are capped at `supervised`, never `full`.
+**Decision**: Agent operates at `readonly`, `supervised` (default), or `full` — configured in `security.json`. Scheduled maintenance sessions (heartbeat, cron-like jobs) derive their effective autonomy from `security.json` but are hard-capped at `supervised`, never `full`.
 
 | Level | Behaviour |
 |-------|-----------|
-| `readonly` | Read + status only; no writes, no containers |
-| `supervised` | Full tool access; `require_approval_for` tools pause for confirmation |
+| `readonly` | Read + status only; no writes, deletes, or containers |
+| `supervised` | Full tool access; only tools in `require_approval_for` pause for confirmation |
 | `full` | No confirmations; for trusted batch jobs only |
 
-**Rationale**: A binary on/off is too coarse. Heartbeat runs checking container health should not be able to spin up new containers; a batch coding session may need full autonomy.
+**Rationale**: A binary on/off is too coarse. Scheduled maintenance runs may need write access, but they should never silently inherit `full`. Capping scheduled sessions at `supervised` preserves useful background work without turning timers or cron jobs into unconstrained batch jobs.
 
 ---
 
@@ -149,32 +149,51 @@
 - pi-ai supports Anthropic, OpenAI, Google, Mistral, Groq, Ollama, OpenRouter etc. in one API — CloudMind is not locked to any provider
 - pi-agent-core handles streaming, error recovery, context window management, and abort correctly — no need to reimplement
 - `transformContext` callback is the natural hook for injecting working memory and identity
-- pi-agent-core's events (`agent_start`, `tool_execution_start`, `tool_execution_end`, `agent_end`, `error`) map 1:1 onto CloudMind's hook points
+- pi-agent-core's events (`agent_start`, `tool_execution_start`, `tool_execution_end`, `agent_end`, `error`) cover the runtime hook points directly; only schedule pre-dispatch is emitted by CloudMind's scheduler layer
 
 **Mitigation**: Isolate pi-agent-core behind a thin `AgentRunner` wrapper. If the dependency becomes untenable, only that class needs replacing.
 
 ---
 
-## ADR-012: Channel system — HTTP API in agent process, external clients and bridge containers
+## ADR-012: Unified session lifecycle system
 
-**Decision**: The agent exposes an HTTP API (Hono) as its sole communication interface. There is no `ChannelManager`, no `Channel` TypeScript interface, and no channel code inside the agent process. The CLI is a thin external client program. Telegram is handled by a bridge service container the agent manages. Any language or platform can integrate by calling the HTTP API.
+**Decision**: The agent core exposes one generic session lifecycle interface shared by all trigger sources. Interactive adapters (CLI, Telegram, future UI clients) and scheduled sources (heartbeat, cron-like jobs) all follow the same two-step contract:
+1. Open or resume a session with `SessionSpec`
+2. Append inbound messages with `SessionMessage`
 
-**HTTP API contract**:
-- `POST /agents/{id}/messages` — accepts `InboundMessage` JSON (`{ sessionId, text, attachments? }`), returns `{ sessionId }`
-- `GET /agents/{id}/events?sessionId=xxx` — SSE stream of `OutboundEvent` (`text_delta | text_final | tool_start | error`)
+The agent still exposes an HTTP API (Hono) as its sole **external** communication interface, but scheduled triggers may call the same lifecycle interface in-process rather than going through HTTP.
+
+**Core lifecycle contract**:
+- `openSession(spec: SessionSpec)` creates or resumes a session context
+- `postMessage(sessionId: string, message: SessionMessage)` appends one inbound message to that session
+- `SessionSpec` contains at least `{ sessionId, source, metadata? }`
+- `SessionMessage` contains at least `{ text, attachments? }`
+- `source.kind` captures the semantic trigger class (`cli | im | heartbeat | cron | ...`)
+- `source.platform` preserves adapter-specific detail when needed (`telegram`, `discord`, `feishu`, ...)
+- Interactive sources set `source.interactive = true`; scheduled sources set `source.interactive = false`
+- The core runner emits the same `OutboundEvent` stream/log lifecycle regardless of trigger source
+
+**External HTTP API contract**:
+- `POST /sessions` — accepts `SessionSpec` JSON, creates or resumes the session, returns `{ sessionId }`
+- `POST /sessions/{sessionId}/messages` — accepts `SessionMessage` JSON, appends one inbound message, returns `{ sessionId, messageId? }`
+- `GET /events?sessionId=xxx` — SSE stream of `OutboundEvent` (`text_delta | text_final | tool_start | error`)
+- The HTTP API is agent-local, not a multi-agent gateway: each agent already has its own port, so the URL does not repeat `{agentId}`
+- `POST /sessions` is metadata-only: it establishes session state, but agent execution advances only when a `SessionMessage` is appended
 - Auth: bearer token generated at startup, stored at `runtime/api.token`, injected into bridge containers as `CLOUDMIND_API_KEY`
 - Port: bound dynamically at startup (try `config.http_api.preferred_port` first; fall back to OS-assigned port `0`); actual port written to `runtime/api.port` — clients read it from there
+- A future gateway may proxy these agent-local endpoints behind `/agents/{id}/...`, but that is a separate control-plane layer, not part of the v1 agent contract
 
 **Rationale**:
-- The agent process stays focused on its core job (LLM loop, tools, memory) — no platform-specific code inside
-- Any language or platform can integrate by calling the HTTP API: no agent code changes needed to add a new channel
-- The Telegram bridge runs as a service container the agent manages via `container_start` — this fits the existing "containers are tools" model perfectly; the agent already knows how to start, stop, and inject secrets into containers
-- `host.docker.internal` is the standard Docker mechanism for containers calling the host; no extra networking configuration is required
-- Adding a new channel means writing a container image (or any HTTP client), not modifying the agent
-- Dynamic port binding means multiple agents can run on the same host with zero coordination — each agent writes its own port to `runtime/api.port`, clients read from there
+- The agent process stays focused on its core job (LLM loop, tools, memory); trigger sources become thin adapters instead of special-case subsystems
+- Interactive channels and scheduled jobs both operate on agent sessions, so session creation/resume and message delivery should be separated cleanly
+- Since each agent exposes its own local port, including `{agentId}` in every route would duplicate addressing information and complicate adapters without adding routing power
+- This keeps the agent runtime small today while preserving a clean path to a future multi-agent gateway
+- IM bridges still fit the "containers are tools" model perfectly: a Telegram bridge is just one service container that opens or resumes IM sessions and forwards inbound messages into them
+- Scheduled automation stays flexible: an in-process timer, a cron-driven shell script, a containerized scheduler, or a Kubernetes CronJob can all open a session and post a synthesized first message through the same interface
+- Dynamic port binding still means multiple agents can run on the same host with zero coordination — each agent writes its own port to `runtime/api.port`, clients read from there
 
 **Key details**:
-- Session IDs are namespaced by the client before the POST, enforced at the HTTP API boundary: `cli:{YYYY-MM-DD}-{nanoid}` (generated by the CLI), `telegram:{chat_id}` (generated by the bridge)
-- Sessions from different clients share agent memory (`working.md`, `notes/`) but have separate conversation histories
+- Session IDs are namespaced by the concrete adapter/source, not just the semantic kind: `cli:{YYYY-MM-DD}-{nanoid}`, `telegram:{chat_id}`, `heartbeat:{ts}`, `cron:{job-id}:{ts}`
+- Sessions from different trigger sources share agent memory (`working.md`, `notes/`) but have separate conversation histories
 - `config.channels.telegram_bridge.allowed_chat_ids` — allowlist enforced by the bridge container; empty list rejects all (safe default)
 - The `runtime/` workspace directory is gitignored; both token and port are regenerated/rewritten on each agent startup

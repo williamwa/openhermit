@@ -22,22 +22,26 @@ Telegram user ──► Telegram Bot API                           │
               │  (service container,   │─── host.docker. ────┤
               │   agent-managed)       │    internal:PORT     │
               └────────────────────────┘                      │
+Scheduler / Cron ─────────────────────────────────────────────┤
                                                               ▼
                                               ┌───────────────────────────┐
                                               │  Agent Process            │
                                               │  HTTP API (Hono)          │
-                                              │  POST /agents/{id}/messages│
-                                              │  GET  /agents/{id}/events  │
+                                              │  POST /sessions            │
+                                              │  POST /sessions            │
+                                              │ /{sessionId}/messages      │
+                                              │  GET  /events              │
                                               │         (SSE stream)       │
                                               └──────────────┬────────────┘
                                                              │
                                               ┌──────────────▼────────────┐
                                               │  Core                     │
+                                              │  Session Router           │
                                               │  pi-agent-core (LLM loop) │
                                               │  Memory Manager           │
                                               │  Container Manager        │
                                               │  Hook System              │
-                                              │  Heartbeat Engine         │
+                                              │  Scheduler (optional)     │
                                               └──────────────┬────────────┘
                                                              │
                                               ┌──────────────▼────────────┐
@@ -67,7 +71,7 @@ Every agent gets one workspace directory. Everything the agent owns lives here.
 
 {workspace_root}/                        # e.g., ~/cloudmind/agents/{agent-id}/
 │
-├── config.json                          # Agent identity, model, heartbeat, hooks config
+├── config.json                          # Agent identity, model, schedule, and hooks config
 │
 ├── identity/                            # Who the agent is (agent reads; user edits)
 │   ├── IDENTITY.md                      # Agent's name, role, backstory
@@ -107,10 +111,10 @@ Every agent gets one workspace directory. Everything the agent owns lives here.
     └── {YYYY-MM-DD}.log                 # Agent runtime logs
 ```
 
-**Note on `~/.cloudmind/{agent-id}/`**: This directory is intentionally stored **outside the workspace**. The agent has `write_file` access to its workspace — if security policy or secrets lived inside, the agent could modify its own permission boundaries or read credential values directly. Both files in this directory are read by the agent process at startup but never written to by the agent. Only the user (or deployment scripts) should edit them.
+**Note on `~/.cloudmind/{agent-id}/`**: This directory is intentionally stored **outside the workspace**. The agent has write/delete access to its workspace — if security policy or secrets lived inside, the agent could modify or remove its own permission boundaries or read credential values directly. Both files in this directory are read by the agent process at startup but never written to by the agent. Only the user (or deployment scripts) should edit them.
 
 ### Key Principles
-- The agent **only reads and writes within its workspace**
+- The agent **only reads, writes, and deletes within its workspace**
 - Container mounts **only point to subdirs under `containers/{name}/data/`**
 - All paths go through three-layer validation before use (see Security Policy §5)
 - Sessions are immutable once written (append-only)
@@ -179,9 +183,10 @@ CloudMind Tool Handlers
 | `tool_execution_end` | `afterToolCall` |
 | *(subscriber pre-prompt)* | `beforeInbound` |
 | *(subscriber pre-agent_end)* | `beforeOutbound` |
+| *(scheduler pre-dispatch)* | `onScheduleTrigger` |
 | *(error in subscriber)* | `onError` |
 
-Hook handlers subscribe to pi-agent-core events; CloudMind's hook runner fires from those subscriptions.
+Most hook handlers subscribe to pi-agent-core events; `onScheduleTrigger` is fired by the scheduler just before it dispatches a non-interactive trigger into the runner.
 
 #### Context injection via `transformContext`
 
@@ -227,10 +232,11 @@ const containerRunTool: AgentTool = {
   parameters: Type.Object({
     image:   Type.String({ description: 'Docker image, e.g. python:3.12-slim' }),
     command: Type.String({ description: 'Shell command to execute' }),
-    mount:   Type.Optional(Type.String({ description: 'Workspace subdir to mount' })),
+    description: Type.Optional(Type.String({ description: 'Short note describing why this container run exists' })),
+    mount:   Type.Optional(Type.String({ description: 'Validated workspace path under containers/{name}/data/' })),
   }),
   execute: async (args) => {
-    security.checkCommand(args.command)          // CloudMind security layer
+    // The tool layer enforces autonomy policy and validates mount paths first.
     return containerManager.runEphemeral(args)   // CloudMind container module
   },
 }
@@ -243,6 +249,7 @@ Built-in tools available to agent:
 | `read_file` | Read a file within workspace |
 | `write_file` | Write a file within workspace |
 | `list_files` | List files in a workspace directory |
+| `delete_file` | Delete a single file within workspace |
 | `container_run` | Spin up an ephemeral container, run a command, return stdout/stderr/exitCode |
 | `container_start` | Start a long-term service container |
 | `container_stop` | Stop a service container |
@@ -276,8 +283,9 @@ Three layers, all stored as plain files in the workspace:
 - Examples: `user-preferences.md`, `project-status.md`, `important-facts.md`
 
 #### Session Log — `sessions/{date}-{id}.jsonl`
-- Full message history for a single conversation session
-- Each line: `{"role": "user|assistant|tool", "ts": "...", "content": "..."}`
+- Full append-only event history for a single conversation session
+- Each line includes `ts`, an event role/type, and event-specific payload
+- Common entries: user message, assistant thought/final answer, tool call, tool result
 - Written during session, read-only after
 
 ### 4. Container Manager (Docker SDK)
@@ -297,7 +305,7 @@ Manages two container types:
 - Lifecycle: created → running → paused/resumed → explicitly stopped by agent
 - Mount: `workspace/containers/{name}/data/` → `/data` inside container
 - Port bindings: container port → host port (the one place host is affected)
-- Recorded in `containers/registry.jsonl` with status + metadata
+- Recorded in `containers/registry.jsonl` with status + metadata, including a human/agent-written `description` of why the container exists
 - Example use: "run a local Postgres for this project", "serve this web app on port 3000"
 
 #### Sentinel Markers for Output Parsing
@@ -324,9 +332,12 @@ containers/{name}/data/ipc/in/    ← agent writes here (commands to container)
 The agent polls `ipc/out/` on a configurable interval. This avoids the need for any ports or sockets just for agent↔container communication.
 
 #### Container Registry — `containers/registry.jsonl`
+- Each entry should include a short `description` field so either the user or the agent can record the purpose of creating that container
+- `description` is free-form but should stay concise and task-oriented, e.g. "Postgres backing store for project-x" or "Ephemeral Python run for Fibonacci verification"
+
 ```jsonl
-{"id": "abc123", "name": "pg-project-x", "image": "postgres:16", "type": "service", "status": "running", "ports": {"5432": 5432}, "mount": "containers/pg-project-x/data", "created": "2026-03-07T10:00:00Z"}
-{"id": "def456", "name": "run-20260307-1", "image": "python:3.12", "type": "ephemeral", "status": "removed", "created": "2026-03-07T10:05:00Z"}
+{"id": "abc123", "name": "pg-project-x", "image": "postgres:16", "type": "service", "status": "running", "description": "Postgres backing store for project-x web app", "ports": {"5432": 5432}, "mount": "containers/pg-project-x/data", "created": "2026-03-07T10:00:00Z"}
+{"id": "def456", "name": "run-20260307-1", "image": "python:3.12", "type": "ephemeral", "status": "removed", "description": "Ephemeral Python run for Fibonacci verification", "created": "2026-03-07T10:05:00Z"}
 ```
 
 ### 5. Security Policy
@@ -341,23 +352,23 @@ Three levels control how much the agent can act without asking the user:
 
 | Level | Behaviour |
 |-------|-----------|
-| `readonly` | Can read files and check status, cannot write, execute, or start containers. Used for heartbeat runs and audit sessions. |
+| `readonly` | Can read files and check status, cannot write, delete, execute, or start containers. |
 | `supervised` | Normal operation. Executes tools freely, but `require_approval_for` tools pause for user confirmation. **Default.** |
 | `full` | Executes everything without prompting. Use only for trusted batch jobs. |
 
-The heartbeat engine always runs at `readonly` or `supervised` (configurable per agent), never `full`.
+Scheduled maintenance sessions never run at `full`. Their effective autonomy is `min(security.autonomy_level, supervised)`: a globally `readonly` agent stays `readonly`; `supervised` and `full` agents both run scheduled sessions as `supervised`.
 
 #### Path Validation — Three Layers (hardcoded, not configurable)
 
-Every path passed to `read_file`, `write_file`, `list_files`, or any container mount goes through all three checks in order. This is not a setting — it always runs:
+Every path passed to `read_file`, `write_file`, `delete_file`, `list_files`, or any container mount goes through all three checks in order. This is not a setting — it always runs:
 
 ```
 1. Null byte check         path.includes('\0') → reject immediately
-2. Workspace boundary      resolve(workspaceRoot, path) must start with workspaceRoot
-3. Symlink escape check    fs.realpathSync(resolved) must also start with workspaceRoot
+2. Workspace boundary      resolved = path.resolve(root, path); relative = path.relative(root, resolved); reject if relative is absolute or starts with '..'
+3. Symlink escape check    realpath(target) if it exists, otherwise realpath(nearest existing ancestor); reject if canonical path escapes root
 ```
 
-Layer 3 catches symlink attacks: a symlink inside the workspace pointing to `/etc/passwd` would pass layer 2 but fail layer 3 after resolution.
+Layer 2 avoids unsafe lexical-prefix checks such as `/workspace` vs `/workspace-evil`. Layer 3 catches symlink attacks: a symlink inside the workspace pointing to `/etc/passwd` would pass layer 2 but fail after canonicalization. For new files and directories, canonicalizing the nearest existing ancestor preserves legitimate create/write flows while still blocking symlink escapes.
 
 Because this boundary is architectural (not policy-driven), a separate `forbidden_paths` list would be redundant — the agent simply cannot reach `/etc`, `~/.ssh`, or any other host path regardless of configuration.
 
@@ -374,14 +385,14 @@ Only the fields that genuinely need tamper-resistance live here:
 ```json
 {
   "autonomy_level": "supervised",
-  "require_approval_for": ["container_start"]
+  "require_approval_for": ["container_start", "delete_file"]
 }
 ```
 
 | Field | Purpose |
 |-------|---------|
 | `autonomy_level` | `readonly \| supervised \| full` — controls whether the agent acts freely or requests confirmation |
-| `require_approval_for` | List of tool names that always trigger the `require-approval` hook, regardless of autonomy level |
+| `require_approval_for` | List of tool names that always trigger the `require-approval` hook, regardless of autonomy level (for example `container_start` or `delete_file`) |
 
 Everything else (container resource limits, command preferences) lives in `config.json` inside the workspace — it's operational config, not a security boundary.
 
@@ -419,14 +430,14 @@ A lightweight event bus that fires at fixed points in the agent's execution. Hoo
 |------|-----------|------------|
 | `onSessionStart` | A new session begins | No |
 | `onSessionEnd` | A session ends (normal or error) | No |
-| `beforeInbound` | A user message is received, before LLM sees it | Yes |
+| `beforeInbound` | An inbound message payload is prepared, before the LLM sees it | Yes |
 | `beforeToolCall` | LLM has chosen a tool, before execution | Yes |
 | `afterToolCall` | Tool has returned its result | No |
-| `beforeOutbound` | Agent is about to send its final answer | Yes |
-| `onHeartbeat` | Heartbeat timer fires | No |
+| `beforeOutbound` | Agent is about to emit its final answer or final result | Yes |
+| `onScheduleTrigger` | A scheduled non-interactive session is about to be dispatched | No |
 | `onError` | An unhandled error occurs in the loop | No |
 
-"Can block" means the hook handler can throw an error to abort the current operation (e.g., a safety hook blocking a dangerous tool call).
+"Can block" means the hook handler can throw an error to abort the current operation (e.g., a safety hook blocking a dangerous tool call). For non-blocking hook points, handler failures are logged to `onError` and the main session continues.
 
 #### Built-in Hook Handlers
 
@@ -443,7 +454,8 @@ Users can declare custom hooks. Each entry maps a hook point to a list of handle
 {
   "beforeToolCall": ["require-approval"],
   "afterToolCall": ["log"],
-  "onSessionEnd": ["log"]
+  "onSessionEnd": ["log"],
+  "onScheduleTrigger": ["log"]
 }
 ```
 
@@ -452,7 +464,9 @@ In the future, custom handlers can be JS files in `hooks/` that export an async 
 #### How hooks integrate with the ReAct loop
 
 ```
-user message arrives
+session created
+      │
+inbound message arrives
       │
   [beforeInbound hooks]
       │
@@ -475,33 +489,60 @@ user message arrives
 
 ---
 
-### 7. Heartbeat Engine
+### 7. Session Lifecycle Model
 
-The heartbeat makes the agent **proactive** — it wakes up on a timer and does useful background work without waiting for a user message.
+Every agent session uses the same two internal primitives:
 
-#### How it works
+- `openSession(spec)` — create or resume a session context
+- `postMessage(sessionId, message)` — append one inbound message to that session
 
+Interactive channels and scheduled jobs are both thin adapters over these same primitives.
+
+```typescript
+type SessionSpec = {
+  sessionId: string
+  source: {
+    kind: "cli" | "im" | "heartbeat" | "cron"
+    interactive: boolean
+    platform?: string
+    triggerId?: string
+  }
+  metadata?: Record<string, string | number | boolean>
+}
+
+type SessionMessage = {
+  messageId?: string
+  text: string
+  attachments?: { type: string; url?: string; data?: Buffer }[]
+}
+
+type OutboundEvent =
+  | { type: "text_delta"; sessionId: string; text: string }
+  | { type: "text_final"; sessionId: string; text: string }
+  | { type: "tool_start"; sessionId: string; tool: string }
+  | { type: "error"; sessionId: string; message: string }
 ```
-Timer fires (e.g., every 1 hour)
-      │
-  [onHeartbeat hooks]
-      │
-  Load memory/heartbeat.md
-      │
-  Run a mini ReAct session with prompt:
-  "You are running a scheduled heartbeat. Here is your checklist:
-   {heartbeat.md contents}. Check what needs doing and do it."
-      │
-  Agent executes tools as needed (check containers, update memory, etc.)
-      │
-  Log heartbeat run to episodic memory
-      │
-  Agent updates heartbeat.md with timestamps of last run
-```
+
+#### Design intent
+
+- The core runner only knows how to open a session and accept inbound messages; it does not know whether they came from a human, a bridge container, a timer, or a cron job
+- `source.kind` captures the behavior class the core cares about; `source.platform` keeps adapter-specific detail such as `telegram`, `discord`, or `feishu`
+- Interactive sources set `source.interactive = true` and typically subscribe to the SSE stream
+- Scheduled sources set `source.interactive = false`; they still produce the same internal events, but results are logged rather than streamed to a caller
+- The same hooks, memory injection, security policy, tool registry, and session logging apply regardless of trigger origin
+
+#### Scheduled triggers
+
+Heartbeat and cron jobs are just scheduled adapters over the same session lifecycle:
+
+- Heartbeat is a built-in scheduled source that opens a session, synthesizes a first message from `memory/heartbeat.md`, and posts it
+- Cron jobs are user-defined scheduled sources that open a session, synthesize their own first message, and post it
+- Both dispatch through the same runner used by CLI and IM sessions
+- Both are non-interactive by default and record outcomes to episodic memory
 
 #### `memory/heartbeat.md` — agent-maintained checklist
 
-The agent itself writes and maintains this file. It's a markdown checklist where each task has a cadence and a last-run timestamp. Example:
+The heartbeat trigger reads this file to decide what maintenance work to perform. Example:
 
 ```markdown
 # Heartbeat Checklist
@@ -519,7 +560,7 @@ The agent itself writes and maintains this file. It's a markdown checklist where
 - [ ] Review memory/notes/ for stale or contradictory facts
 ```
 
-#### Heartbeat config in `config.json`
+#### Scheduled config in `config.json`
 
 ```json
 "heartbeat": {
@@ -527,51 +568,58 @@ The agent itself writes and maintains this file. It's a markdown checklist where
   "interval_minutes": 60,
   "max_iterations": 10,
   "tools_allowed": ["read_file", "write_file", "container_status", "memory_note"]
+},
+"schedules": {
+  "jobs": []
 }
 ```
 
-- `interval_minutes`: how often the heartbeat fires
-- `max_iterations`: cap on ReAct loop turns per heartbeat run (keep it short)
-- `tools_allowed`: restrict which tools the heartbeat session can use (safety)
+- `heartbeat.interval_minutes`: how often the built-in heartbeat trigger fires
+- `heartbeat.max_iterations`: cap on the ReAct loop turns for heartbeat sessions
+- `heartbeat.tools_allowed`: restrict which tools heartbeat can use
+- `schedules.jobs`: optional user-defined cron-style jobs that open `source.kind = "cron"` sessions and post a synthesized first message
+- Effective autonomy for scheduled triggers comes from `security.json`, but is always capped at `supervised`
+- If a scheduled task needs a blocked or approval-gated tool, it logs and skips rather than waiting for interactive confirmation
 
-#### Key design decisions
-- Heartbeat runs in its own isolated mini-session (separate session ID, logged separately)
-- It uses the same pi-agent-core loop and tool system as normal sessions
-- If a heartbeat run is already in progress when the timer fires again, skip (no overlapping runs)
-- Heartbeat does not stream output to any user — results go only to episodic memory
+#### Session namespacing
+
+Session IDs are namespaced by source:
+
+| Source | Session ID format | Meaning |
+|--------|------------------|---------|
+| CLI | `cli:{YYYY-MM-DD}-{nanoid}` | Each CLI invocation |
+| IM bridge (Telegram example) | `telegram:{chat_id}` | Each IM conversation, namespaced by platform |
+| Heartbeat | `heartbeat:{ts}` | Each heartbeat run |
+| Cron job | `cron:{job-id}:{ts}` | Each configured scheduled job run |
+
+Sessions from different trigger sources share the same agent memory (`working.md`, `notes/`) but have separate conversation histories.
 
 ---
 
-### 8. Channel System
+### 8. External Trigger Adapters
 
-The agent exposes an HTTP API (Hono server) as its sole communication interface. There is no `ChannelManager` class and no channel code inside the agent process. External clients — a CLI program, a Telegram bridge container, or any other HTTP client — call this API to send messages and receive responses.
+The agent exposes an HTTP API (Hono server) as its sole external communication interface. There is no `ChannelManager` class and no platform-specific channel code inside the agent process. External clients — a CLI program, a Telegram bridge container, a future web UI, or an external scheduler — all adapt into the same session lifecycle.
 
 #### HTTP API Contract
 
 ```
-POST /agents/{id}/messages
-  Body: InboundMessage JSON
+POST /sessions
+  Body: SessionSpec JSON
   Returns: { sessionId }
 
-GET /agents/{id}/events?sessionId=xxx
+POST /sessions/{sessionId}/messages
+  Body: SessionMessage JSON
+  Returns: { sessionId, messageId? }
+
+GET /events?sessionId=xxx
   Returns: SSE stream of OutboundEvent
 ```
 
-```typescript
-// Inbound message posted by any client
-type InboundMessage = {
-  sessionId: string        // namespaced by client: "cli:2026-03-08-abc", "telegram:123456789"
-  text: string
-  attachments?: { type: string; url?: string; data?: Buffer }[]
-}
+These are agent-local routes. Each agent already runs on its own port, so the caller first discovers the target agent via workspace/runtime metadata (`runtime/api.port`, `runtime/api.token`) and then talks to that agent's local API directly; the URL does not repeat the agent id.
 
-// Events streamed back over SSE
-type OutboundEvent =
-  | { type: "text_delta";  sessionId: string; text: string }   // streaming chunk
-  | { type: "text_final";  sessionId: string; text: string }   // complete answer
-  | { type: "tool_start";  sessionId: string; tool: string }   // optional: "thinking..."
-  | { type: "error";       sessionId: string; message: string }
-```
+`POST /sessions` is metadata-only: it creates or resumes session state, but it does not carry user text and does not advance the agent loop on its own. The loop advances only when a `SessionMessage` is posted.
+
+The HTTP API is one adapter over the same core runner. In-process timers and internal schedulers can call `openSession()` and `postMessage()` directly without going through HTTP.
 
 #### Port — Dynamic Assignment
 
@@ -579,53 +627,58 @@ At startup the agent binds the HTTP server to port `0`, letting the OS assign a 
 
 This means multiple agents can run on the same host with zero port configuration — each agent discovers its own port via `runtime/api.port`.
 
+HTTP API port is runtime state only: it lives in `runtime/api.port`, not `config.json` and not `containers/registry.jsonl`. Service-container port bindings are recorded separately in `containers/registry.jsonl`.
+
 #### Auth — Runtime API Token
 
 At startup the agent generates a random token, writes it to `runtime/api.token`, and requires it on every HTTP request (`Authorization: Bearer <token>`). The `runtime/` directory is gitignored. Bridge containers receive the token via the `CLOUDMIND_API_KEY` environment variable.
 
 #### CLI Client
 
-`cloudmind chat --agent <id>` and `cloudmind run --agent <id> "task"` are thin external programs — not Channel classes. They:
+`cloudmind chat --agent <id>` and `cloudmind run --agent <id> "task"` are thin external programs. They:
 1. Read `runtime/api.port` and `runtime/api.token` from the agent workspace
-2. Generate a session ID: `cli:{YYYY-MM-DD}-{nanoid}`
-3. POST the message to `POST /agents/{id}/messages`
-4. Subscribe to `GET /agents/{id}/events?sessionId=xxx`
+2. Create a session via `POST /sessions` with `source.kind = "cli"` and a session ID like `cli:{YYYY-MM-DD}-{nanoid}`
+3. Subscribe to `GET /events?sessionId=xxx`
+4. Send the first or next user message via `POST /sessions/{sessionId}/messages`
 5. Stream `text_delta` events to stdout
 
 #### Telegram Bridge Container
 
 Telegram is handled by a service container the agent starts via `container_start`. The container is an independent program (any language) that:
 1. Long-polls the Telegram Bot API
-2. For each message: generates session ID `telegram:{chat_id}`, POSTs to the agent HTTP API
-3. Subscribes to the SSE stream and forwards the response back to Telegram via `sendMessage`
+2. Ensures a session exists for the conversation by creating or reusing session ID `telegram:{chat_id}` with `source.kind = "im"` and `source.platform = "telegram"`
+3. POSTs each inbound Telegram message to `POST /sessions/{sessionId}/messages`
+4. Subscribes to the SSE stream and forwards the response back to Telegram via `sendMessage`
 
 The bridge container is configured with these environment variables:
 - `TELEGRAM_BOT_TOKEN` — injected from `secrets.json`
 - `CLOUDMIND_API_URL=http://host.docker.internal:{port}` — port read from `runtime/api.port` at container launch time
 - `CLOUDMIND_API_KEY` — runtime token from `runtime/api.token`
-- `CLOUDMIND_AGENT_ID` — the agent's id
+- `CLOUDMIND_AGENT_ID` — optional metadata for bridge logs/metrics; not needed for routing
 
 `config.channels.telegram_bridge.allowed_chat_ids` — allowlist of Telegram chat IDs the bridge enforces; empty list rejects all.
 
-#### Session Namespacing
+#### Adding a New Trigger Adapter
 
-Session IDs are namespaced by the client before the POST, enforced at the HTTP API boundary:
-
-| Client | Session ID format | Meaning |
-|--------|------------------|---------|
-| CLI | `cli:{YYYY-MM-DD}-{nanoid}` | Each CLI invocation |
-| Telegram bridge | `telegram:{chat_id}` | Each Telegram chat or group |
-
-Sessions from different clients share the same agent memory (`working.md`, `notes/`) but have separate conversation histories.
-
-#### Adding a New Channel
-
-Write any HTTP client (a container image, a script, a mobile app) that:
+Write any client or scheduler that:
 1. Reads or receives the runtime API token
-2. POSTs `InboundMessage` JSON to the agent HTTP API
-3. Subscribes to the SSE stream and handles `OutboundEvent`s
+2. Creates or reuses a session with `SessionSpec`
+3. Posts one or more inbound messages with `SessionMessage`
+4. Subscribes to the SSE stream only if the source is interactive
 
-No agent code changes are needed.
+No agent loop changes are needed.
+
+#### Future: Optional Gateway / Control Plane
+
+Current CloudMind is intentionally agent-local: each agent exposes its own HTTP API and manages its own runtime. A future gateway may sit above those agent-local APIs without changing the per-agent contract.
+
+Possible gateway responsibilities:
+- Provision and manage many agents from one place
+- Proxy agent-local APIs behind multi-agent routes such as `/agents/{id}/sessions`, `/agents/{id}/sessions/{sessionId}/messages`, and `/agents/{id}/events`
+- Own channel and trigger orchestration centrally, so Telegram bridges, heartbeat schedules, cron jobs, and future adapters attach to the gateway instead of to each agent directly
+- Monitor agent process health, restart status, and reachability
+
+This is explicitly a future control-plane layer. It is not part of the v1 agent runtime contract described in this document.
 
 ---
 
@@ -681,23 +734,21 @@ The agent is designed to be minimally invasive to the host. Here is the complete
     "cpu_shares": 512,
     "network": "bridge"
   },
-  "port_registry": {
-    "used": [3000, 5432],
-    "funneled": [3000]
-  },
   "hooks": {
     "beforeToolCall": ["log"],
     "afterToolCall": ["log"],
     "onSessionStart": ["log"],
     "onSessionEnd": ["log"],
-    "onHeartbeat": ["log"]
+    "onScheduleTrigger": ["log"]
   },
   "heartbeat": {
     "enabled": true,
     "interval_minutes": 60,
     "max_iterations": 10,
-    "autonomy_level": "readonly",
     "tools_allowed": ["read_file", "write_file", "container_status", "memory_note", "memory_recall"]
+  },
+  "schedules": {
+    "jobs": []
   },
   "http_api": {
     "preferred_port": 3000
@@ -716,7 +767,7 @@ The agent is designed to be minimally invasive to the host. Here is the complete
 ```json
 {
   "autonomy_level": "supervised",
-  "require_approval_for": ["container_start"]
+  "require_approval_for": ["container_start", "delete_file"]
 }
 ```
 
