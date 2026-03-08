@@ -5,6 +5,7 @@
     { "path": "./packages/shared" },
     { "path": "./packages/sdk" },
     { "path": "./apps/agent" },
+    { "path": "./apps/cli" },
     { "path": "./apps/gateway" },
     { "path": "./apps/channels/telegram" }
   ]

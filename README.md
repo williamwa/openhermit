@@ -18,6 +18,7 @@ A host-based autonomous agent platform with persistent workspaces and memory, us
 cloudmind/
 ├── apps/
 │   ├── agent/                # Current focus: single-agent runtime (Hono + session API)
+│   ├── cli/                  # Local terminal client for the agent-local API
 │   ├── gateway/              # Future control plane for multi-agent management
 │   └── channels/
 │       └── telegram/         # Future IM bridge example
@@ -58,4 +59,4 @@ npm run chat:agent -- --workspace /absolute/path/to/workspace
 npm run chat:agent -- --session cli:resume-me
 ```
 
-If `tsx` is not suitable in your environment, you can build first and run the compiled entrypoints from `apps/agent/dist/`.
+If `tsx` is not suitable in your environment, you can build first and run the compiled entrypoints from `apps/agent/dist/` and `apps/cli/dist/`.

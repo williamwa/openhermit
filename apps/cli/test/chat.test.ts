@@ -8,7 +8,7 @@ import {
   parseSseFrames,
   resolveWorkspaceRoot,
   waitForAssistantTurn,
-} from '../src/chat.js';
+} from '../src/index.js';
 
 test('resolveWorkspaceRoot uses explicit workspace when provided', () => {
   assert.equal(

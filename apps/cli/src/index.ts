@@ -422,9 +422,7 @@ export const main = async (): Promise<void> => {
       stdout.write('agent> ');
       await client.postMessage(sessionId, { text: input });
       lastEventId = await waitForAssistantTurn(client, token, sessionId, lastEventId, {
-        onApprovalRequired: async (toolName, toolCallId, args) => {
-          // The approval prompt was already printed by waitForAssistantTurn.
-          // We just need to ask y/n here.
+        onApprovalRequired: async () => {
           const answer = await rl.question('Approve? [y/N]: ');
           const approved = answer.trim().toLowerCase() === 'y';
           stdout.write(approved ? '[approved]\n' : '[denied]\n');
