@@ -93,11 +93,21 @@ export const createTuiLayout = (): TuiLayout => {
     messages.addChild(md);
     tui.requestRender();
 
+    // Show a lightweight placeholder so it's clear the agent is working.
     let accumulated = '';
+    let hasRealContent = false;
+    md.setText('[thinking...]');
+    tui.requestRender();
 
     return {
       appendDelta(delta: string): void {
-        accumulated += delta;
+        if (!hasRealContent) {
+          // First real content replaces the thinking placeholder.
+          accumulated = delta;
+          hasRealContent = true;
+        } else {
+          accumulated += delta;
+        }
         md.setText(accumulated);
         tui.requestRender();
       },

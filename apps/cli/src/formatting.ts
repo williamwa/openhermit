@@ -12,6 +12,17 @@ const truncateSingleLine = (value: string, maxLength = 72): string => {
   return `${singleLine.slice(0, maxLength - 3)}...`;
 };
 
+/** Max length for tool result body in CLI so assistant reply stays visible. */
+export const TOOL_RESULT_DISPLAY_MAX = 1500;
+
+export const truncateToolResultForDisplay = (
+  body: string,
+  max = TOOL_RESULT_DISPLAY_MAX,
+): string => {
+  if (body.length <= max) return body;
+  return `${body.slice(0, max)}\n... (truncated, ${body.length - max} more characters)`;
+};
+
 export const formatDebugValue = (value: unknown): string => {
   if (value === undefined) {
     return '';
@@ -90,7 +101,8 @@ export const writeToolResult = (
   details: unknown,
 ): void => {
   const label = isError ? '[tool error]' : '[tool result]';
-  const body = details !== undefined ? formatDebugValue(details) : formatDebugValue(text);
+  const raw = details !== undefined ? formatDebugValue(details) : formatDebugValue(text);
+  const body = truncateToolResultForDisplay(raw);
 
   if (!body) {
     stdout.write(`${label} ${tool}\n`);

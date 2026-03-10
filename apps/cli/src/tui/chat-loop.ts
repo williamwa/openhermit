@@ -1,7 +1,11 @@
 import type { AgentLocalClient } from '@openhermit/sdk';
 
 import { HELP_TEXT } from '../constants.js';
-import { formatDebugValue, formatSessionList } from '../formatting.js';
+import {
+  formatDebugValue,
+  formatSessionList,
+  truncateToolResultForDisplay,
+} from '../formatting.js';
 import { parseSlashCommand } from '../commands.js';
 import {
   createCliSessionSpec,
@@ -52,7 +56,7 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
     addText(gray('[session] Resumed most recent CLI session'));
   }
   addText(gray('Workspace: ' + workspaceRoot));
-  addText(gray('Type /help for commands, Ctrl-C to exit.\n'));
+  addText(gray('Type /help for commands. /exit or Ctrl-C to exit.\n'));
 
   // ── open initial session ──────────────────────────────────────────────────
 
@@ -70,9 +74,9 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
     triggerExit = resolve;
   });
 
-  // Ctrl-C exits immediately
+  // Ctrl-C or Ctrl-D exits immediately
   tui.addInputListener((data) => {
-    if (data === '\x03') {
+    if (data === '\x03' || data === '\x04') {
       triggerExit();
       return { consume: true };
     }
@@ -200,8 +204,9 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
           },
           onToolResult: (tool, isError, text, details) => {
             const label = isError ? red('[tool error]') : gray('[tool result]');
-            const body =
+            const raw =
               details !== undefined ? formatDebugValue(details) : formatDebugValue(text);
+            const body = truncateToolResultForDisplay(raw);
             if (!body) {
               addText(`${label} ${tool}`);
             } else if (body.includes('\n')) {

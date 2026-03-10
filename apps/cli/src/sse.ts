@@ -82,6 +82,24 @@ export const waitForAssistantTurn = async (
   let buffer = '';
   let nextLastEventId = lastEventId;
   let sawDelta = false;
+  let sawAgentEnd = false;
+  let lastActivityTs = Date.now();
+  let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+
+  // In non-TUI mode, give a simple hint that the agent is still running,
+  // and periodically repeat it if there's a long pause between events.
+  if (!out) {
+    stdout.write('[thinking...]\n');
+    heartbeatTimer = setInterval(() => {
+      if (sawAgentEnd) return;
+      const now = Date.now();
+      // Only emit another heartbeat if we've been idle for a while.
+      if (now - lastActivityTs >= 10_000) {
+        stdout.write('[thinking...]\n');
+        lastActivityTs = now;
+      }
+    }, 2_000);
+  }
 
   try {
     while (true) {
@@ -103,6 +121,9 @@ export const waitForAssistantTurn = async (
         if (frame.id !== undefined) {
           nextLastEventId = frame.id;
         }
+
+        // Any new frame counts as "activity" from the agent.
+        lastActivityTs = Date.now();
 
         if (frame.event === 'ready' || frame.event === 'ping') {
           continue;
@@ -217,11 +238,24 @@ export const waitForAssistantTurn = async (
         }
 
         if (frame.event === 'agent_end') {
-          return nextLastEventId;
+          if (!out) {
+            stdout.write('[done]\n');
+          }
+          // Don't return immediately – process the rest of this batch first so that
+          // any trailing text_final events in the same chunk are still handled.
+          sawAgentEnd = true;
+          continue;
         }
+      }
+
+      if (sawAgentEnd) {
+        return nextLastEventId;
       }
     }
   } finally {
+    if (heartbeatTimer !== undefined) {
+      clearInterval(heartbeatTimer);
+    }
     await reader.cancel().catch(() => undefined);
   }
 
