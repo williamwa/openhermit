@@ -213,8 +213,6 @@ export const waitForAssistantTurn = async (
             writeToolResult(
               String(payload.tool ?? 'unknown'),
               Boolean(payload.isError),
-              payload.text,
-              payload.details,
             );
           }
           continue;

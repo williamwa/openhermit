@@ -12,17 +12,6 @@ const truncateSingleLine = (value: string, maxLength = 72): string => {
   return `${singleLine.slice(0, maxLength - 3)}...`;
 };
 
-/** Max length for tool result body in CLI so assistant reply stays visible. */
-export const TOOL_RESULT_DISPLAY_MAX = 1500;
-
-export const truncateToolResultForDisplay = (
-  body: string,
-  max = TOOL_RESULT_DISPLAY_MAX,
-): string => {
-  if (body.length <= max) return body;
-  return `${body.slice(0, max)}\n... (truncated, ${body.length - max} more characters)`;
-};
-
 export const formatDebugValue = (value: unknown): string => {
   if (value === undefined) {
     return '';
@@ -94,25 +83,7 @@ export const writeToolStarted = (tool: string, args: unknown): void => {
   stdout.write(`\n[tool] ${tool} ${formattedArgs}\n`);
 };
 
-export const writeToolResult = (
-  tool: string,
-  isError: boolean,
-  text: unknown,
-  details: unknown,
-): void => {
+export const writeToolResult = (tool: string, isError: boolean): void => {
   const label = isError ? '[tool error]' : '[tool result]';
-  const raw = details !== undefined ? formatDebugValue(details) : formatDebugValue(text);
-  const body = truncateToolResultForDisplay(raw);
-
-  if (!body) {
-    stdout.write(`${label} ${tool}\n`);
-    return;
-  }
-
-  if (body.includes('\n')) {
-    stdout.write(`${label} ${tool}\n${body}\n`);
-    return;
-  }
-
-  stdout.write(`${label} ${tool} ${body}\n`);
+  stdout.write(`\n${label} ${tool}\n`);
 };

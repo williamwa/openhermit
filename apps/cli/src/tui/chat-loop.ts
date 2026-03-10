@@ -6,7 +6,6 @@ import { HELP_TEXT } from '../constants.js';
 import {
   formatDebugValue,
   formatSessionList,
-  truncateToolResultForDisplay,
 } from '../formatting.js';
 import { parseSlashCommand } from '../commands.js';
 import {
@@ -213,7 +212,6 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
     // ── regular message ───────────────────────────────────────────────────
     addText(`${bold(cyan('you'))}> ${input}`);
 
-    const assistantHandle = beginAssistantMessage();
     const currentLastEventId = knownEventIds.get(currentSessionId) ?? 0;
 
     await client.postMessage(currentSessionId, { text: input });
@@ -221,6 +219,14 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
     // Create a fresh abort controller for this turn so we can cancel
     // waitForAssistantTurn when the user hits Ctrl-C.
     currentTurnAbort = new AbortController();
+    let assistantHandle: ReturnType<typeof beginAssistantMessage> | null = null;
+    const ensureAssistantHandle = () => {
+      if (!assistantHandle) {
+        assistantHandle = beginAssistantMessage();
+      }
+
+      return assistantHandle;
+    };
 
     let nextEventId: number | null = null;
 
@@ -239,10 +245,10 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
           },
           output: {
             onTextDelta: (delta) => {
-              assistantHandle.appendDelta(delta);
+              ensureAssistantHandle().appendDelta(delta);
             },
             onTextFinal: (fullText, sawDelta) => {
-              assistantHandle.finalise(fullText, sawDelta);
+              ensureAssistantHandle().finalise(fullText, sawDelta);
             },
             onToolRequested: (tool, args) => {
               const formatted = formatDebugValue(args);
@@ -262,18 +268,9 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
                 : '';
               addText(`${gray('[tool]')} ${yellow(tool)}${suffix}`);
             },
-            onToolResult: (tool, isError, text, details) => {
+            onToolResult: (tool, isError) => {
               const label = isError ? red('[tool error]') : gray('[tool result]');
-              const raw =
-                details !== undefined ? formatDebugValue(details) : formatDebugValue(text);
-              const body = truncateToolResultForDisplay(raw);
-              if (!body) {
-                addText(`${label} ${tool}`);
-              } else if (body.includes('\n')) {
-                addText(`${label} ${tool}\n${gray(body)}`);
-              } else {
-                addText(`${label} ${tool} ${gray(body)}`);
-              }
+              addText(`${label} ${yellow(tool)}`);
             },
             onApprovalPrompt: (toolName, args) => {
               // Layout will show overlay; we just show a label in the feed too
