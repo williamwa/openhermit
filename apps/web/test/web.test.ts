@@ -107,7 +107,7 @@ test('createWebServer tolerates SSE client disconnects without crashing', async 
 
     await new Promise<void>((resolve, reject) => {
       const req = http.get(
-        `http://127.0.0.1:${address.port}/api/events?sessionId=web%3Atest`,
+        `http://127.0.0.1:${address.port}/api/sessions/web%3Atest/events`,
         (res) => {
           res.once('data', () => {
             req.destroy();

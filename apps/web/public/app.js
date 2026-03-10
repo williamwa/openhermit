@@ -228,7 +228,7 @@ const connectToSessionStream = (sessionId) => {
   state.currentAssistantBody = null;
   state.currentTurnPending = false;
 
-  const source = new EventSource(`/api/events?sessionId=${encodeURIComponent(sessionId)}`);
+  const source = new EventSource(`/api/sessions/${encodeURIComponent(sessionId)}/events`);
   state.eventSource = source;
   state.source = source;
   setStatus('Streaming');

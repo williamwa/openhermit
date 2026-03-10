@@ -81,15 +81,17 @@ export interface ToolApprovalRequest {
 export const agentLocalRoutes = {
   health: '/health',
   sessions: '/sessions',
+  sessionEventsPattern: '/sessions/:sessionId/events',
+  sessionEvents: (sessionId: string): string =>
+    `/sessions/${encodeURIComponent(sessionId)}/events`,
   sessionMessagesPattern: '/sessions/:sessionId/messages',
   sessionMessages: (sessionId: string): string =>
     `/sessions/${encodeURIComponent(sessionId)}/messages`,
   sessionApprovePattern: '/sessions/:sessionId/approve',
   sessionApprove: (sessionId: string): string =>
     `/sessions/${encodeURIComponent(sessionId)}/approve`,
-  events: '/events',
   eventsUrl: (sessionId: string): string =>
-    `/events?sessionId=${encodeURIComponent(sessionId)}`,
+    `/sessions/${encodeURIComponent(sessionId)}/events`,
 } as const;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

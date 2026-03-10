@@ -209,13 +209,9 @@ export const createWebServer = (options: WebServerOptions): http.Server =>
         return;
       }
 
-      if (pathname === '/api/events' && req.method === 'GET') {
-        const sessionId = searchParams.get('sessionId');
-
-        if (!sessionId) {
-          sendJson(res, 400, jsonError('Missing sessionId query parameter.', 'validation_error'));
-          return;
-        }
+      const eventsMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/events$/);
+      if (eventsMatch && req.method === 'GET') {
+        const sessionId = decodeURIComponent(eventsMatch[1] ?? '');
 
         const runtime = await createAgentClient(options.workspaceRoot);
         const controller = new AbortController();

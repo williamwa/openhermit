@@ -180,7 +180,7 @@ The agent still exposes an HTTP API (Hono) as its sole **external** communicatio
 - `GET /sessions` — lists sessions known to the current agent; callers may filter by source metadata such as `kind`, `platform`, or `interactive`; default sort is `lastActivityAt desc`
 - `POST /sessions/{sessionId}/approve` — resolves one pending tool approval in supervised mode
 - `POST /sessions/{sessionId}/messages` — accepts `SessionMessage` JSON, appends one inbound message, returns `{ sessionId, messageId? }`
-- `GET /events?sessionId=xxx` — SSE stream of `OutboundEvent` (`text_delta | text_final | tool_requested | tool_started | tool_result | error`)
+- `GET /sessions/{sessionId}/events` — SSE stream of `OutboundEvent` (`text_delta | text_final | tool_requested | tool_started | tool_result | error`)
 - The HTTP API is agent-local, not a multi-agent gateway: each agent already has its own port, so the URL does not repeat `{agentId}`
 - `POST /sessions` is metadata-only: it establishes session state, but agent execution advances only when a `SessionMessage` is appended
 - `GET /sessions` is agent-local, not a global per-user inbox; session selection beyond a single agent happens in adapters or a future gateway

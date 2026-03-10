@@ -624,7 +624,7 @@ POST /sessions/{sessionId}/approve
   Body: { toolCallId, approved }
   Returns: { resolved }
 
-GET /events?sessionId=xxx
+GET /sessions/{sessionId}/events
   Returns: SSE stream of OutboundEvent
 ```
 
@@ -671,7 +671,7 @@ At startup the agent generates a random token, writes it to `runtime/api.token`,
 `openhermit chat --agent <id>` and `openhermit run --agent <id> "task"` are thin external programs. In the current repository layout this client lives in `apps/cli` and is typically run through `npm run chat:agent`. The CLI:
 1. Read `runtime/api.port` and `runtime/api.token` from the agent workspace
 2. Create a session via `POST /sessions` with `source.kind = "cli"` and a session ID like `cli:{YYYY-MM-DD}-{nanoid}`
-3. Subscribe to `GET /events?sessionId=xxx`
+3. Subscribe to `GET /sessions/{sessionId}/events`
 4. Send the first or next user message via `POST /sessions/{sessionId}/messages`
 5. Stream `text_delta` events to stdout
 
@@ -694,7 +694,7 @@ The first version should provide:
 2. a "new session" action that creates a fresh session and switches the browser binding
 3. a way to resume an existing session from the sidebar
 4. a chat composer that posts messages to `POST /sessions/{sessionId}/messages`
-5. streaming assistant output and tool activity from `GET /events?sessionId=...`
+5. streaming assistant output and tool activity from `GET /sessions/{sessionId}/events`
 
 Like the CLI, the web client owns only the adapter binding. The agent core still knows only explicit `sessionId` values.
 

@@ -151,21 +151,15 @@ test('createAgentApp opens a session, accepts a message, and streams the backlog
   assert.match(sseText, /event: ready/);
 });
 
-test('createAgentApp validates the events query string', async () => {
+test('createAgentApp requires a sessionId in the session events route', async () => {
   const app = createAgentApp(new InMemoryAgentRuntime(), { apiToken: bearer });
-  const response = await app.request(agentLocalRoutes.events, {
+  const response = await app.request('/sessions//events', {
     headers: {
       authorization: `Bearer ${bearer}`,
     },
   });
 
-  assert.equal(response.status, 400);
-  assert.deepEqual(await response.json(), {
-    error: {
-      code: 'validation_error',
-      message: 'Missing sessionId query parameter.',
-    },
-  });
+  assert.equal(response.status, 404);
 });
 
 test('createAgentApp lists sessions with filters and sorting', async () => {

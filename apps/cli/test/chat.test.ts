@@ -228,7 +228,7 @@ test('waitForAssistantTurn keeps streaming after error events until agent_end', 
   try {
     const nextEventId = await waitForAssistantTurn(
       {
-        buildEventsUrl: () => 'http://127.0.0.1:3001/events?sessionId=cli%3Atest',
+        buildEventsUrl: () => 'http://127.0.0.1:3001/sessions/cli%3Atest/events',
       } as unknown as AgentLocalClient,
       'token',
       'cli:test',
@@ -292,7 +292,7 @@ test('waitForAssistantTurn prints tool requests, starts, and result labels witho
   try {
     const nextEventId = await waitForAssistantTurn(
       {
-        buildEventsUrl: () => 'http://127.0.0.1:3001/events?sessionId=cli%3Atest',
+        buildEventsUrl: () => 'http://127.0.0.1:3001/sessions/cli%3Atest/events',
       } as unknown as AgentLocalClient,
       'token',
       'cli:test',
@@ -349,7 +349,7 @@ test('waitForAssistantTurn throws a cancellation error when aborted mid-turn', a
       () =>
         waitForAssistantTurn(
           {
-            buildEventsUrl: () => 'http://127.0.0.1:3001/events?sessionId=cli%3Atest',
+            buildEventsUrl: () => 'http://127.0.0.1:3001/sessions/cli%3Atest/events',
           } as unknown as AgentLocalClient,
           'token',
           'cli:test',

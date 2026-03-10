@@ -136,7 +136,7 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
   - `GET /sessions` — validates bearer token, lists sessions known to this agent; supports filters like `kind`, `platform`, `interactive`, `limit`; default sort is `lastActivityAt desc`
   - `POST /sessions/{sessionId}/messages` — validates bearer token, accepts `SessionMessage`, appends one inbound message, returns `{ sessionId, messageId? }`
   - `POST /sessions/{sessionId}/approve` — validates bearer token, resolves one pending tool approval, returns `{ resolved }`
-  - `GET /events?sessionId=xxx` — SSE stream, pushes `OutboundEvent`s as the agent processes the session
+  - `GET /sessions/{sessionId}/events` — SSE stream, pushes `OutboundEvent`s as the agent processes the session
 - [ ] Runtime API token: generate on startup, write to `runtime/api.token` (create `runtime/` dir, add to `.gitignore`)
 - [ ] Dynamic port binding: try `config.http_api.preferred_port` first; if taken, bind to port `0` (OS assigns free port); write actual port to `runtime/api.port` — guarantees zero conflicts when multiple agents run on the same host
 - [ ] Treat the HTTP API as agent-local: clients first choose the target agent by reading its workspace/runtime metadata, then talk to that agent's local port directly; route paths do not repeat `{agentId}`

@@ -201,12 +201,8 @@ export const createAgentApp = (
     return c.json({ resolved });
   });
 
-  app.get(agentLocalRoutes.events, async (c) => {
-    const sessionId = c.req.query('sessionId');
-
-    if (!sessionId) {
-      throw new ValidationError('Missing sessionId query parameter.');
-    }
+  app.get(agentLocalRoutes.sessionEventsPattern, async (c) => {
+    const sessionId = c.req.param('sessionId') ?? '';
 
     return streamSSE(c, async (stream) => {
       for (const envelope of runtime.events.getBacklog(sessionId)) {
