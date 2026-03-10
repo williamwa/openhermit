@@ -22,7 +22,7 @@ export interface TuiChatLoopOptions {
   agentId: string;
   workspaceRoot: string;
   startupSession: StartupSessionSelection;
-  resumeFlag?: boolean;
+  resumeFlag?: boolean | undefined;
 }
 
 // ─── Main loop ────────────────────────────────────────────────────────────────
@@ -53,6 +53,10 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
   }
   addText(gray('Workspace: ' + workspaceRoot));
   addText(gray('Type /help for commands, Ctrl-C to exit.\n'));
+
+  // ── open initial session ──────────────────────────────────────────────────
+
+  await client.openSession(createCliSessionSpec(currentSessionId));
 
   // ── start TUI ─────────────────────────────────────────────────────────────
 
