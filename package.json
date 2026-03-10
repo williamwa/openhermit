@@ -16,10 +16,11 @@
     "clean:build": "node scripts/clean-build.mjs",
     "build": "npm run clean:build && tsc -b",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run build && node --import tsx --test apps/agent/test/*.test.ts apps/cli/test/*.test.ts",
+    "test": "npm run build && node --import tsx --test apps/agent/test/*.test.ts apps/cli/test/*.test.ts apps/web/test/*.test.ts",
     "dev:agent": "tsx apps/agent/src/index.ts",
     "chat:agent": "tsx apps/cli/src/index.ts",
     "dev:cli": "tsx apps/cli/src/index.ts",
+    "dev:web": "tsx apps/web/src/index.ts",
     "dev:gateway": "tsx apps/gateway/src/index.ts",
     "dev:telegram": "tsx apps/channels/telegram/src/index.ts"
   },

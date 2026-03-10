@@ -19,7 +19,7 @@ openhermit/
 ├── apps/
 │   ├── agent/                # Current focus: single-agent runtime (Hono + session API)
 │   ├── cli/                  # Local terminal client for the agent-local API
-│   ├── web/                  # Planned browser chat client for the same agent-local API
+│   ├── web/                  # Local browser client and launcher for the agent-local API
 │   ├── gateway/              # Future control plane for multi-agent management
 │   └── channels/
 │       └── telegram/         # Future IM bridge example
@@ -61,4 +61,20 @@ npm run chat:agent -- --session cli:resume-me
 npm run chat:agent -- --resume
 ```
 
-If `tsx` is not suitable in your environment, you can build first and run the compiled entrypoints from `apps/agent/dist/` and `apps/cli/dist/`.
+4. Or start the local web client:
+
+```bash
+npm run dev:web
+```
+
+Then open [http://127.0.0.1:4310](http://127.0.0.1:4310).
+
+Web options:
+
+```bash
+npm run dev:web -- --agent-id agent-dev
+npm run dev:web -- --workspace /absolute/path/to/workspace
+npm run dev:web -- --port 4310
+```
+
+If `tsx` is not suitable in your environment, you can build first and run the compiled entrypoints from `apps/agent/dist/`, `apps/cli/dist/`, and `apps/web/dist/`.

@@ -6,6 +6,7 @@
     { "path": "./packages/sdk" },
     { "path": "./apps/agent" },
     { "path": "./apps/cli" },
+    { "path": "./apps/web" },
     { "path": "./apps/gateway" },
     { "path": "./apps/channels/telegram" }
   ]
