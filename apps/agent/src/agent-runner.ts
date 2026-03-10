@@ -1,6 +1,6 @@
 import { Agent, type AgentEvent, type AgentMessage } from '@mariozechner/pi-agent-core';
 import { complete } from '@mariozechner/pi-ai';
-import type { SessionListQuery, SessionMessage, SessionSpec, SessionSummary } from '@openhermit/protocol';
+import type { SessionHistoryMessage, SessionListQuery, SessionMessage, SessionSpec, SessionSummary } from '@openhermit/protocol';
 import { NotFoundError, ValidationError, getErrorMessage } from '@openhermit/shared';
 
 import {
@@ -30,6 +30,7 @@ import {
   SessionIndexStore,
   SessionLogWriter,
   createSessionLogPaths,
+  parseSessionHistoryMessages,
 } from './session-logs.js';
 import {
   createFallbackDescription,
@@ -214,6 +215,29 @@ export class AgentRunner implements SessionRuntime {
     );
 
     return limit !== undefined ? summaries.slice(0, limit) : summaries;
+  }
+
+  async listSessionMessages(sessionId: string): Promise<SessionHistoryMessage[]> {
+    const activeSession = this.sessions.get(sessionId);
+
+    if (activeSession) {
+      await activeSession.sideEffects;
+      const content = await this.options.workspace.readFile(
+        activeSession.sessionLogRelativePath,
+      );
+      return parseSessionHistoryMessages(content);
+    }
+
+    const persisted = await this.sessionIndex.get(sessionId);
+
+    if (!persisted) {
+      throw new NotFoundError(`Session not found: ${sessionId}`);
+    }
+
+    const content = await this.options.workspace.readFile(
+      persisted.sessionLogRelativePath,
+    );
+    return parseSessionHistoryMessages(content);
   }
 
   getSessionLogRelativePath(sessionId: string): string {

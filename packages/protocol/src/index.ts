@@ -29,6 +29,19 @@ export interface SessionMessage {
   attachments?: SessionAttachment[];
 }
 
+export type SessionHistoryRole = 'user' | 'assistant' | 'error';
+
+export interface SessionHistoryMessage {
+  ts: string;
+  role: SessionHistoryRole;
+  content: string;
+  messageId?: string;
+  attachments?: SessionAttachment[];
+  provider?: string;
+  model?: string;
+  stopReason?: string;
+}
+
 export type SessionStatus = 'idle' | 'running' | 'awaiting_approval';
 
 export interface SessionSummary {

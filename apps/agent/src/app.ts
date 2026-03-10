@@ -179,6 +179,12 @@ export const createAgentApp = (
     return c.json(result);
   });
 
+  app.get(agentLocalRoutes.sessionMessagesPattern, async (c) => {
+    const sessionId = c.req.param('sessionId') ?? '';
+    const messages = await runtime.listSessionMessages(sessionId);
+    return c.json(messages);
+  });
+
   app.post(agentLocalRoutes.sessionApprovePattern, async (c) => {
     const sessionId = c.req.param('sessionId') ?? '';
     const payload = await c.req.json().catch(() => null);

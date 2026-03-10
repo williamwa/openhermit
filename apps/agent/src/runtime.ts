@@ -2,6 +2,7 @@ import {
   createAgentEndEvent,
   createTextFinalEvent,
   type OutboundEvent,
+  type SessionHistoryMessage,
   type SessionListQuery,
   type SessionMessage,
   type SessionStatus,
@@ -19,6 +20,7 @@ import {
 export interface SessionRecord {
   spec: SessionSpec;
   messages: SessionMessage[];
+  history: SessionHistoryMessage[];
   createdAt: string;
   updatedAt: string;
   status: SessionStatus;
@@ -42,6 +44,7 @@ export interface SessionRuntime {
   readonly events: SessionEventBroker;
   openSession(spec: SessionSpec): Promise<SessionDescriptor>;
   listSessions(query?: SessionListQuery): Promise<SessionSummary[]>;
+  listSessionMessages(sessionId: string): Promise<SessionHistoryMessage[]>;
   postMessage(
     sessionId: string,
     message: SessionMessage,
@@ -143,6 +146,7 @@ export class InMemoryAgentRuntime implements SessionRuntime {
     const session: SessionRecord = {
       spec,
       messages: [],
+      history: [],
       createdAt: now,
       updatedAt: now,
       status: 'idle',
@@ -184,6 +188,16 @@ export class InMemoryAgentRuntime implements SessionRuntime {
     return limit !== undefined ? summaries.slice(0, limit) : summaries;
   }
 
+  async listSessionMessages(sessionId: string): Promise<SessionHistoryMessage[]> {
+    const session = this.sessions.get(sessionId);
+
+    if (!session) {
+      throw new NotFoundError(`Session not found: ${sessionId}`);
+    }
+
+    return [...session.history].reverse();
+  }
+
   async postMessage(
     sessionId: string,
     message: SessionMessage,
@@ -195,6 +209,13 @@ export class InMemoryAgentRuntime implements SessionRuntime {
     }
 
     session.messages.push(message);
+    session.history.push({
+      ts: session.updatedAt,
+      role: 'user',
+      content: message.text,
+      ...(message.messageId ? { messageId: message.messageId } : {}),
+      ...(message.attachments ? { attachments: message.attachments } : {}),
+    });
     session.updatedAt = new Date().toISOString();
     session.status = 'running';
     session.messageCount += 1;
@@ -218,7 +239,13 @@ export class InMemoryAgentRuntime implements SessionRuntime {
     session.updatedAt = new Date().toISOString();
     session.status = 'idle';
     session.messageCount += 1;
-    session.lastMessagePreview = `OpenHermit agent scaffold received a ${session.spec.source.kind} message: ${message.text}`;
+    const assistantText = `OpenHermit agent scaffold received a ${session.spec.source.kind} message: ${message.text}`;
+    session.lastMessagePreview = assistantText;
+    session.history.push({
+      ts: session.updatedAt,
+      role: 'assistant',
+      content: assistantText,
+    });
 
     if (message.messageId) {
       return {

@@ -1,5 +1,6 @@
 import {
   agentLocalRoutes,
+  type SessionHistoryMessage,
   type SessionListQuery,
   type SessionMessage,
   type SessionSummary,
@@ -55,6 +56,10 @@ export class AgentLocalClient {
       : agentLocalRoutes.sessions;
 
     return this.getJson(path);
+  }
+
+  async listSessionMessages(sessionId: string): Promise<SessionHistoryMessage[]> {
+    return this.getJson(agentLocalRoutes.sessionMessages(sessionId));
   }
 
   async postMessage(

@@ -129,3 +129,35 @@ test('InMemoryAgentRuntime lists sessions by last activity and applies filters',
   assert.equal(limitedSessions.length, 1);
   assert.equal(limitedSessions[0]?.sessionId, 'cli:test-session');
 });
+
+test('InMemoryAgentRuntime lists session messages in reverse chronological order', async () => {
+  const runtime = new InMemoryAgentRuntime();
+
+  await runtime.openSession({
+    sessionId: 'cli:test-session',
+    source: {
+      kind: 'cli',
+      interactive: true,
+    },
+  });
+
+  await runtime.postMessage('cli:test-session', {
+    messageId: 'msg-1',
+    text: 'hello history',
+  });
+
+  const messages = await runtime.listSessionMessages('cli:test-session');
+
+  assert.equal(messages.length, 2);
+  assert.deepEqual(messages[0], {
+    ts: messages[0]?.ts,
+    role: 'assistant',
+    content: 'OpenHermit agent scaffold received a cli message: hello history',
+  });
+  assert.deepEqual(messages[1], {
+    ts: messages[1]?.ts,
+    role: 'user',
+    content: 'hello history',
+    messageId: 'msg-1',
+  });
+});

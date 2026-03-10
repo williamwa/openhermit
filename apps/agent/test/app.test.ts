@@ -151,6 +151,48 @@ test('createAgentApp opens a session, accepts a message, and streams the backlog
   assert.match(sseText, /event: ready/);
 });
 
+test('createAgentApp returns session messages in reverse chronological order', async () => {
+  const runtime = new InMemoryAgentRuntime();
+  const app = createAgentApp(runtime, { apiToken: bearer });
+
+  await runtime.openSession({
+    sessionId: 'cli:test-session',
+    source: {
+      kind: 'cli',
+      interactive: true,
+    },
+  });
+  await runtime.postMessage('cli:test-session', {
+    messageId: 'msg-1',
+    text: 'hello history',
+  });
+
+  const response = await app.request(
+    agentLocalRoutes.sessionMessages('cli:test-session'),
+    {
+      method: 'GET',
+      headers: {
+        authorization: `Bearer ${bearer}`,
+      },
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), [
+    {
+      ts: runtime.getSession('cli:test-session')?.history[1]?.ts,
+      role: 'assistant',
+      content: 'OpenHermit agent scaffold received a cli message: hello history',
+    },
+    {
+      ts: runtime.getSession('cli:test-session')?.history[0]?.ts,
+      role: 'user',
+      content: 'hello history',
+      messageId: 'msg-1',
+    },
+  ]);
+});
+
 test('createAgentApp requires a sessionId in the session events route', async () => {
   const app = createAgentApp(new InMemoryAgentRuntime(), { apiToken: bearer });
   const response = await app.request('/sessions//events', {
