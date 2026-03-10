@@ -670,6 +670,54 @@ test('web_fetch returns non-200 status without throwing', async (t) => {
   });
 });
 
+test('web_fetch backend defuddle extracts main content as Markdown', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+  });
+  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tool = findTool(tools, 'web_fetch');
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head><title>Test Article</title><meta name="author" content="Jane Doe"></head>
+<body>
+  <nav>Skip</nav>
+  <main><article>
+    <h1>Test Article</h1>
+    <p>Main paragraph content here.</p>
+  </article></main>
+  <footer>Footer</footer>
+</body>
+</html>`;
+
+  await withMockFetch(
+    makeFetchMock(200, html, { 'content-type': 'text/html; charset=utf-8' }),
+    async () => {
+      const result = await tool.execute('call-web-defuddle', {
+        url: 'https://example.com/article',
+        backend: 'defuddle',
+      });
+
+      const details = result.details as Record<string, unknown>;
+      assert.equal(details.backend, 'defuddle');
+      assert.equal(details.status, 200);
+      assert.ok(
+        typeof details.title === 'string' || typeof details.contentBytes === 'number',
+        'defuddle returns title or contentBytes',
+      );
+
+      const text = getFirstText(result);
+      assert.match(text, /Main paragraph content here\./);
+    },
+  );
+});
+
 test('container_start launches a service container and returns entry details', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: { ANTHROPIC_API_KEY: 'key' },
