@@ -12,6 +12,7 @@
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
+    "@mariozechner/pi-tui": "^0.57.1",
     "@openhermit/sdk": "0.1.0",
     "@openhermit/shared": "0.1.0"
   }
