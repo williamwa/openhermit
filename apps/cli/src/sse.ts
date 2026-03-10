@@ -77,14 +77,27 @@ export const waitForAssistantTurn = async (
   }
 
   const out = options?.output;
+  const abortSignal = options?.signal;
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
   let nextLastEventId = lastEventId;
   let sawDelta = false;
   let sawAgentEnd = false;
+  let wasCancelled = false;
   let lastActivityTs = Date.now();
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  const onAbort =
+    abortSignal &&
+    (() => {
+      wasCancelled = true;
+      reader.cancel().catch(() => undefined);
+    });
+
+  if (abortSignal?.aborted) {
+    await reader.cancel().catch(() => undefined);
+    throw new Error('Assistant turn cancelled.');
+  }
 
   // In non-TUI mode, give a simple hint that the agent is still running,
   // and periodically repeat it if there's a long pause between events.
@@ -102,6 +115,10 @@ export const waitForAssistantTurn = async (
   }
 
   try {
+    if (onAbort) {
+      abortSignal!.addEventListener('abort', onAbort);
+    }
+
     while (true) {
       const { done, value } = await reader.read();
 
@@ -256,7 +273,14 @@ export const waitForAssistantTurn = async (
     if (heartbeatTimer !== undefined) {
       clearInterval(heartbeatTimer);
     }
+    if (onAbort && abortSignal) {
+      abortSignal.removeEventListener('abort', onAbort);
+    }
     await reader.cancel().catch(() => undefined);
+  }
+
+  if (wasCancelled || abortSignal?.aborted) {
+    throw new Error('Assistant turn cancelled.');
   }
 
   throw new Error('SSE stream ended before the assistant produced a final event.');

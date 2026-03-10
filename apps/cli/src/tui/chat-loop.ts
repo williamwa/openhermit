@@ -1,4 +1,6 @@
 import type { AgentLocalClient } from '@openhermit/sdk';
+import process from 'node:process';
+import { Key, matchesKey } from '@mariozechner/pi-tui';
 
 import { HELP_TEXT } from '../constants.js';
 import {
@@ -56,7 +58,7 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
     addText(gray('[session] Resumed most recent CLI session'));
   }
   addText(gray('Workspace: ' + workspaceRoot));
-  addText(gray('Type /help for commands. /exit or Ctrl-C to exit.\n'));
+  addText(gray('Type /help for commands. /exit or double Ctrl-C to exit.\n'));
 
   // ── open initial session ──────────────────────────────────────────────────
 
@@ -74,14 +76,57 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
     triggerExit = resolve;
   });
 
-  // Ctrl-C or Ctrl-D exits immediately
-  tui.addInputListener((data) => {
-    if (data === '\x03' || data === '\x04') {
+  // Abort controller for the in-flight assistant turn (if any),
+  // so Ctrl-C can cancel long-running waits.
+  let currentTurnAbort: AbortController | null = null;
+  let sigintHandler: ((signal: NodeJS.Signals) => void) | null = null;
+
+  const handleInterrupt = (): void => {
+    if (currentTurnAbort) {
+      if (!currentTurnAbort.signal.aborted) {
+        currentTurnAbort.abort();
+        addText(gray('[cancelled current turn]'));
+        tui.requestRender();
+        return;
+      }
+
+      triggerExit();
+      return;
+    }
+
+    triggerExit();
+  };
+
+  const removeInputListener = tui.addInputListener((data) => {
+    if (matchesKey(data, Key.ctrl('c'))) {
+      handleInterrupt();
+      return { consume: true };
+    }
+
+    if (matchesKey(data, Key.ctrl('d'))) {
       triggerExit();
       return { consume: true };
     }
+
     return undefined;
   });
+
+  const handleSigint = (): void => {
+    if (currentTurnAbort && !currentTurnAbort.signal.aborted) {
+      currentTurnAbort.abort();
+      addText(gray('[cancelled current turn]'));
+      tui.requestRender();
+      return;
+    }
+    triggerExit();
+  };
+
+  // Use process-level SIGINT so Ctrl-C always works, regardless of how
+  // the terminal library encodes it.
+  sigintHandler = () => {
+    handleSigint();
+  };
+  process.on('SIGINT', sigintHandler);
 
   // ── input handling ────────────────────────────────────────────────────────
 
@@ -95,6 +140,10 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
 
     handleInput(input)
       .catch((err: unknown) => {
+        if (err instanceof Error && err.message === 'Assistant turn cancelled.') {
+          // Silent cancel on Ctrl-C/Ctrl-D; don't show as an error.
+          return;
+        }
         const message = err instanceof Error ? err.message : String(err);
         addText(`${red('[error]')} ${message}`);
       })
@@ -116,6 +165,9 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
 
     if (command) {
       if (command.type === 'exit') {
+        if (currentTurnAbort && !currentTurnAbort.signal.aborted) {
+          currentTurnAbort.abort();
+        }
         triggerExit();
         return;
       }
@@ -166,73 +218,91 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
 
     await client.postMessage(currentSessionId, { text: input });
 
-    const nextEventId = await waitForAssistantTurn(
-      client,
-      token,
-      currentSessionId,
-      currentLastEventId,
-      {
-        onApprovalRequired: async (toolName, toolCallId, args) => {
-          const approved = await requestApproval(toolName, args);
-          addText(approved ? green('[approved]') : red('[denied]'));
-          return approved;
-        },
-        output: {
-          onTextDelta: (delta) => {
-            assistantHandle.appendDelta(delta);
-          },
-          onTextFinal: (fullText, sawDelta) => {
-            assistantHandle.finalise(fullText, sawDelta);
-          },
-          onToolRequested: (tool, args) => {
-            const formatted = formatDebugValue(args);
-            const suffix = formatted
-              ? formatted.includes('\n')
-                ? `\n${gray(formatted)}`
-                : ` ${gray(formatted)}`
-              : '';
-            addText(`${gray('[tool requested]')} ${yellow(tool)}${suffix}`);
-          },
-          onToolStarted: (tool, args) => {
-            const formatted = formatDebugValue(args);
-            const suffix = formatted
-              ? formatted.includes('\n')
-                ? `\n${gray(formatted)}`
-                : ` ${gray(formatted)}`
-              : '';
-            addText(`${gray('[tool]')} ${yellow(tool)}${suffix}`);
-          },
-          onToolResult: (tool, isError, text, details) => {
-            const label = isError ? red('[tool error]') : gray('[tool result]');
-            const raw =
-              details !== undefined ? formatDebugValue(details) : formatDebugValue(text);
-            const body = truncateToolResultForDisplay(raw);
-            if (!body) {
-              addText(`${label} ${tool}`);
-            } else if (body.includes('\n')) {
-              addText(`${label} ${tool}\n${gray(body)}`);
-            } else {
-              addText(`${label} ${tool} ${gray(body)}`);
-            }
-          },
-          onApprovalPrompt: (toolName, args) => {
-            // Layout will show overlay; we just show a label in the feed too
-            const formatted = formatDebugValue(args);
-            const suffix = formatted ? ` ${gray(formatted)}` : '';
-            addText(`${yellow('[approval required]')} ${bold(toolName)}${suffix}`);
-          },
-          onError: (message) => {
-            addText(`${red('[error]')} ${message}`);
-          },
-        },
-      },
-    );
+    // Create a fresh abort controller for this turn so we can cancel
+    // waitForAssistantTurn when the user hits Ctrl-C.
+    currentTurnAbort = new AbortController();
 
-    knownEventIds.set(currentSessionId, nextEventId);
+    let nextEventId: number | null = null;
+
+    try {
+      nextEventId = await waitForAssistantTurn(
+        client,
+        token,
+        currentSessionId,
+        currentLastEventId,
+        {
+          signal: currentTurnAbort.signal,
+          onApprovalRequired: async (toolName, toolCallId, args) => {
+            const approved = await requestApproval(toolName, args);
+            addText(approved ? green('[approved]') : red('[denied]'));
+            return approved;
+          },
+          output: {
+            onTextDelta: (delta) => {
+              assistantHandle.appendDelta(delta);
+            },
+            onTextFinal: (fullText, sawDelta) => {
+              assistantHandle.finalise(fullText, sawDelta);
+            },
+            onToolRequested: (tool, args) => {
+              const formatted = formatDebugValue(args);
+              const suffix = formatted
+                ? formatted.includes('\n')
+                  ? `\n${gray(formatted)}`
+                  : ` ${gray(formatted)}`
+                : '';
+              addText(`${gray('[tool requested]')} ${yellow(tool)}${suffix}`);
+            },
+            onToolStarted: (tool, args) => {
+              const formatted = formatDebugValue(args);
+              const suffix = formatted
+                ? formatted.includes('\n')
+                  ? `\n${gray(formatted)}`
+                  : ` ${gray(formatted)}`
+                : '';
+              addText(`${gray('[tool]')} ${yellow(tool)}${suffix}`);
+            },
+            onToolResult: (tool, isError, text, details) => {
+              const label = isError ? red('[tool error]') : gray('[tool result]');
+              const raw =
+                details !== undefined ? formatDebugValue(details) : formatDebugValue(text);
+              const body = truncateToolResultForDisplay(raw);
+              if (!body) {
+                addText(`${label} ${tool}`);
+              } else if (body.includes('\n')) {
+                addText(`${label} ${tool}\n${gray(body)}`);
+              } else {
+                addText(`${label} ${tool} ${gray(body)}`);
+              }
+            },
+            onApprovalPrompt: (toolName, args) => {
+              // Layout will show overlay; we just show a label in the feed too
+              const formatted = formatDebugValue(args);
+              const suffix = formatted ? ` ${gray(formatted)}` : '';
+              addText(`${yellow('[approval required]')} ${bold(toolName)}${suffix}`);
+            },
+            onError: (message) => {
+              addText(`${red('[error]')} ${message}`);
+            },
+          },
+        },
+      );
+    } finally {
+      currentTurnAbort = null;
+    }
+
+    if (nextEventId !== null) {
+      knownEventIds.set(currentSessionId, nextEventId);
+    }
   };
 
   // ── wait for exit ─────────────────────────────────────────────────────────
   await exitPromise;
+
+  if (sigintHandler) {
+    process.off('SIGINT', sigintHandler);
+  }
+  removeInputListener();
 
   await layout.terminal.drainInput().catch(() => undefined);
   tui.stop();

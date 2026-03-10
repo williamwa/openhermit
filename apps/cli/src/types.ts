@@ -38,6 +38,8 @@ export interface AssistantTurnOptions {
     toolCallId: string,
     args: unknown,
   ) => Promise<boolean>;
+  /** Optional signal to cancel the current assistant turn (e.g. on Ctrl-C). */
+  signal?: AbortSignal;
   /** If provided, event output goes through these callbacks instead of stdout/stderr. */
   output?: AssistantOutput;
 }

@@ -312,3 +312,55 @@ test('waitForAssistantTurn prints tool calls and tool results for debugging', as
     process.stderr.write = originalStderrWrite;
   }
 });
+
+test('waitForAssistantTurn throws a cancellation error when aborted mid-turn', async () => {
+  const encoder = new TextEncoder();
+  const originalFetch = globalThis.fetch;
+  const abortController = new AbortController();
+
+  globalThis.fetch = async () =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              [
+                'event: ready\ndata: {"sessionId":"cli:test"}\n\n',
+                'id: 1\nevent: text_delta\ndata: {"text":"still working"}\n\n',
+              ].join(''),
+            ),
+          );
+
+          setTimeout(() => {
+            abortController.abort();
+          }, 0);
+        },
+      }),
+      {
+        status: 200,
+        headers: {
+          'content-type': 'text/event-stream',
+        },
+      },
+    );
+
+  try {
+    await assert.rejects(
+      () =>
+        waitForAssistantTurn(
+          {
+            buildEventsUrl: () => 'http://127.0.0.1:3001/events?sessionId=cli%3Atest',
+          } as unknown as AgentLocalClient,
+          'token',
+          'cli:test',
+          0,
+          {
+            signal: abortController.signal,
+          },
+        ),
+      /Assistant turn cancelled/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
