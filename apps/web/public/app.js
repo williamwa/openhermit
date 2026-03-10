@@ -2,6 +2,7 @@ const state = {
   agentMeta: null,
   sessions: [],
   currentSessionId: null,
+  currentEventId: 0,
   source: null,
   eventSource: null,
   currentAssistantBody: null,
@@ -84,7 +85,12 @@ const appendMessage = (role, text) => {
 
   const title = document.createElement('div');
   title.className = 'message__title';
-  title.textContent = role === 'user' ? 'You' : 'OpenHermit';
+  title.textContent =
+    role === 'user'
+      ? 'You'
+      : role === 'assistant'
+        ? 'OpenHermit'
+        : 'Error';
 
   const body = document.createElement('div');
   body.className = 'message__body';
@@ -95,6 +101,24 @@ const appendMessage = (role, text) => {
   messages.scrollTop = messages.scrollHeight;
 
   return body;
+};
+
+const renderHistory = (history) => {
+  clearMessages();
+
+  if (history.length === 0) {
+    ensureEmptyState();
+    return;
+  }
+
+  for (const entry of [...history].reverse()) {
+    if (entry.role === 'error') {
+      appendEvent(`[error] ${entry.content}`, 'error');
+      continue;
+    }
+
+    appendMessage(entry.role, entry.content);
+  }
 };
 
 const appendEvent = (text, type = '') => {
@@ -223,8 +247,6 @@ const connectToSessionStream = (sessionId) => {
     state.eventSource.close();
   }
 
-  clearMessages();
-  ensureEmptyState();
   state.currentAssistantBody = null;
   state.currentTurnPending = false;
 
@@ -234,6 +256,11 @@ const connectToSessionStream = (sessionId) => {
   setStatus('Streaming');
 
   source.addEventListener('tool_requested', (event) => {
+    const eventId = Number.parseInt(event.lastEventId || '0', 10);
+    if (eventId !== 0 && eventId <= state.currentEventId) {
+      return;
+    }
+    state.currentEventId = Math.max(state.currentEventId, eventId || 0);
     const payload = JSON.parse(event.data);
     const formatted = formatArgs(payload.args);
     appendEvent(
@@ -244,6 +271,11 @@ const connectToSessionStream = (sessionId) => {
   });
 
   source.addEventListener('tool_started', (event) => {
+    const eventId = Number.parseInt(event.lastEventId || '0', 10);
+    if (eventId !== 0 && eventId <= state.currentEventId) {
+      return;
+    }
+    state.currentEventId = Math.max(state.currentEventId, eventId || 0);
     const payload = JSON.parse(event.data);
     const formatted = formatArgs(payload.args);
     appendEvent(
@@ -252,16 +284,31 @@ const connectToSessionStream = (sessionId) => {
   });
 
   source.addEventListener('tool_result', (event) => {
+    const eventId = Number.parseInt(event.lastEventId || '0', 10);
+    if (eventId !== 0 && eventId <= state.currentEventId) {
+      return;
+    }
+    state.currentEventId = Math.max(state.currentEventId, eventId || 0);
     const payload = JSON.parse(event.data);
     appendEvent(payload.isError ? `[tool error] ${payload.tool}` : `[tool result] ${payload.tool}`);
   });
 
   source.addEventListener('tool_approval_required', (event) => {
+    const eventId = Number.parseInt(event.lastEventId || '0', 10);
+    if (eventId !== 0 && eventId <= state.currentEventId) {
+      return;
+    }
+    state.currentEventId = Math.max(state.currentEventId, eventId || 0);
     const payload = JSON.parse(event.data);
     appendApprovalCard(payload.toolName, payload.toolCallId, payload.args);
   });
 
   source.addEventListener('text_delta', (event) => {
+    const eventId = Number.parseInt(event.lastEventId || '0', 10);
+    if (eventId !== 0 && eventId <= state.currentEventId) {
+      return;
+    }
+    state.currentEventId = Math.max(state.currentEventId, eventId || 0);
     const payload = JSON.parse(event.data);
     if (!state.currentAssistantBody) {
       state.currentAssistantBody = appendMessage('assistant', '');
@@ -271,6 +318,11 @@ const connectToSessionStream = (sessionId) => {
   });
 
   source.addEventListener('text_final', (event) => {
+    const eventId = Number.parseInt(event.lastEventId || '0', 10);
+    if (eventId !== 0 && eventId <= state.currentEventId) {
+      return;
+    }
+    state.currentEventId = Math.max(state.currentEventId, eventId || 0);
     const payload = JSON.parse(event.data);
     if (!state.currentAssistantBody) {
       state.currentAssistantBody = appendMessage('assistant', payload.text);
@@ -281,13 +333,23 @@ const connectToSessionStream = (sessionId) => {
   });
 
   source.addEventListener('error', (event) => {
+    const eventId = Number.parseInt(event.lastEventId || '0', 10);
+    if (eventId !== 0 && eventId <= state.currentEventId) {
+      return;
+    }
+    state.currentEventId = Math.max(state.currentEventId, eventId || 0);
     if (event?.data) {
       const payload = JSON.parse(event.data);
       appendEvent(`[error] ${payload.message}`, 'error');
     }
   });
 
-  source.addEventListener('agent_end', async () => {
+  source.addEventListener('agent_end', async (event) => {
+    const eventId = Number.parseInt(event.lastEventId || '0', 10);
+    if (eventId !== 0 && eventId <= state.currentEventId) {
+      return;
+    }
+    state.currentEventId = Math.max(state.currentEventId, eventId || 0);
     state.currentAssistantBody = null;
     state.currentTurnPending = false;
     sendButton.disabled = false;
@@ -310,6 +372,7 @@ const selectSession = async (sessionId) => {
   }
 
   state.currentSessionId = sessionId;
+  state.currentEventId = 0;
   sessionTitle.textContent = sessionId;
   renderSessions();
 
@@ -328,7 +391,18 @@ const selectSession = async (sessionId) => {
   });
 
   const summary = state.sessions.find((session) => session.sessionId === sessionId);
+  state.currentEventId = summary?.lastEventId ?? 0;
   sessionTitle.textContent = summary?.description || summary?.lastMessagePreview || sessionId;
+  const historyResponse = await fetch(
+    `/api/sessions/${encodeURIComponent(sessionId)}/messages`,
+  );
+
+  if (!historyResponse.ok) {
+    throw new Error(`Failed to load session history (${historyResponse.status})`);
+  }
+
+  const history = await historyResponse.json();
+  renderHistory(history);
   connectToSessionStream(sessionId);
 };
 

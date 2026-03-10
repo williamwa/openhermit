@@ -190,6 +190,14 @@ export const createWebServer = (options: WebServerOptions): http.Server =>
       }
 
       const messageMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/messages$/);
+      if (messageMatch && req.method === 'GET') {
+        const { client } = await createAgentClient(options.workspaceRoot);
+        const sessionId = decodeURIComponent(messageMatch[1] ?? '');
+        const response = await client.listSessionMessages(sessionId);
+        sendJson(res, 200, response);
+        return;
+      }
+
       if (messageMatch && req.method === 'POST') {
         const { client } = await createAgentClient(options.workspaceRoot);
         const payload = await readJsonBody(req);
