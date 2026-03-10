@@ -452,6 +452,7 @@ test('web_fetch returns status headers and body for a successful GET', async (t)
     async () => {
       const result = await tool.execute('call-web-1', {
         url: 'https://example.com/',
+        output: 'raw',
       });
 
       const text = getFirstText(result);
@@ -506,6 +507,7 @@ test('web_fetch is still wrapped by approval callbacks in createBuiltInTools', a
   await withMockFetch(makeFetchMock(200, 'ok'), async () => {
     const result = await tool.execute('call-web-2', {
       url: 'https://example.com/approved',
+      output: 'raw',
     });
     assert.match(getFirstText(result), /HTTP 200/);
   });
@@ -513,7 +515,7 @@ test('web_fetch is still wrapped by approval callbacks in createBuiltInTools', a
   const expectedCall = {
     toolName: 'web_fetch',
     toolCallId: 'call-web-2',
-    args: { url: 'https://example.com/approved' },
+    args: { url: 'https://example.com/approved', output: 'raw' },
   };
   assert.deepEqual(approvalCalls, [expectedCall]);
   assert.deepEqual(requestedCalls, [expectedCall]);
@@ -537,6 +539,7 @@ test('web_fetch truncates large responses at max_bytes', async (t) => {
     const result = await tool.execute('call-web-3', {
       url: 'https://example.com/big',
       max_bytes: 100,
+      output: 'raw',
     });
 
     const details = result.details as Record<string, unknown>;
@@ -564,6 +567,7 @@ test('web_fetch caps max_bytes at the hard 200 KB limit', async (t) => {
     const result = await tool.execute('call-web-4', {
       url: 'https://example.com/',
       max_bytes: 999_999_999,
+      output: 'raw',
     });
 
     const details = result.details as Record<string, unknown>;
@@ -585,7 +589,11 @@ test('web_fetch rejects non-http/https URLs', async (t) => {
   const tool = findTool(tools, 'web_fetch');
 
   await assert.rejects(
-    () => tool.execute('call-web-5', { url: 'ftp://example.com/file' }),
+    () =>
+      tool.execute('call-web-5', {
+        url: 'ftp://example.com/file',
+        output: 'raw',
+      }),
     ValidationError,
   );
 });
@@ -602,7 +610,9 @@ test('web_fetch rejects malformed URLs', async (t) => {
   const tools = createBuiltInTools({ workspace, security, containerManager });
   const tool = findTool(tools, 'web_fetch');
 
-  await assert.rejects(() => tool.execute('call-web-6', { url: 'not a url at all' }));
+  await assert.rejects(() =>
+    tool.execute('call-web-6', { url: 'not a url at all', output: 'raw' }),
+  );
 });
 
 test('web_fetch rejects non-positive max_bytes', async (t) => {
@@ -618,7 +628,12 @@ test('web_fetch rejects non-positive max_bytes', async (t) => {
   const tool = findTool(tools, 'web_fetch');
 
   await assert.rejects(
-    () => tool.execute('call-web-7', { url: 'https://example.com/', max_bytes: 0 }),
+    () =>
+      tool.execute('call-web-7', {
+        url: 'https://example.com/',
+        max_bytes: 0,
+        output: 'raw',
+      }),
     ValidationError,
   );
 });
@@ -637,7 +652,11 @@ test('web_fetch surfaces network errors as thrown exceptions', async (t) => {
 
   await withMockFetch(makeFetchError('ECONNREFUSED'), async () => {
     await assert.rejects(
-      () => tool.execute('call-web-8', { url: 'https://localhost:9/' }),
+      () =>
+        tool.execute('call-web-8', {
+          url: 'https://localhost:9/',
+          output: 'raw',
+        }),
       (error: unknown) => {
         assert.ok(error instanceof Error);
         assert.match(error.message, /ECONNREFUSED/);
@@ -662,6 +681,7 @@ test('web_fetch returns non-200 status without throwing', async (t) => {
   await withMockFetch(makeFetchMock(404, 'Not Found'), async () => {
     const result = await tool.execute('call-web-9', {
       url: 'https://example.com/missing',
+      output: 'raw',
     });
 
     const details = result.details as Record<string, unknown>;
@@ -670,7 +690,7 @@ test('web_fetch returns non-200 status without throwing', async (t) => {
   });
 });
 
-test('web_fetch backend defuddle extracts main content as Markdown', async (t) => {
+test('web_fetch output markdown extracts main content as Markdown', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: { ANTHROPIC_API_KEY: 'key' },
   });
@@ -701,15 +721,15 @@ test('web_fetch backend defuddle extracts main content as Markdown', async (t) =
     async () => {
       const result = await tool.execute('call-web-defuddle', {
         url: 'https://example.com/article',
-        backend: 'defuddle',
+        output: 'markdown',
       });
 
       const details = result.details as Record<string, unknown>;
-      assert.equal(details.backend, 'defuddle');
+      assert.equal(details.output, 'markdown');
       assert.equal(details.status, 200);
       assert.ok(
         typeof details.title === 'string' || typeof details.contentBytes === 'number',
-        'defuddle returns title or contentBytes',
+        'markdown output returns title or contentBytes',
       );
 
       const text = getFirstText(result);

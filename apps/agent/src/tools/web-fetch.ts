@@ -15,18 +15,18 @@ const WebFetchParams = Type.Object({
       description: `Maximum response body bytes to return. Defaults to ${MAX_RESPONSE_BYTES}.`,
     }),
   ),
-  backend: Type.Optional(
+  output: Type.Optional(
     Type.Union([
-      Type.Literal('fetch', {
-        description: 'Return raw response body (default).',
+      Type.Literal('raw', {
+        description: 'Return the raw HTTP response body.',
       }),
-      Type.Literal('defuddle', {
+      Type.Literal('markdown', {
         description:
-          'Extract main article content as Markdown using Defuddle; best for blog posts and documentation.',
+          'Extract main article content as Markdown (default); best for blog posts and documentation.',
       }),
     ], {
       description:
-        "How to obtain content: 'fetch' returns the raw HTTP body; 'defuddle' extracts main content and returns Markdown.",
+        "Format of returned content: 'raw' is the unprocessed HTTP body; 'markdown' extracts main content via Defuddle.",
     }),
   ),
 });
@@ -59,7 +59,7 @@ async function executeFetchBackend(
     headers: responseHeaders,
     body,
     bodyBytes: rawBytes,
-    backend: 'fetch',
+    output: 'raw',
   };
   if (truncated) {
     details.truncated = true;
@@ -88,7 +88,7 @@ async function executeDefuddleBackend(
       method: 'GET',
       status: response.status,
       statusText: response.statusText,
-      backend: 'defuddle',
+      output: 'markdown',
     };
     const summary = `HTTP ${response.status} ${response.statusText}\n\n${body.slice(0, limit)}`;
     return { summary, details };
@@ -114,7 +114,7 @@ async function executeDefuddleBackend(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new ValidationError(
-      `web_fetch backend "defuddle" requires the defuddle package: ${msg}`,
+      `web_fetch output "markdown" requires the defuddle package: ${msg}`,
     );
   }
 
@@ -148,7 +148,7 @@ async function executeDefuddleBackend(
         method: 'GET',
         status: response.status,
         statusText: response.statusText,
-        backend: 'defuddle',
+        output: 'markdown',
         title: result.title,
         author: result.author,
         description: result.description,
@@ -170,7 +170,7 @@ async function executeDefuddleBackend(
       method: 'GET',
       status: response.status,
       statusText: response.statusText,
-      backend: 'defuddle',
+      output: 'markdown',
       title: result.title,
       author: result.author,
       description: result.description,
@@ -187,7 +187,7 @@ export const createWebFetchTool = (): AgentTool<typeof WebFetchParams> => ({
   name: 'web_fetch',
   label: 'Web Fetch',
   description:
-    'Perform an HTTP GET request and return the response. Use backend "fetch" for raw body (default), or "defuddle" to extract main article content as Markdown. Responses are truncated at max_bytes to avoid flooding the context window.',
+    'Perform an HTTP GET request and return the response. Use output "markdown" (default) to extract main article content as Markdown, or "raw" for the unprocessed HTTP body. Responses are truncated at max_bytes to avoid flooding the context window.',
   parameters: WebFetchParams,
   execute: async (_toolCallId, args: WebFetchArgs) => {
     const url = new URL(args.url);
@@ -204,12 +204,12 @@ export const createWebFetchTool = (): AgentTool<typeof WebFetchParams> => ({
     }
 
     const limit = Math.min(Math.floor(requestedBytes), MAX_RESPONSE_BYTES);
-    const backend = args.backend ?? 'fetch';
+    const output = args.output ?? 'markdown';
 
     const { summary, details } =
-      backend === 'defuddle'
-        ? await executeDefuddleBackend(args, limit)
-        : await executeFetchBackend(args, limit);
+      output === 'raw'
+        ? await executeFetchBackend(args, limit)
+        : await executeDefuddleBackend(args, limit);
 
     return {
       content: asTextContent(summary),
