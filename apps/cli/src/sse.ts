@@ -76,6 +76,7 @@ export const waitForAssistantTurn = async (
     );
   }
 
+  const out = options?.output;
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -116,24 +117,28 @@ export const waitForAssistantTurn = async (
           const toolName = String(payload.toolName ?? 'unknown');
           const toolCallId = String(payload.toolCallId ?? '');
 
-          stdout.write(`\n[approval required] ${toolName}`);
-
-          if (payload.args !== undefined) {
-            const formatted = formatDebugValue(payload.args);
-
-            if (formatted) {
-              stdout.write(formatted.includes('\n') ? `\n${formatted}` : ` ${formatted}`);
-            }
-          }
-
-          stdout.write('\n');
-
           let approved = false;
 
           if (options?.onApprovalRequired) {
+            if (out?.onApprovalPrompt) {
+              out.onApprovalPrompt(toolName, payload.args);
+            } else {
+              stdout.write(`\n[approval required] ${toolName}`);
+              if (payload.args !== undefined) {
+                const formatted = formatDebugValue(payload.args);
+                if (formatted) {
+                  stdout.write(formatted.includes('\n') ? `\n${formatted}` : ` ${formatted}`);
+                }
+              }
+              stdout.write('\n');
+            }
             approved = await options.onApprovalRequired(toolName, toolCallId, payload.args);
           } else {
-            stdout.write('[approval required] No approval handler configured — auto-denying.\n');
+            if (out) {
+              out.onError?.('[approval required] No approval handler configured — auto-denying.');
+            } else {
+              stdout.write('[approval required] No approval handler configured — auto-denying.\n');
+            }
           }
 
           await client.submitApproval(sessionId, { toolCallId, approved });
@@ -141,42 +146,73 @@ export const waitForAssistantTurn = async (
         }
 
         if (frame.event === 'tool_requested') {
-          writeToolRequested(String(payload.tool ?? 'unknown'), payload.args);
+          if (out?.onToolRequested) {
+            out.onToolRequested(String(payload.tool ?? 'unknown'), payload.args);
+          } else {
+            writeToolRequested(String(payload.tool ?? 'unknown'), payload.args);
+          }
           continue;
         }
 
         if (frame.event === 'tool_started') {
-          writeToolStarted(String(payload.tool ?? 'unknown'), payload.args);
+          if (out?.onToolStarted) {
+            out.onToolStarted(String(payload.tool ?? 'unknown'), payload.args);
+          } else {
+            writeToolStarted(String(payload.tool ?? 'unknown'), payload.args);
+          }
           continue;
         }
 
         if (frame.event === 'tool_result') {
-          writeToolResult(
-            String(payload.tool ?? 'unknown'),
-            Boolean(payload.isError),
-            payload.text,
-            payload.details,
-          );
+          if (out?.onToolResult) {
+            out.onToolResult(
+              String(payload.tool ?? 'unknown'),
+              Boolean(payload.isError),
+              payload.text,
+              payload.details,
+            );
+          } else {
+            writeToolResult(
+              String(payload.tool ?? 'unknown'),
+              Boolean(payload.isError),
+              payload.text,
+              payload.details,
+            );
+          }
           continue;
         }
 
         if (frame.event === 'text_delta') {
-          stdout.write(String(payload.text ?? ''));
+          const text = String(payload.text ?? '');
+          if (out?.onTextDelta) {
+            out.onTextDelta(text);
+          } else {
+            stdout.write(text);
+          }
           sawDelta = true;
           continue;
         }
 
         if (frame.event === 'text_final') {
-          if (!sawDelta) {
-            stdout.write(String(payload.text ?? ''));
+          const text = String(payload.text ?? '');
+          if (out?.onTextFinal) {
+            out.onTextFinal(text, sawDelta);
+          } else {
+            if (!sawDelta) {
+              stdout.write(text);
+            }
+            stdout.write('\n');
           }
-
-          stdout.write('\n');
           continue;
         }
 
         if (frame.event === 'error') {
-          stderr.write(`\n[error] ${String(payload.message ?? 'Unknown error')}\n`);
+          const message = String(payload.message ?? 'Unknown error');
+          if (out?.onError) {
+            out.onError(message);
+          } else {
+            stderr.write(`\n[error] ${message}\n`);
+          }
           continue;
         }
 
