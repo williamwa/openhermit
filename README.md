@@ -19,6 +19,7 @@ openhermit/
 ├── apps/
 │   ├── agent/                # Current focus: single-agent runtime (Hono + session API)
 │   ├── cli/                  # Local terminal client for the agent-local API
+│   ├── web/                  # Planned browser chat client for the same agent-local API
 │   ├── gateway/              # Future control plane for multi-agent management
 │   └── channels/
 │       └── telegram/         # Future IM bridge example

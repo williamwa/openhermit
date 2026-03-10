@@ -7,8 +7,8 @@ Phase 1 — Workspace + Container Primitives
 Phase 2 — Agent Core (LLM loop + tools + hook system)
 Phase 3 — Memory System (file-based)
 Phase 4 — Agent Lifecycle + Config
-Phase 5 — Service Containers + Telegram Trigger Adapter
-Phase 6 — Scheduled Sessions (Heartbeat + Cron)
+Phase 5 — Web Client + Service Containers
+Phase 6 — Telegram Trigger Adapter + Scheduled Sessions
 Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 ```
 
@@ -73,8 +73,8 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 **Goal**: A running agent that receives a message, thinks, calls tools, executes them, and returns an answer — built on `@mariozechner/pi-ai` (multi-provider LLM abstraction) and `@mariozechner/pi-agent-core` (stateful tool-calling loop), not a custom ReAct implementation.
 
 **Current status snapshot**
-- Implemented: `pi-ai` + `pi-agent-core` integration, runtime system prompt loading from markdown, approval gating, `tool_requested / tool_started / tool_result` event model, agent-local HTTP + SSE API, approval endpoint, session listing, separate `apps/cli` client, and built-in tools for files, containers, and `web_fetch`.
-- Still pending: `file_search`, `agent_doctor`, packaged `openhermit` commands, and a fuller hook/config story beyond the current built-in approval/logging path.
+- Implemented: `pi-ai` + `pi-agent-core` integration, runtime system prompt loading from markdown, approval gating, `tool_requested / tool_started / tool_result` event model, agent-local HTTP + SSE API, approval endpoint, session listing, separate `apps/cli` client, and built-in tools for files, containers, `file_search`, and `web_fetch`.
+- Still pending: `agent_doctor`, packaged `openhermit` commands, a browser-based client, and a fuller hook/config story beyond the current built-in approval/logging path.
 
 ### 2.1 Integrate pi-ai + pi-agent-core
 - [ ] `npm install @mariozechner/pi-ai @mariozechner/pi-agent-core`
@@ -156,8 +156,8 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 **Goal**: Agent reads/writes memory files correctly, context stays coherent across tool calls and sessions.
 
 **Current status snapshot**
-- Implemented: session logs, durable `sessions/index.json`, working memory injection, scaffolded `memory/long-term.md`, and session metadata such as descriptions for easier recall/resume.
-- Still pending: `file_search`, checkpoint summarization, working-memory maintenance, and a cleaner episodic/long-term promotion flow.
+- Implemented: session logs, durable `sessions/index.json`, working memory injection, scaffolded `memory/long-term.md`, session metadata such as descriptions for easier recall/resume, and the `file_search` tool needed for memory retrieval.
+- Still pending: checkpoint summarization, working-memory maintenance, and a cleaner episodic/long-term promotion flow.
 
 ### 3.1 Working Memory
 - [ ] Load `memory/working.md` at session start → inject into system prompt
@@ -232,27 +232,53 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 
 ---
 
-## Phase 5 — Service Containers + Telegram Trigger Adapter
+## Phase 5 — Web Client + Service Containers
 
-**Goal**: Agent can reliably run long-term services and be reached via Telegram.
+**Goal**: Agent can be used from both CLI and Web, and can reliably run long-term services needed by user tasks.
 
-### 5.1 Service Container Reliability
+### 5.1 Web Client
+- [ ] Add `apps/web` as a first-party browser client for the agent-local API
+- [ ] Build a simple chat UI:
+  - session list ordered by `lastActivityAt desc`
+  - create new session action
+  - resume existing session action
+  - message composer + streaming assistant output
+  - tool activity feed using the same SSE events already used by CLI
+- [ ] Web client should treat session binding the same way as CLI:
+  - one currently selected session in the browser UI
+  - "New session" creates a fresh session and switches the binding
+  - old sessions remain resumable
+- [ ] Web client talks directly to the existing agent-local HTTP + SSE API; no gateway dependency
+- [ ] Keep the first version local-first and minimal: no auth beyond the existing agent token, no multi-user model, no extra backend
+- [ ] Reuse `packages/sdk` and `packages/protocol` rather than inventing a web-only API client
+
+**Deliverable**: open `apps/web`, see a sessions sidebar, start a new session, resume an old one, and complete a streamed chat turn against the same agent-local API the CLI uses.
+
+### 5.2 Service Container Reliability
 - [ ] Auto-restart policy for service containers (`--restart unless-stopped`)
 - [ ] Health check polling: agent periodically checks if service containers are still alive
 - [ ] Auto-re-register containers that survived a host reboot (reconcile on agent start)
 
-### 5.2 Port Management
+### 5.3 Port Management
 - [ ] Port allocator: agent picks the next free host port from a configured range (default: 10000-20000) by inspecting live Docker bindings plus this agent's `containers/registry.jsonl`
 - [ ] Persist service port bindings only in `containers/registry.jsonl`; no separate `config.json` port registry
 - [ ] `container_status()` shows port mappings
 - [ ] Warn user when binding a port (note: firewall/Tailscale config may be needed)
 
-### 5.3 Docker Networks
+### 5.4 Docker Networks
 - [ ] Agent can create a named Docker network per "project"
 - [ ] Multiple containers in same project share a network (can talk to each other by container name)
 - [ ] Network config stored in registry.jsonl
 
-### 5.4 Telegram Trigger Adapter
+**Deliverable**: OpenHermit serves a local web chat UI backed by the same agent-local API as the CLI, and the agent can start a Postgres + web app pair on the same Docker network, expose the web app on port 10001, and tell the user to run `tailscale funnel 10001` themselves if they want external access.
+
+---
+
+## Phase 6 — Telegram Trigger Adapter + Scheduled Sessions
+
+**Goal**: Add the first IM channel and non-interactive scheduled sessions on top of the same session lifecycle already used by CLI and Web.
+
+### 6.1 Telegram Trigger Adapter
 - [ ] Document bridge container spec: reads `TELEGRAM_BOT_TOKEN`, `OPENHERMIT_API_URL`, `OPENHERMIT_API_KEY`, and optional `OPENHERMIT_AGENT_ID` from environment; long-polls Telegram Bot API; creates or resumes `sessionId: "telegram:{chat_id}"` with `source.kind = "im"` and `source.platform = "telegram"`; POSTs each Telegram message to `/sessions/{sessionId}/messages`; subscribes to SSE stream; calls Telegram `sendMessage` with the final response
 - [ ] Agent starts bridge via `container_start`: inject `TELEGRAM_BOT_TOKEN` from `secrets.json` as `env_secrets`; read actual port from `runtime/api.port` and inject `OPENHERMIT_API_URL=http://host.docker.internal:{port}`, `OPENHERMIT_AGENT_ID` (optional metadata), and `OPENHERMIT_API_KEY` (from `runtime/api.token`) as plain env vars
 - [ ] `config.channels.telegram_bridge.enabled` toggle — false by default, user opts in
@@ -260,22 +286,14 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 - [ ] Session trigger source: bridge always sets `source.interactive = true`
 - [ ] Bridge container can be in any language; no Telegram or grammy code exists in the agent process
 
-**Deliverable**: Agent starts a Postgres + web app pair on the same Docker network, exposes the web app on port 10001, and tells the user to run `tailscale funnel 10001` themselves if they want external access. Separately: user sends a message to the Telegram bot, bridge POSTs to the agent HTTP API, agent responds, bridge sends the result back to the Telegram chat.
-
----
-
-## Phase 6 — Scheduled Sessions (Heartbeat + Cron)
-
-**Goal**: Agent can launch non-interactive scheduled sessions through the same session lifecycle path used by CLI and Telegram.
-
-### 6.1 Scheduled Trigger Runner
+### 6.2 Scheduled Trigger Runner
 - [ ] Implement an in-process scheduler that dispatches scheduled runs through `AgentRunner.openSession()` + `AgentRunner.postMessage()`
 - [ ] Allow optional external schedulers (host cron, scheduler container, Kubernetes CronJob) to call the same `SessionSpec + SessionMessage` lifecycle over HTTP instead of using the in-process scheduler
 - [ ] Guard: skip overlapping runs for the same scheduled trigger ID
 - [ ] Guard: configurable policy for whether scheduled runs may start while an interactive session is active
 - [ ] On fire: emit `onScheduleTrigger`, then start the session
 
-### 6.2 Heartbeat Preset
+### 6.3 Heartbeat Preset
 - [ ] Heartbeat is a built-in scheduled trigger with session ID prefix `heartbeat:{ts}`
 - [ ] Load `memory/heartbeat.md` (create with defaults if not exists)
 - [ ] Build heartbeat prompt: system context + heartbeat.md contents + "check what needs doing", then post it as the first `SessionMessage`
@@ -285,13 +303,13 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 - [ ] No output streamed to user — all results go to episodic memory only
 - [ ] On completion: append `heartbeat_run` event to episodic log with summary
 
-### 6.3 Cron / User-defined Scheduled Jobs
+### 6.4 Cron / User-defined Scheduled Jobs
 - [ ] Add `config.schedules.jobs[]` definitions with fields like `id`, `schedule`, `prompt`, `enabled`, and `tools_allowed`
 - [ ] Each configured job opens a non-interactive `cron:{job-id}:{ts}` session and posts a synthesized first `SessionMessage`
 - [ ] Cron jobs reuse the same hooks, memory injection, tool checks, and session logging as every other trigger source
 - [ ] Support both prompt-only jobs ("summarise yesterday") and tool-oriented maintenance jobs ("check service drift")
 
-### 6.4 Heartbeat Checklist File — `memory/heartbeat.md`
+### 6.5 Heartbeat Checklist File — `memory/heartbeat.md`
 - [ ] Scaffold default `heartbeat.md` on workspace init with sensible default tasks:
   - Hourly: verify service containers are running
   - Daily: summarise episodic log into a note
@@ -300,12 +318,12 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 - [ ] Agent updates the "last run" timestamp in heartbeat.md after completing each task
 - [ ] `heartbeat.md` is editable by the user to add/remove/customize tasks
 
-### 6.5 Default Heartbeat Tasks (built-in logic)
+### 6.6 Default Heartbeat Tasks (built-in logic)
 - [ ] **Container health check**: call `container_status`, log any containers that died unexpectedly, write a note if action needed
 - [ ] **Episodic log summary**: read yesterday's episodic events, ask LLM to summarise, write to `memory/notes/daily-{date}.md`
 - [ ] **Stale working memory**: if `working.md` hasn't been updated in > 24h and there was recent activity, summarise and refresh it
 
-**Deliverable**: A built-in heartbeat run and a weekly cron-style summary job both execute through the same session lifecycle path (`openSession` + `postMessage`) without introducing a second agent loop.
+**Deliverable**: User sends a message to the Telegram bot, bridge POSTs to the agent HTTP API, agent responds, bridge sends the result back to Telegram. Separately, a built-in heartbeat run and a weekly cron-style summary job both execute through the same session lifecycle path (`openSession` + `postMessage`) without introducing a second agent loop.
 
 ---
 
@@ -313,7 +331,7 @@ Phase 7 — Polish (CLI, multi-agent, SQLite upgrade)
 
 **Goal**: Better DX, observability, optional database upgrade.
 
-- [ ] Web UI: simple local dashboard showing agent status, memory, containers, session history — can connect directly to the agent's HTTP API (already available from Phase 2); no additional protocol work needed
+- [ ] Web UI expansion: move beyond basic chat into a fuller local dashboard for memory, containers, and agent status
 - [ ] SQLite upgrade: migrate episodic.jsonl and session logs to SQLite for faster querying
 - [ ] Sub-agent support: agent can spawn another agent as a tool call
 - [ ] Tool permissions: config-driven allow/deny list per tool

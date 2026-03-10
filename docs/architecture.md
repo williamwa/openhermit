@@ -14,7 +14,7 @@ When the agent needs to run code, install dependencies, or provide a service —
 
 ```
 CLI user ──► openhermit CLI ────────────────────────────────┐
-                                                              │ HTTP (localhost)
+Web user ──► openhermit Web UI ─────────────────────────────┤ HTTP (localhost)
 Telegram user ──► Telegram Bot API                           │
                        │ long-poll                            │
               ┌────────▼───────────────┐                     │
@@ -604,7 +604,7 @@ Sessions from different trigger sources share the same agent memory (`working.md
 
 ### 8. External Trigger Adapters
 
-The agent exposes an HTTP API (Hono server) as its sole external communication interface. There is no `ChannelManager` class and no platform-specific channel code inside the agent process. External clients — a CLI program, a Telegram bridge container, a future web UI, or an external scheduler — all adapt into the same session lifecycle.
+The agent exposes an HTTP API (Hono server) as its sole external communication interface. There is no `ChannelManager` class and no platform-specific channel code inside the agent process. External clients — the CLI, the web chat UI, a Telegram bridge container, or an external scheduler — all adapt into the same session lifecycle.
 
 #### HTTP API Contract
 
@@ -684,6 +684,19 @@ Current CLI controls:
 - `--resume` — start the CLI already bound to the most recent CLI session
 
 `/new` does not close or delete the previous session. It only changes the adapter binding to a fresh `sessionId`.
+
+#### Web Client
+
+The web client is another thin external adapter over the same agent-local API. It should live in `apps/web` and reuse the shared protocol + SDK packages rather than inventing a second transport contract.
+
+The first version should provide:
+1. a sessions sidebar ordered by `lastActivityAt desc`
+2. a "new session" action that creates a fresh session and switches the browser binding
+3. a way to resume an existing session from the sidebar
+4. a chat composer that posts messages to `POST /sessions/{sessionId}/messages`
+5. streaming assistant output and tool activity from `GET /events?sessionId=...`
+
+Like the CLI, the web client owns only the adapter binding. The agent core still knows only explicit `sessionId` values.
 
 #### Telegram Bridge Container
 
