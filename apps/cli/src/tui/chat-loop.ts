@@ -36,7 +36,16 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
   const { client, token, agentId, workspaceRoot, startupSession, resumeFlag } = opts;
 
   const layout = createTuiLayout();
-  const { tui, editor, setHeader, addText, beginAssistantMessage, requestApproval } = layout;
+  const {
+    tui,
+    editor,
+    setHeader,
+    addText,
+    addStatusLine,
+    addAgentLabel,
+    beginAssistantMessage,
+    requestApproval,
+  } = layout;
 
   let currentSessionId = startupSession.sessionId;
   const knownEventIds = new Map<string, number>();
@@ -215,14 +224,38 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
     const currentLastEventId = knownEventIds.get(currentSessionId) ?? 0;
 
     await client.postMessage(currentSessionId, { text: input });
+    addAgentLabel();
 
     // Create a fresh abort controller for this turn so we can cancel
     // waitForAssistantTurn when the user hits Ctrl-C.
     currentTurnAbort = new AbortController();
+    let thinkingHandle: ReturnType<typeof addStatusLine> | null = addStatusLine(
+      gray('[thinking...]'),
+    );
+    let agentLabelShown = true;
+    const clearThinking = () => {
+      if (!thinkingHandle) {
+        return;
+      }
+
+      thinkingHandle.remove();
+      thinkingHandle = null;
+    };
+    const ensureAgentLabel = () => {
+      clearThinking();
+      if (agentLabelShown) {
+        return;
+      }
+
+      addAgentLabel();
+      agentLabelShown = true;
+    };
     let assistantHandle: ReturnType<typeof beginAssistantMessage> | null = null;
     const ensureAssistantHandle = () => {
+      clearThinking();
       if (!assistantHandle) {
-        assistantHandle = beginAssistantMessage();
+        assistantHandle = beginAssistantMessage(!agentLabelShown);
+        agentLabelShown = true;
       }
 
       return assistantHandle;
@@ -239,6 +272,7 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
         {
           signal: currentTurnAbort.signal,
           onApprovalRequired: async (toolName, toolCallId, args) => {
+            ensureAgentLabel();
             const approved = await requestApproval(toolName, args);
             addText(approved ? green('[approved]') : red('[denied]'));
             return approved;
@@ -251,6 +285,7 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
               ensureAssistantHandle().finalise(fullText, sawDelta);
             },
             onToolRequested: (tool, args) => {
+              ensureAgentLabel();
               const formatted = formatDebugValue(args);
               const suffix = formatted
                 ? formatted.includes('\n')
@@ -260,6 +295,7 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
               addText(`${gray('[tool requested]')} ${yellow(tool)}${suffix}`);
             },
             onToolStarted: (tool, args) => {
+              ensureAgentLabel();
               const formatted = formatDebugValue(args);
               const suffix = formatted
                 ? formatted.includes('\n')
@@ -269,22 +305,28 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
               addText(`${gray('[tool]')} ${yellow(tool)}${suffix}`);
             },
             onToolResult: (tool, isError) => {
+              ensureAgentLabel();
               const label = isError ? red('[tool error]') : gray('[tool result]');
               addText(`${label} ${yellow(tool)}`);
             },
             onApprovalPrompt: (toolName, args) => {
+              ensureAgentLabel();
               // Layout will show overlay; we just show a label in the feed too
               const formatted = formatDebugValue(args);
               const suffix = formatted ? ` ${gray(formatted)}` : '';
               addText(`${yellow('[approval required]')} ${bold(toolName)}${suffix}`);
             },
             onError: (message) => {
+              ensureAgentLabel();
               addText(`${red('[error]')} ${message}`);
             },
           },
         },
       );
     } finally {
+      if (thinkingHandle) {
+        thinkingHandle.remove();
+      }
       currentTurnAbort = null;
     }
 

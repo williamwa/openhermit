@@ -92,9 +92,23 @@ const createTextResponseStream = (text: string) => {
   return stream;
 };
 
-const createToolCallResponseStream = (toolCall: ToolCall) => {
+const createToolCallResponseStream = (
+  toolCall: ToolCall,
+  options?: { prefixText?: string | undefined },
+) => {
   const stream = createAssistantMessageEventStream();
-  const message = createAssistantMessage([toolCall], 'toolUse');
+  const content: AssistantMessage['content'] = [];
+
+  if (options?.prefixText !== undefined) {
+    content.push({
+      type: 'text',
+      text: options.prefixText,
+    });
+  }
+
+  content.push(toolCall);
+
+  const message = createAssistantMessage(content, 'toolUse');
 
   stream.push({
     type: 'start',
@@ -376,6 +390,73 @@ test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
         entry.content.includes('42'),
     ),
   );
+});
+
+test('AgentRunner ignores whitespace-only assistant messages emitted before tool use', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: {
+      ANTHROPIC_API_KEY: 'test-anthropic-key',
+    },
+  });
+  await security.load();
+  await workspace.writeFile('files/fact.txt', '42');
+
+  const runner = await AgentRunner.create({
+    workspace,
+    security,
+    streamFn: createSequentialStreamFn([
+      () =>
+        createToolCallResponseStream({
+          type: 'toolCall',
+          id: 'call-read-file',
+          name: 'read_file',
+          arguments: {
+            path: 'files/fact.txt',
+          },
+        }, { prefixText: ' ' }),
+      () => createTextResponseStream('The fact is 42.'),
+    ]),
+  });
+
+  await runner.openSession({
+    sessionId: 'cli:tool-whitespace-session',
+    source: {
+      kind: 'cli',
+      interactive: true,
+    },
+  });
+  await runner.postMessage('cli:tool-whitespace-session', {
+    text: 'Read the fact file.',
+  });
+  await runner.waitForSessionIdle('cli:tool-whitespace-session');
+
+  const backlog = runner.events.getBacklog('cli:tool-whitespace-session');
+  const eventTypes = backlog.map((entry) => entry.event.type);
+  const toolResultIndex = eventTypes.indexOf('tool_result');
+  const finalTextIndex = eventTypes.lastIndexOf('text_final');
+
+  assert.notEqual(toolResultIndex, -1);
+  assert.notEqual(finalTextIndex, -1);
+  assert.ok(toolResultIndex < finalTextIndex);
+  assert.equal(
+    backlog.filter((entry) => entry.event.type === 'text_final').length,
+    1,
+  );
+
+  const sessionEntries = await readJsonl(
+    (relativePath) => workspace.readFile(relativePath),
+    runner.getSessionLogRelativePath('cli:tool-whitespace-session'),
+  );
+  const assistantEntries = sessionEntries.filter((entry) => entry.role === 'assistant');
+
+  assert.equal(assistantEntries.length, 1);
+  assert.equal(assistantEntries[0]?.content, 'The fact is 42.');
+
+  const history = await runner.listSessionMessages('cli:tool-whitespace-session');
+  const assistantHistory = history.filter((entry) => entry.role === 'assistant');
+
+  assert.equal(assistantHistory.length, 1);
+  assert.equal(assistantHistory[0]?.content, 'The fact is 42.');
 });
 
 test('AgentRunner surfaces a missing API key as an error event instead of crashing', async (t) => {

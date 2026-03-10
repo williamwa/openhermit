@@ -17,6 +17,9 @@ export const extractAssistantText = (message: AssistantMessage): string =>
     .map((content) => content.text)
     .join('');
 
+export const hasMeaningfulAssistantText = (text: string): boolean =>
+  text.trim().length > 0;
+
 export const createUserMessage = (message: SessionMessage): Message => {
   const text =
     message.attachments && message.attachments.length > 0

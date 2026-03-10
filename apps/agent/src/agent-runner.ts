@@ -21,6 +21,7 @@ import {
 import {
   createUserMessage,
   extractAssistantText,
+  hasMeaningfulAssistantText,
   extractToolResultDetails,
   extractToolResultText,
   isAssistantMessage,
@@ -681,7 +682,7 @@ export class AgentRunner implements SessionRuntime {
         const assistantText = extractAssistantText(event.message);
         const assistantMessage = event.message;
 
-        if (!assistantText) {
+        if (!assistantText || !hasMeaningfulAssistantText(assistantText)) {
           break;
         }
 

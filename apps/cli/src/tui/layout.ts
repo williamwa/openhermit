@@ -35,8 +35,12 @@ export interface TuiLayout {
   setHeader(text: string): void;
   /** Append a plain text message (user input, tool events, status lines). */
   addText(text: string): void;
+  /** Append a removable status line, useful for transient waiting indicators. */
+  addStatusLine(text: string): StatusLineHandle;
+  /** Append the standard agent label line. */
+  addAgentLabel(): void;
   /** Begin a new streaming assistant response. Returns handle to append deltas. */
-  beginAssistantMessage(): AssistantMessageHandle;
+  beginAssistantMessage(showLabel?: boolean): AssistantMessageHandle;
   /** Show a yes/no approval overlay. Resolves with the user's choice. */
   requestApproval(toolName: string, args: unknown): Promise<boolean>;
 }
@@ -46,6 +50,10 @@ export interface AssistantMessageHandle {
   appendDelta(delta: string): void;
   /** Finalise the message (write the complete text if no deltas arrived). */
   finalise(fullText: string, sawDelta: boolean): void;
+}
+
+export interface StatusLineHandle {
+  remove(): void;
 }
 
 // ─── Factory ──────────────────────────────────────────────────────────────────
@@ -83,10 +91,28 @@ export const createTuiLayout = (): TuiLayout => {
     tui.requestRender();
   };
 
-  const beginAssistantMessage = (): AssistantMessageHandle => {
-    // Label line
-    const label = new Text(`${bold(cyan('agent'))}> `, 1, 0);
-    messages.addChild(label);
+  const addStatusLine = (text: string): StatusLineHandle => {
+    const line = new Text(text, 1, 0);
+    messages.addChild(line);
+    tui.requestRender();
+
+    return {
+      remove(): void {
+        messages.removeChild(line);
+        tui.requestRender();
+      },
+    };
+  };
+
+  const addAgentLabel = (): void => {
+    messages.addChild(new Text(`${bold(cyan('agent'))}> `, 1, 0));
+    tui.requestRender();
+  };
+
+  const beginAssistantMessage = (showLabel = true): AssistantMessageHandle => {
+    if (showLabel) {
+      addAgentLabel();
+    }
 
     // Markdown body (updated as deltas arrive)
     const md = new Markdown('', 1, 0, markdownTheme);
@@ -164,6 +190,8 @@ export const createTuiLayout = (): TuiLayout => {
     editor,
     setHeader,
     addText,
+    addStatusLine,
+    addAgentLabel,
     beginAssistantMessage,
     requestApproval,
   };

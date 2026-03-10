@@ -33,6 +33,8 @@ const isSessionSource = (value: unknown): value is SessionSource =>
   (value.platform === undefined || typeof value.platform === 'string') &&
   (value.triggerId === undefined || typeof value.triggerId === 'string');
 
+const hasMeaningfulText = (value: string): boolean => value.trim().length > 0;
+
 const isStartedSessionLogEntry = (
   value: unknown,
 ): value is StartedSessionLogEntry => {
@@ -164,7 +166,8 @@ export const deriveSessionIndexEntryFromLog = (
 
     if (
       (entry.role === 'user' || entry.role === 'assistant') &&
-      typeof entry.content === 'string'
+      typeof entry.content === 'string' &&
+      (entry.role !== 'assistant' || hasMeaningfulText(entry.content))
     ) {
       if (entry.role === 'user' && !firstUserMessage) {
         firstUserMessage = entry.content;
@@ -234,7 +237,8 @@ export const parseSessionHistoryMessages = (
 
     if (
       parsed.role === 'assistant' &&
-      typeof parsed.content === 'string'
+      typeof parsed.content === 'string' &&
+      hasMeaningfulText(parsed.content)
     ) {
       history.push({
         ts: parsed.ts,
