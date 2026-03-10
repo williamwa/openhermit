@@ -15,21 +15,187 @@ const WebFetchParams = Type.Object({
       description: `Maximum response body bytes to return. Defaults to ${MAX_RESPONSE_BYTES}.`,
     }),
   ),
+  backend: Type.Optional(
+    Type.Union([
+      Type.Literal('fetch', {
+        description: 'Return raw response body (default).',
+      }),
+      Type.Literal('defuddle', {
+        description:
+          'Extract main article content as Markdown using Defuddle; best for blog posts and documentation.',
+      }),
+    ], {
+      description:
+        "How to obtain content: 'fetch' returns the raw HTTP body; 'defuddle' extracts main content and returns Markdown.",
+    }),
+  ),
 });
 
 type WebFetchArgs = Static<typeof WebFetchParams>;
+
+async function executeFetchBackend(
+  args: WebFetchArgs,
+  limit: number,
+): Promise<{ summary: string; details: Record<string, unknown> }> {
+  const url = new URL(args.url);
+  const response = await fetch(url, { method: 'GET' });
+
+  const rawBuffer = await response.arrayBuffer();
+  const rawBytes = rawBuffer.byteLength;
+  const truncated = rawBytes > limit;
+  const bodyBytes = truncated ? rawBuffer.slice(0, limit) : rawBuffer;
+  const body = new TextDecoder('utf-8', { fatal: false }).decode(bodyBytes);
+
+  const responseHeaders: Record<string, string> = {};
+  response.headers.forEach((value, key) => {
+    responseHeaders[key] = value;
+  });
+
+  const details: Record<string, unknown> = {
+    url: args.url,
+    method: 'GET',
+    status: response.status,
+    statusText: response.statusText,
+    headers: responseHeaders,
+    body,
+    bodyBytes: rawBytes,
+    backend: 'fetch',
+  };
+  if (truncated) {
+    details.truncated = true;
+    details.returnedBytes = limit;
+  }
+
+  const summary =
+    truncated
+      ? `HTTP ${response.status} ${response.statusText} — ${rawBytes} bytes (truncated to ${limit})\n\n${body}`
+      : `HTTP ${response.status} ${response.statusText} — ${rawBytes} bytes\n\n${body}`;
+
+  return { summary, details };
+}
+
+async function executeDefuddleBackend(
+  args: WebFetchArgs,
+  limit: number,
+): Promise<{ summary: string; details: Record<string, unknown> }> {
+  const url = new URL(args.url);
+  const response = await fetch(url, { method: 'GET' });
+
+  if (!response.ok) {
+    const body = await response.text();
+    const details: Record<string, unknown> = {
+      url: args.url,
+      method: 'GET',
+      status: response.status,
+      statusText: response.statusText,
+      backend: 'defuddle',
+    };
+    const summary = `HTTP ${response.status} ${response.statusText}\n\n${body.slice(0, limit)}`;
+    return { summary, details };
+  }
+
+  const rawBuffer = await response.arrayBuffer();
+  const rawBytes = rawBuffer.byteLength;
+  const html = new TextDecoder('utf-8', { fatal: false }).decode(rawBuffer);
+
+  let DefuddleFn: (htmlOrDom: string, url?: string, options?: { markdown?: boolean }) => Promise<{
+    content: string;
+    title?: string;
+    author?: string;
+    description?: string;
+    domain?: string;
+    site?: string;
+    published?: string;
+    wordCount?: number;
+  }>;
+  try {
+    const node = await import('defuddle/node');
+    DefuddleFn = node.Defuddle;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new ValidationError(
+      `web_fetch backend "defuddle" requires the defuddle package: ${msg}`,
+    );
+  }
+
+  const result = await DefuddleFn(html, args.url, { markdown: true });
+  const content = result.content ?? '';
+  const contentBytes = new TextEncoder().encode(content).byteLength;
+  const truncated = contentBytes > limit;
+  const returnedContent = truncated
+    ? new TextDecoder('utf-8', { fatal: false }).decode(
+        new TextEncoder().encode(content).slice(0, limit),
+      )
+    : content;
+
+  const meta: string[] = [];
+  if (result.title) meta.push(`Title: ${result.title}`);
+  if (result.author) meta.push(`Author: ${result.author}`);
+  if (result.site) meta.push(`Site: ${result.site}`);
+  if (result.published) meta.push(`Published: ${result.published}`);
+  if (result.wordCount != null) meta.push(`Words: ${result.wordCount}`);
+
+  const summary =
+    meta.length > 0
+      ? `[Defuddle] ${meta.join(' | ')}\n\n${returnedContent}`
+      : returnedContent;
+  if (truncated) {
+    const suffix = `\n\n[Content truncated to ${limit} bytes; total ${contentBytes} bytes.]`;
+    return {
+      summary: summary + suffix,
+      details: {
+        url: args.url,
+        method: 'GET',
+        status: response.status,
+        statusText: response.statusText,
+        backend: 'defuddle',
+        title: result.title,
+        author: result.author,
+        description: result.description,
+        domain: result.domain,
+        site: result.site,
+        published: result.published,
+        wordCount: result.wordCount,
+        contentBytes,
+        truncated: true,
+        returnedBytes: limit,
+      },
+    };
+  }
+
+  return {
+    summary,
+    details: {
+      url: args.url,
+      method: 'GET',
+      status: response.status,
+      statusText: response.statusText,
+      backend: 'defuddle',
+      title: result.title,
+      author: result.author,
+      description: result.description,
+      domain: result.domain,
+      site: result.site,
+      published: result.published,
+      wordCount: result.wordCount,
+      contentBytes,
+    },
+  };
+}
 
 export const createWebFetchTool = (): AgentTool<typeof WebFetchParams> => ({
   name: 'web_fetch',
   label: 'Web Fetch',
   description:
-    'Perform an HTTP GET request and return the response body as text. Useful for reading documentation or checking public URLs. Responses are truncated at max_bytes to avoid flooding the context window.',
+    'Perform an HTTP GET request and return the response. Use backend "fetch" for raw body (default), or "defuddle" to extract main article content as Markdown. Responses are truncated at max_bytes to avoid flooding the context window.',
   parameters: WebFetchParams,
   execute: async (_toolCallId, args: WebFetchArgs) => {
     const url = new URL(args.url);
 
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      throw new ValidationError(`web_fetch only supports http/https URLs, got: ${url.protocol}`);
+      throw new ValidationError(
+        `web_fetch only supports http/https URLs, got: ${url.protocol}`,
+      );
     }
 
     const requestedBytes = args.max_bytes ?? MAX_RESPONSE_BYTES;
@@ -38,33 +204,12 @@ export const createWebFetchTool = (): AgentTool<typeof WebFetchParams> => ({
     }
 
     const limit = Math.min(Math.floor(requestedBytes), MAX_RESPONSE_BYTES);
-    const response = await fetch(url, { method: 'GET' });
+    const backend = args.backend ?? 'fetch';
 
-    const rawBuffer = await response.arrayBuffer();
-    const rawBytes = rawBuffer.byteLength;
-    const truncated = rawBytes > limit;
-    const bodyBytes = truncated ? rawBuffer.slice(0, limit) : rawBuffer;
-    const body = new TextDecoder('utf-8', { fatal: false }).decode(bodyBytes);
-
-    const responseHeaders: Record<string, string> = {};
-    response.headers.forEach((value, key) => {
-      responseHeaders[key] = value;
-    });
-
-    const details = {
-      url: args.url,
-      method: 'GET',
-      status: response.status,
-      statusText: response.statusText,
-      headers: responseHeaders,
-      body,
-      bodyBytes: rawBytes,
-      ...(truncated ? { truncated: true, returnedBytes: limit } : {}),
-    };
-
-    const summary = truncated
-      ? `HTTP ${response.status} ${response.statusText} — ${rawBytes} bytes (truncated to ${limit})\n\n${body}`
-      : `HTTP ${response.status} ${response.statusText} — ${rawBytes} bytes\n\n${body}`;
+    const { summary, details } =
+      backend === 'defuddle'
+        ? await executeDefuddleBackend(args, limit)
+        : await executeFetchBackend(args, limit);
 
     return {
       content: asTextContent(summary),
