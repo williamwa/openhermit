@@ -303,9 +303,12 @@ export class AgentRunner implements SessionRuntime {
       ?? AgentRunner.DEFAULT_IDLE_SUMMARY_TIMEOUT_MS;
   }
 
-  private getCheckpointTurnInterval(): number {
-    return this.options.checkpointTurnInterval
-      ?? AgentRunner.DEFAULT_CHECKPOINT_TURN_INTERVAL;
+  private getCheckpointTurnInterval(config?: AgentConfig): number {
+    return (
+      this.options.checkpointTurnInterval
+      ?? config?.memory.checkpoint_turn_interval
+      ?? AgentRunner.DEFAULT_CHECKPOINT_TURN_INTERVAL
+    );
   }
 
   private clearIdleSummaryTimer(session: RunnerSession): void {
@@ -749,14 +752,16 @@ export class AgentRunner implements SessionRuntime {
           });
         });
 
-        if (
-          session.completedTurnCount - session.lastSummarizedTurnCount >=
-          this.getCheckpointTurnInterval()
-        ) {
-          void this.queueBackgroundTask(session, async () => {
+        void this.queueBackgroundTask(session, async () => {
+          const config = await this.options.workspace.readConfig();
+
+          if (
+            session.completedTurnCount - session.lastSummarizedTurnCount >=
+            this.getCheckpointTurnInterval(config)
+          ) {
             await this.runSessionCheckpoint(session, 'turn_limit');
-          });
-        }
+          }
+        });
         break;
       }
 

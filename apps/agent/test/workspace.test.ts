@@ -19,6 +19,7 @@ test('AgentWorkspace init scaffolds config and identity files', async (t) => {
 
   assert.equal(config.agent_id, 'agent-test');
   assert.equal(config.name, 'Test Agent');
+  assert.equal(config.memory.checkpoint_turn_interval, 50);
   assert.match(identity, /Name: Test Agent/);
   assert.match(agentsInstructions, /workspace-specific instructions, preferences, and collaboration rules/);
   assert.doesNotMatch(agentsInstructions, /Container tool rules:/);

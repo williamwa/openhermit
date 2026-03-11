@@ -185,6 +185,9 @@ export const createDefaultAgentConfig = ({
   http_api: {
     preferred_port: 3000,
   },
+  memory: {
+    checkpoint_turn_interval: 50,
+  },
   channels: {
     telegram_bridge: {
       enabled: false,

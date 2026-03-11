@@ -49,6 +49,10 @@ export interface HttpApiConfig {
   preferred_port: number;
 }
 
+export interface MemoryConfig {
+  checkpoint_turn_interval: number;
+}
+
 export interface TelegramBridgeConfig {
   enabled: boolean;
   allowed_chat_ids: string[];
@@ -69,6 +73,7 @@ export interface AgentConfig {
   heartbeat: HeartbeatConfig;
   schedules: SchedulesConfig;
   http_api: HttpApiConfig;
+  memory: MemoryConfig;
   channels: ChannelsConfig;
 }
 

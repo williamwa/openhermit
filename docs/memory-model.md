@@ -17,7 +17,7 @@ OpenHermit uses four distinct layers:
 | --- | --- | --- | --- |
 | Session Log | `sessions/*.jsonl` | Raw per-session record | Append-only, one file per session |
 | Episodic Memory | `memory/episodic/*.jsonl` | Cross-session experience log | Append-only, grouped by month |
-| Working Memory | `memory/working.md` | Small current-context summary | Overwritten and curated |
+| Working Memory | `sessions/working/*.md` + `memory/working.md` | Active context for one session plus agent-wide current context | Overwritten and curated |
 | Long-Term Memory | `memory/long-term.md` + `memory/notes/*.md` | Stable reusable knowledge | Indexed markdown files by topic |
 
 These layers are not interchangeable. Each one exists for a different reason.
@@ -98,22 +98,28 @@ Rule:
 
 Location:
 
+- `sessions/working/{sessionId}.md`
 - `memory/working.md`
 
 Purpose:
 
 - Hold the small, active context the agent should keep "in mind" right now.
-- Feed high-signal information into the prompt on each turn.
-- Track what is currently in progress.
+- Separate session-local thread continuity from agent-wide current context.
+- Feed high-signal information into the prompt on each turn without replaying full logs.
 
 Typical contents:
 
-- current goals
-- active constraints
-- open issues
-- important recent decisions
-- currently relevant service/container state
-- short task-local facts
+- Session-local working memory:
+  - current objective for that session
+  - recent conclusions
+  - open questions
+  - next likely steps
+  - session-specific constraints
+- Global working memory:
+  - the most important active threads across the agent
+  - cross-session recent decisions
+  - currently relevant shared service/container state
+  - short-lived context that should be visible outside one thread
 
 What it is not:
 
@@ -123,6 +129,8 @@ What it is not:
 
 Rule:
 
+- Session-local working memory should belong to one session thread.
+- Global working memory should only contain cross-session current context.
 - Working memory should stay small, curated, and disposable.
 - It should be rewritten or compacted regularly.
 - If it grows without bound, it stops being working memory.
@@ -168,15 +176,17 @@ Rule:
 The intended information flow is:
 
 1. Everything happens in a session.
-2. Important events may be promoted into episodic memory.
-3. Currently relevant information may be distilled into working memory.
-4. Stable knowledge may be promoted into long-term notes.
+2. Checkpoint summarization distills new session activity into episodic memory.
+3. Episodic checkpoints update session-local working memory.
+4. Session-local working memory and recent episodic checkpoints update global working memory.
+5. Stable knowledge may be promoted into long-term notes.
 
 In short:
 
 - `sessions` = what happened
 - `episodic` = what was worth remembering from what happened
-- `working` = what matters right now
+- `working (session-local)` = what matters right now in this thread
+- `working (global)` = what matters right now across the agent
 - `long-term` = what should remain true or useful over time
 
 ## Retrieval Flow
@@ -185,16 +195,18 @@ Different tasks should read different layers:
 
 - To restore a conversation or audit behavior, read `sessions/`.
 - To understand recent history across sessions, read `memory/episodic/`.
-- To inject default context into the next turn, read `memory/working.md`.
+- To continue a specific thread, read `sessions/working/{sessionId}.md`.
+- To inject cross-session current context, read `memory/working.md`.
 - To recall durable knowledge, read `memory/long-term.md` first, then follow into `memory/notes/*.md` as needed.
 
 The default prompt path should favor:
 
-1. working memory
-2. `memory/long-term.md`
-3. episodic search when needed
-4. relevant long-term notes
-5. session replay only when explicitly necessary
+1. session-local working memory
+2. global working memory
+3. `memory/long-term.md`
+4. episodic search when needed
+5. relevant long-term notes
+6. session replay only when explicitly necessary
 
 ## Examples
 
@@ -245,8 +257,9 @@ Avoid the following:
 For implementation purposes, the preferred defaults are:
 
 - `sessions/` remains the complete append-only source of truth
-- `memory/episodic/` stores selective summaries and important events
-- `memory/working.md` is actively rewritten, not append-only
+- `memory/episodic/` stores checkpoint summaries rather than a raw mirror of session events
+- `sessions/working/{sessionId}.md` stores session-local working context
+- `memory/working.md` stores global current context and is actively rewritten, not append-only
 - `memory/long-term.md` is the entry point to long-term memory
 - `memory/notes/*.md` is updated through normal file tools, with `file_search` used for discovery and retrieval
 - no dedicated `memory_*` tools are required for v1, because memory is plain markdown/filesystem data
@@ -255,8 +268,9 @@ Suggested future automation:
 
 - create an episodic checkpoint when a session becomes idle for a configured timeout
 - create an episodic checkpoint every 50 conversation turns in long-running sessions
-- periodically compact working memory
-- promote stable recurring facts from episodic memory into `memory/long-term.md` and topic notes
+- rewrite session-local working memory after new episodic checkpoints
+- periodically refresh global working memory from recent session-local working memory and episodic checkpoints
+- promote stable recurring facts from episodic memory and working memory into `memory/long-term.md` and topic notes
 
 ## Status
 
@@ -266,12 +280,16 @@ The current implementation already has:
 
 - session logs
 - durable `sessions/index.json` for listing and resume metadata
-- episodic logs
-- working memory injection
+- checkpoint-oriented episodic logs
+- global working memory injection
 - session descriptions for easier session recall
 - plain markdown/file storage that can support long-term indexing
 
-But the boundary between `sessions` and `episodic` is still looser than intended, and `memory/long-term.md` is not yet acting as the long-term entry point. Future memory work should move the implementation toward the model defined here.
+The main remaining work is:
+
+- add session-local working memory
+- refresh global working memory from checkpoint summaries
+- promote stable knowledge into `memory/long-term.md` and `memory/notes/*.md`
 
 ## Prerequisites and Operational Assumptions
 
@@ -282,5 +300,7 @@ The memory model above depends on a few runtime assumptions:
 - Episodic summarization depends on reliable checkpoint triggers:
   - once when a session has been idle for the configured timeout
   - once every 50 conversation turns for a long-running session
+- Session-local working memory depends on stable session identity, because each thread should maintain its own active context.
+- Global working memory should aggregate only the most important cross-session context, not duplicate every session-local detail.
 - Long-term memory remains plain markdown. The agent should manage `memory/long-term.md` and `memory/notes/*.md` through normal file operations.
 - A `file_search` tool is required so the agent can efficiently discover and retrieve relevant memory files without loading the entire workspace.
