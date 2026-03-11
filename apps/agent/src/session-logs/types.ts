@@ -29,6 +29,10 @@ export interface PersistedSessionIndexEntry {
   createdAt: string;
   lastActivityAt: string;
   messageCount: number;
+  completedTurnCount?: number;
+  lastSummarizedHistoryCount?: number;
+  lastSummarizedTurnCount?: number;
+  lastSummarizedAt?: string;
   description?: string;
   descriptionSource?: 'fallback' | 'ai';
   lastMessagePreview?: string;
@@ -83,16 +87,6 @@ export const createSessionStartedEntries = (
       source: spec.source,
       ...(spec.metadata ? { metadata: spec.metadata } : {}),
       model,
-    },
-    episodic: {
-      ts,
-      session: spec.sessionId,
-      type: 'session_started',
-      data: {
-        source: spec.source,
-        ...(spec.metadata ? { metadata: spec.metadata } : {}),
-        model,
-      },
     },
     paths,
   };

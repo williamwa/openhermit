@@ -91,6 +91,10 @@ export interface ToolApprovalRequest {
   approved: boolean;
 }
 
+export interface SessionCheckpointRequest {
+  reason?: 'manual' | 'new_session' | 'turn_limit' | 'idle';
+}
+
 export const agentLocalRoutes = {
   health: '/health',
   sessions: '/sessions',
@@ -103,6 +107,9 @@ export const agentLocalRoutes = {
   sessionApprovePattern: '/sessions/:sessionId/approve',
   sessionApprove: (sessionId: string): string =>
     `/sessions/${encodeURIComponent(sessionId)}/approve`,
+  sessionCheckpointPattern: '/sessions/:sessionId/checkpoint',
+  sessionCheckpoint: (sessionId: string): string =>
+    `/sessions/${encodeURIComponent(sessionId)}/checkpoint`,
   eventsUrl: (sessionId: string): string =>
     `/sessions/${encodeURIComponent(sessionId)}/events`,
 } as const;
@@ -220,5 +227,28 @@ export const isToolApprovalRequest = (
   return (
     typeof value.toolCallId === 'string' &&
     typeof value.approved === 'boolean'
+  );
+};
+
+export const isSessionCheckpointRequest = (
+  value: unknown,
+): value is SessionCheckpointRequest => {
+  if (value === null) {
+    return true;
+  }
+
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  if (value.reason === undefined) {
+    return true;
+  }
+
+  return (
+    value.reason === 'manual' ||
+    value.reason === 'new_session' ||
+    value.reason === 'turn_limit' ||
+    value.reason === 'idle'
   );
 };

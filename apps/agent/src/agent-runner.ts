@@ -49,6 +49,10 @@ import {
 export class AgentRunner implements SessionRuntime {
   readonly events = new SessionEventBroker();
 
+  private static readonly DEFAULT_IDLE_SUMMARY_TIMEOUT_MS = 10 * 60_000;
+
+  private static readonly DEFAULT_CHECKPOINT_TURN_INTERVAL = 50;
+
   private readonly containerManager: DockerContainerManager;
 
   private readonly sessionIndex: SessionIndexStore;
@@ -73,6 +77,7 @@ export class AgentRunner implements SessionRuntime {
     const now = new Date().toISOString();
 
     if (existing) {
+      this.clearIdleSummaryTimer(existing);
       const mergedMetadata = {
         ...(existing.spec.metadata ?? {}),
         ...(spec.metadata ?? {}),
@@ -156,12 +161,19 @@ export class AgentRunner implements SessionRuntime {
       queue: Promise.resolve(),
       sideEffects: Promise.resolve(),
       backgroundTasks: Promise.resolve(),
+      idleSummaryTimer: undefined,
       sessionLogRelativePath: paths.sessionLogRelativePath,
       episodicRelativePath: paths.episodicRelativePath,
       latestAssistantText: undefined,
       approvalGate,
       status: 'idle',
       messageCount: persisted?.messageCount ?? 0,
+      completedTurnCount: persisted?.completedTurnCount ?? 0,
+      lastSummarizedHistoryCount: persisted?.lastSummarizedHistoryCount ?? 0,
+      lastSummarizedTurnCount: persisted?.lastSummarizedTurnCount ?? 0,
+      ...(persisted?.lastSummarizedAt
+        ? { lastSummarizedAt: persisted.lastSummarizedAt }
+        : {}),
       ...(persisted?.description ? { description: persisted.description } : {}),
       ...(persisted?.descriptionSource
         ? { descriptionSource: persisted.descriptionSource }
@@ -270,6 +282,14 @@ export class AgentRunner implements SessionRuntime {
     return session.approvalGate.respond(toolCallId, approved);
   }
 
+  async checkpointSession(
+    sessionId: string,
+    reason: 'manual' | 'new_session' | 'turn_limit' | 'idle' = 'manual',
+  ): Promise<boolean> {
+    const session = this.getRequiredSession(sessionId);
+    return this.runSessionCheckpoint(session, reason);
+  }
+
   async waitForSessionIdle(sessionId: string): Promise<void> {
     const session = this.getRequiredSession(sessionId);
     await session.queue;
@@ -278,11 +298,95 @@ export class AgentRunner implements SessionRuntime {
     await this.sessionIndex.waitForIdle();
   }
 
+  private getIdleSummaryTimeoutMs(): number {
+    return this.options.idleSummaryTimeoutMs
+      ?? AgentRunner.DEFAULT_IDLE_SUMMARY_TIMEOUT_MS;
+  }
+
+  private getCheckpointTurnInterval(): number {
+    return this.options.checkpointTurnInterval
+      ?? AgentRunner.DEFAULT_CHECKPOINT_TURN_INTERVAL;
+  }
+
+  private clearIdleSummaryTimer(session: RunnerSession): void {
+    if (!session.idleSummaryTimer) {
+      return;
+    }
+
+    clearTimeout(session.idleSummaryTimer);
+    session.idleSummaryTimer = undefined;
+  }
+
+  private scheduleIdleSummary(session: RunnerSession): void {
+    this.clearIdleSummaryTimer(session);
+    session.idleSummaryTimer = setTimeout(() => {
+      void this.queueBackgroundTask(session, async () => {
+        await this.runSessionCheckpoint(session, 'idle');
+      });
+    }, this.getIdleSummaryTimeoutMs());
+    session.idleSummaryTimer.unref?.();
+  }
+
+  private async runSessionCheckpoint(
+    session: RunnerSession,
+    reason: 'manual' | 'new_session' | 'turn_limit' | 'idle',
+  ): Promise<boolean> {
+    await session.queue;
+    await session.sideEffects;
+
+    const content = await this.options.workspace.readFile(
+      session.sessionLogRelativePath,
+    ).catch(() => '');
+    const chronologicalHistory = parseSessionHistoryMessages(content).reverse();
+    const newHistory = chronologicalHistory.slice(session.lastSummarizedHistoryCount);
+
+    if (newHistory.length === 0) {
+      return false;
+    }
+
+    const config = await this.options.workspace.readConfig();
+    const summary = await this.generateCheckpointSummary({
+      sessionId: session.spec.sessionId,
+      reason,
+      history: newHistory,
+      config,
+    });
+
+    if (!summary) {
+      return false;
+    }
+
+    const ts = new Date().toISOString();
+    const previousHistoryCount = session.lastSummarizedHistoryCount;
+    const previousTurnCount = session.lastSummarizedTurnCount;
+    session.lastSummarizedHistoryCount = chronologicalHistory.length;
+    session.lastSummarizedTurnCount = session.completedTurnCount;
+    session.lastSummarizedAt = ts;
+    await this.persistSessionIndex(session);
+
+    await this.logWriter.appendEpisodic(session.episodicRelativePath, {
+      ts,
+      session: session.spec.sessionId,
+      type: reason === 'turn_limit' ? 'session_checkpoint' : 'session_summary',
+      data: {
+        reason,
+        fromHistoryCount: previousHistoryCount,
+        toHistoryCount: session.lastSummarizedHistoryCount,
+        turnCount: session.completedTurnCount,
+        summarizedTurns: session.completedTurnCount - previousTurnCount,
+        summary,
+      },
+    });
+
+    return true;
+  }
+
   async postMessage(
     sessionId: string,
     message: SessionMessage,
   ): Promise<{ sessionId: string; messageId?: string }> {
     const session = this.getRequiredSession(sessionId);
+    this.clearIdleSummaryTimer(session);
     session.updatedAt = new Date().toISOString();
     session.status = 'running';
     session.messageCount += 1;
@@ -300,26 +404,13 @@ export class AgentRunner implements SessionRuntime {
 
     const receivedAt = new Date().toISOString();
     await this.queueSideEffect(session, async () => {
-      await Promise.all([
-        this.logWriter.appendSession(session.sessionLogRelativePath, {
-          ts: receivedAt,
-          role: 'user',
-          messageId: message.messageId,
-          content: message.text,
-          ...(message.attachments ? { attachments: message.attachments } : {}),
-        }),
-        this.logWriter.appendEpisodic(session.episodicRelativePath, {
-          ts: receivedAt,
-          session: session.spec.sessionId,
-          type: 'message_received',
-          data: {
-            role: 'user',
-            content: message.text,
-            ...(message.messageId ? { messageId: message.messageId } : {}),
-            ...(message.attachments ? { attachments: message.attachments } : {}),
-          },
-        }),
-      ]);
+      await this.logWriter.appendSession(session.sessionLogRelativePath, {
+        ts: receivedAt,
+        role: 'user',
+        messageId: message.messageId,
+        content: message.text,
+        ...(message.attachments ? { attachments: message.attachments } : {}),
+      });
     });
 
     const run = async (): Promise<void> => {
@@ -394,26 +485,14 @@ export class AgentRunner implements SessionRuntime {
       });
 
       await this.queueSideEffect(session, async () => {
-        await Promise.all([
-          this.logWriter.appendSession(session.sessionLogRelativePath, {
-            ts,
-            role: 'tool_call',
-            type: 'tool_started',
-            name: toolName,
-            args,
-            toolCallId,
-          }),
-          this.logWriter.appendEpisodic(session.episodicRelativePath, {
-            ts,
-            session: session.spec.sessionId,
-            type: 'tool_started',
-            data: {
-              tool: toolName,
-              args,
-              toolCallId,
-            },
-          }),
-        ]);
+        await this.logWriter.appendSession(session.sessionLogRelativePath, {
+          ts,
+          role: 'tool_call',
+          type: 'tool_started',
+          name: toolName,
+          args,
+          toolCallId,
+        });
       });
     };
   }
@@ -430,26 +509,14 @@ export class AgentRunner implements SessionRuntime {
       });
 
       await this.queueSideEffect(session, async () => {
-        await Promise.all([
-          this.logWriter.appendSession(session.sessionLogRelativePath, {
-            ts,
-            role: 'tool_call',
-            type: 'tool_requested',
-            name: toolName,
-            args,
-            toolCallId,
-          }),
-          this.logWriter.appendEpisodic(session.episodicRelativePath, {
-            ts,
-            session: session.spec.sessionId,
-            type: 'tool_requested',
-            data: {
-              tool: toolName,
-              args,
-              toolCallId,
-            },
-          }),
-        ]);
+        await this.logWriter.appendSession(session.sessionLogRelativePath, {
+          ts,
+          role: 'tool_call',
+          type: 'tool_requested',
+          name: toolName,
+          args,
+          toolCallId,
+        });
       });
     };
   }
@@ -463,26 +530,14 @@ export class AgentRunner implements SessionRuntime {
     const ts = new Date().toISOString();
 
     await this.queueSideEffect(session, async () => {
-      await Promise.all([
-        this.logWriter.appendSession(session.sessionLogRelativePath, {
-          ts,
-          role: 'system',
-          type: 'tool_approval_requested',
-          toolName,
-          toolCallId,
-          ...(args !== undefined ? { args } : {}),
-        }),
-        this.logWriter.appendEpisodic(session.episodicRelativePath, {
-          ts,
-          session: session.spec.sessionId,
-          type: 'tool_approval_requested',
-          data: {
-            toolName,
-            toolCallId,
-            ...(args !== undefined ? { args } : {}),
-          },
-        }),
-      ]);
+      await this.logWriter.appendSession(session.sessionLogRelativePath, {
+        ts,
+        role: 'system',
+        type: 'tool_approval_requested',
+        toolName,
+        toolCallId,
+        ...(args !== undefined ? { args } : {}),
+      });
     });
   }
 
@@ -495,26 +550,14 @@ export class AgentRunner implements SessionRuntime {
     const ts = new Date().toISOString();
 
     await this.queueSideEffect(session, async () => {
-      await Promise.all([
-        this.logWriter.appendSession(session.sessionLogRelativePath, {
-          ts,
-          role: 'system',
-          type: 'tool_approval_resolved',
-          toolName,
-          toolCallId,
-          decision,
-        }),
-        this.logWriter.appendEpisodic(session.episodicRelativePath, {
-          ts,
-          session: session.spec.sessionId,
-          type: 'tool_approval_resolved',
-          data: {
-            toolName,
-            toolCallId,
-            decision,
-          },
-        }),
-      ]);
+      await this.logWriter.appendSession(session.sessionLogRelativePath, {
+        ts,
+        role: 'system',
+        type: 'tool_approval_resolved',
+        toolName,
+        toolCallId,
+        decision,
+      });
     });
   }
 
@@ -690,34 +733,30 @@ export class AgentRunner implements SessionRuntime {
         const ts = new Date().toISOString();
         session.updatedAt = ts;
         session.messageCount += 1;
+        session.completedTurnCount += 1;
         session.lastMessagePreview = assistantText;
         void this.persistSessionIndex(session);
 
         void this.queueSideEffect(session, async () => {
-          await Promise.all([
-            this.logWriter.appendSession(session.sessionLogRelativePath, {
-              ts,
-              role: 'assistant',
-              content: assistantText,
-              provider: assistantMessage.provider,
-              model: assistantMessage.model,
-              usage: assistantMessage.usage,
-              stopReason: assistantMessage.stopReason,
-            }),
-            this.logWriter.appendEpisodic(session.episodicRelativePath, {
-              ts,
-              session: session.spec.sessionId,
-              type: 'message_sent',
-              data: {
-                role: 'assistant',
-                content: assistantText,
-                provider: assistantMessage.provider,
-                model: assistantMessage.model,
-                usage: assistantMessage.usage,
-              },
-            }),
-          ]);
+          await this.logWriter.appendSession(session.sessionLogRelativePath, {
+            ts,
+            role: 'assistant',
+            content: assistantText,
+            provider: assistantMessage.provider,
+            model: assistantMessage.model,
+            usage: assistantMessage.usage,
+            stopReason: assistantMessage.stopReason,
+          });
         });
+
+        if (
+          session.completedTurnCount - session.lastSummarizedTurnCount >=
+          this.getCheckpointTurnInterval()
+        ) {
+          void this.queueBackgroundTask(session, async () => {
+            await this.runSessionCheckpoint(session, 'turn_limit');
+          });
+        }
         break;
       }
 
@@ -740,27 +779,14 @@ export class AgentRunner implements SessionRuntime {
         });
 
         void this.queueSideEffect(session, async () => {
-          await Promise.all([
-            this.logWriter.appendSession(session.sessionLogRelativePath, {
-              ts,
-              role: 'tool_result',
-              name: event.toolName,
-              toolCallId: event.toolCallId,
-              isError: event.isError,
-              content: serializeDetails(event.result),
-            }),
-            this.logWriter.appendEpisodic(session.episodicRelativePath, {
-              ts,
-              session: session.spec.sessionId,
-              type: 'tool_result',
-              data: {
-                tool: event.toolName,
-                toolCallId: event.toolCallId,
-                isError: event.isError,
-                result: event.result,
-              },
-            }),
-          ]);
+          await this.logWriter.appendSession(session.sessionLogRelativePath, {
+            ts,
+            role: 'tool_result',
+            name: event.toolName,
+            toolCallId: event.toolCallId,
+            isError: event.isError,
+            content: serializeDetails(event.result),
+          });
         });
         break;
       }
@@ -772,6 +798,7 @@ export class AgentRunner implements SessionRuntime {
         session.updatedAt = ts;
         session.status = 'idle';
         void this.persistSessionIndex(session);
+        this.scheduleIdleSummary(session);
         if (lastUserMessageText) {
           void this.queueBackgroundTask(session, async () => {
             await this.maybeGenerateSessionDescription(session, {
@@ -819,6 +846,7 @@ export class AgentRunner implements SessionRuntime {
   ): Promise<void> {
     const message = getErrorMessage(error);
     const ts = new Date().toISOString();
+    this.clearIdleSummaryTimer(session);
     session.updatedAt = ts;
     session.status = 'idle';
     await this.persistSessionIndex(session);
@@ -833,22 +861,13 @@ export class AgentRunner implements SessionRuntime {
         type: 'agent_end',
         sessionId: session.spec.sessionId,
       });
+      this.scheduleIdleSummary(session);
       await this.queueSideEffect(session, async () => {
-        await Promise.all([
-          this.logWriter.appendSession(session.sessionLogRelativePath, {
-            ts,
-            role: 'error',
-            message,
-          }),
-          this.logWriter.appendEpisodic(session.episodicRelativePath, {
-            ts,
-            session: session.spec.sessionId,
-            type: 'run_error',
-            data: {
-              message,
-            },
-          }),
-        ]);
+        await this.logWriter.appendSession(session.sessionLogRelativePath, {
+          ts,
+          role: 'error',
+          message,
+        });
       });
     } catch (persistenceError) {
       console.error(
@@ -978,5 +997,107 @@ export class AgentRunner implements SessionRuntime {
     );
 
     return normalizeGeneratedDescription(extractAssistantText(response));
+  }
+
+  private async generateCheckpointSummary(input: {
+    sessionId: string;
+    reason: 'manual' | 'new_session' | 'turn_limit' | 'idle';
+    history: Array<{ role: 'user' | 'assistant' | 'error'; content: string; ts: string }>;
+    config: AgentConfig;
+  }): Promise<string | undefined> {
+    if (this.options.checkpointSummaryGenerator) {
+      return this.normalizeCheckpointSummary(
+        await this.options.checkpointSummaryGenerator(input),
+      );
+    }
+
+    if (this.options.streamFn) {
+      return this.createFallbackCheckpointSummary(input.history);
+    }
+
+    const apiKey = this.resolveApiKey(input.config.model.provider);
+
+    if (!apiKey) {
+      return this.createFallbackCheckpointSummary(input.history);
+    }
+
+    const transcript = input.history
+      .map((entry) => `${entry.role.toUpperCase()}: ${entry.content}`)
+      .join('\n\n')
+      .slice(0, 16_000);
+
+    const response = await complete(
+      resolveModel(input.config),
+      {
+        systemPrompt: [
+          'Summarize the new activity in this session for episodic memory.',
+          'Return plain text only.',
+          'Keep it concise but useful for future retrieval.',
+          'Mention key outcomes, failures, decisions, and next relevant context.',
+          'Do not include bullet formatting unless needed for clarity.',
+        ].join(' '),
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: [
+                  `Session: ${input.sessionId}`,
+                  `Reason: ${input.reason}`,
+                  'New transcript since the last episodic checkpoint:',
+                  transcript,
+                ].join('\n\n'),
+              },
+            ],
+            timestamp: Date.now(),
+          },
+        ],
+      },
+      { apiKey },
+    );
+
+    return (
+      this.normalizeCheckpointSummary(extractAssistantText(response))
+      ?? this.createFallbackCheckpointSummary(input.history)
+    );
+  }
+
+  private createFallbackCheckpointSummary(
+    history: Array<{ role: 'user' | 'assistant' | 'error'; content: string; ts: string }>,
+  ): string | undefined {
+    const normalized = history
+      .map((entry) => {
+        const content = entry.content.replace(/\s+/g, ' ').trim();
+
+        if (!content) {
+          return undefined;
+        }
+
+        const prefix =
+          entry.role === 'user'
+            ? 'User'
+            : entry.role === 'assistant'
+              ? 'Agent'
+              : 'Error';
+
+        return `${prefix}: ${content}`;
+      })
+      .filter((entry): entry is string => Boolean(entry));
+
+    if (normalized.length === 0) {
+      return undefined;
+    }
+
+    return normalized.slice(-4).join(' | ').slice(0, 400);
+  }
+
+  private normalizeCheckpointSummary(value: string | undefined): string | undefined {
+    if (!value) {
+      return undefined;
+    }
+
+    const normalized = value.replace(/\s+/g, ' ').trim();
+    return normalized.length > 0 ? normalized : undefined;
   }
 }

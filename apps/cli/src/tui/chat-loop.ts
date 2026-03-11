@@ -186,6 +186,9 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
       }
 
       if (command.type === 'new') {
+        await client.checkpointSession(currentSessionId, {
+          reason: 'new_session',
+        });
         currentSessionId = createSessionId();
         await client.openSession(createCliSessionSpec(currentSessionId));
         knownEventIds.set(currentSessionId, 0);

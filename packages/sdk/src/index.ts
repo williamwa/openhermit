@@ -1,6 +1,7 @@
 import {
   agentLocalRoutes,
   type SessionHistoryMessage,
+  type SessionCheckpointRequest,
   type SessionListQuery,
   type SessionMessage,
   type SessionSummary,
@@ -74,6 +75,13 @@ export class AgentLocalClient {
     request: ToolApprovalRequest,
   ): Promise<{ resolved: boolean }> {
     return this.postJson(agentLocalRoutes.sessionApprove(sessionId), request);
+  }
+
+  async checkpointSession(
+    sessionId: string,
+    request: SessionCheckpointRequest = {},
+  ): Promise<{ checkpointed: boolean }> {
+    return this.postJson(agentLocalRoutes.sessionCheckpoint(sessionId), request);
   }
 
   buildEventsUrl(sessionId: string): string {

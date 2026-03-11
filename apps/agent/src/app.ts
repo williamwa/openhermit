@@ -3,6 +3,7 @@ import { streamSSE, type SSEStreamingApi } from 'hono/streaming';
 
 import {
   agentLocalRoutes,
+  isSessionCheckpointRequest,
   isSessionMessage,
   isSessionSpec,
   type SessionListQuery,
@@ -205,6 +206,22 @@ export const createAgentApp = (
     );
 
     return c.json({ resolved });
+  });
+
+  app.post(agentLocalRoutes.sessionCheckpointPattern, async (c) => {
+    const sessionId = c.req.param('sessionId') ?? '';
+    const payload = await c.req.json().catch(() => ({}));
+
+    if (!isSessionCheckpointRequest(payload)) {
+      throw new ValidationError('Invalid SessionCheckpointRequest payload.');
+    }
+
+    const checkpointed = await runtime.checkpointSession(
+      sessionId,
+      payload.reason ?? 'manual',
+    );
+
+    return c.json({ checkpointed });
   });
 
   app.get(agentLocalRoutes.sessionEventsPattern, async (c) => {

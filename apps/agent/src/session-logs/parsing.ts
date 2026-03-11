@@ -90,6 +90,34 @@ export const parseSessionIndexDocument = (value: unknown): SessionIndexDocument 
     }
 
     if (
+      entry.completedTurnCount !== undefined &&
+      typeof entry.completedTurnCount !== 'number'
+    ) {
+      return false;
+    }
+
+    if (
+      entry.lastSummarizedHistoryCount !== undefined &&
+      typeof entry.lastSummarizedHistoryCount !== 'number'
+    ) {
+      return false;
+    }
+
+    if (
+      entry.lastSummarizedTurnCount !== undefined &&
+      typeof entry.lastSummarizedTurnCount !== 'number'
+    ) {
+      return false;
+    }
+
+    if (
+      entry.lastSummarizedAt !== undefined &&
+      typeof entry.lastSummarizedAt !== 'string'
+    ) {
+      return false;
+    }
+
+    if (
       entry.description !== undefined &&
       typeof entry.description !== 'string'
     ) {
@@ -188,6 +216,9 @@ export const deriveSessionIndexEntryFromLog = (
     createdAt: startedEntry.ts,
     lastActivityAt,
     messageCount,
+    completedTurnCount: Math.floor(messageCount / 2),
+    lastSummarizedHistoryCount: 0,
+    lastSummarizedTurnCount: 0,
     ...(firstUserMessage
       ? {
           description: firstUserMessage.replace(/\s+/g, ' ').trim().slice(0, 80),

@@ -193,6 +193,33 @@ test('createAgentApp returns session messages in reverse chronological order', a
   ]);
 });
 
+test('createAgentApp exposes the session checkpoint endpoint', async () => {
+  const runtime = new InMemoryAgentRuntime();
+  const app = createAgentApp(runtime, { apiToken: bearer });
+
+  await runtime.openSession({
+    sessionId: 'cli:test-session',
+    source: {
+      kind: 'cli',
+      interactive: true,
+    },
+  });
+
+  const response = await app.request(
+    agentLocalRoutes.sessionCheckpoint('cli:test-session'),
+    {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ reason: 'manual' }),
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    checkpointed: false,
+  });
+});
+
 test('createAgentApp requires a sessionId in the session events route', async () => {
   const app = createAgentApp(new InMemoryAgentRuntime(), { apiToken: bearer });
   const response = await app.request('/sessions//events', {

@@ -28,14 +28,6 @@ const zeroUsage: Usage = {
   },
 };
 
-const trackedToolEventTypes = new Set([
-  'tool_requested',
-  'tool_approval_requested',
-  'tool_approval_resolved',
-  'tool_started',
-  'tool_result',
-]);
-
 const createAssistantMessage = (
   content: AssistantMessage['content'],
   stopReason: AssistantMessage['stopReason'],
@@ -211,11 +203,6 @@ test('AgentRunner publishes SSE text events and writes minimal logs', async (t) 
     (relativePath) => workspace.readFile(relativePath),
     runner.getSessionLogRelativePath('cli:test-session'),
   );
-  const episodicEntries = await readJsonl(
-    (relativePath) => workspace.readFile(relativePath),
-    runner.getEpisodicLogRelativePath('cli:test-session'),
-  );
-
   assert.ok(
     sessionEntries.some((entry) => entry.type === 'session_started'),
   );
@@ -230,15 +217,6 @@ test('AgentRunner publishes SSE text events and writes minimal logs', async (t) 
         entry.role === 'assistant' &&
         entry.content === 'hello from agent runner',
     ),
-  );
-  assert.ok(
-    episodicEntries.some((entry) => entry.type === 'session_started'),
-  );
-  assert.ok(
-    episodicEntries.some((entry) => entry.type === 'message_received'),
-  );
-  assert.ok(
-    episodicEntries.some((entry) => entry.type === 'message_sent'),
   );
 });
 
@@ -459,6 +437,142 @@ test('AgentRunner ignores whitespace-only assistant messages emitted before tool
   assert.equal(assistantHistory[0]?.content, 'The fact is 42.');
 });
 
+test('AgentRunner writes episodic checkpoints on explicit checkpoint requests and remembers the last cursor', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: {
+      ANTHROPIC_API_KEY: 'test-anthropic-key',
+    },
+  });
+  await security.load();
+
+  const runner = await AgentRunner.create({
+    workspace,
+    security,
+    streamFn: createSequentialStreamFn([
+      () => createTextResponseStream('first reply'),
+      () => createTextResponseStream('second reply'),
+    ]),
+    checkpointSummaryGenerator: async ({ history, reason }) =>
+      `${reason}: ${history.map((entry) => `${entry.role}:${entry.content}`).join(' | ')}`,
+  });
+
+  await runner.openSession({
+    sessionId: 'cli:checkpoint-session',
+    source: { kind: 'cli', interactive: true },
+  });
+  await runner.postMessage('cli:checkpoint-session', { text: 'first question' });
+  await runner.waitForSessionIdle('cli:checkpoint-session');
+
+  assert.equal(
+    await runner.checkpointSession('cli:checkpoint-session', 'new_session'),
+    true,
+  );
+  assert.equal(
+    await runner.checkpointSession('cli:checkpoint-session', 'new_session'),
+    false,
+  );
+
+  await runner.postMessage('cli:checkpoint-session', { text: 'second question' });
+  await runner.waitForSessionIdle('cli:checkpoint-session');
+
+  assert.equal(
+    await runner.checkpointSession('cli:checkpoint-session', 'manual'),
+    true,
+  );
+
+  const episodicEntries = await readJsonl(
+    (relativePath) => workspace.readFile(relativePath),
+    runner.getEpisodicLogRelativePath('cli:checkpoint-session'),
+  );
+  const firstData = episodicEntries[0]?.data as Record<string, unknown> | undefined;
+  const secondData = episodicEntries[1]?.data as Record<string, unknown> | undefined;
+
+  assert.equal(episodicEntries.length, 2);
+  assert.equal(episodicEntries[0]?.type, 'session_summary');
+  assert.equal(episodicEntries[1]?.type, 'session_summary');
+  assert.equal(firstData?.reason, 'new_session');
+  assert.equal(secondData?.reason, 'manual');
+  assert.match(String(firstData?.summary ?? ''), /first question/);
+  assert.doesNotMatch(String(secondData?.summary ?? ''), /first question/);
+  assert.match(String(secondData?.summary ?? ''), /second question/);
+});
+
+test('AgentRunner writes a checkpoint automatically every configured turn interval', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: {
+      ANTHROPIC_API_KEY: 'test-anthropic-key',
+    },
+  });
+  await security.load();
+
+  const runner = await AgentRunner.create({
+    workspace,
+    security,
+    streamFn: createSequentialStreamFn([
+      () => createTextResponseStream('turn one'),
+    ]),
+    checkpointTurnInterval: 1,
+    checkpointSummaryGenerator: async ({ history, reason }) =>
+      `${reason}: ${history.map((entry) => entry.content).join(' | ')}`,
+  });
+
+  await runner.openSession({
+    sessionId: 'cli:turn-checkpoint',
+    source: { kind: 'cli', interactive: true },
+  });
+  await runner.postMessage('cli:turn-checkpoint', { text: 'checkpoint me' });
+  await runner.waitForSessionIdle('cli:turn-checkpoint');
+
+  const episodicEntries = await readJsonl(
+    (relativePath) => workspace.readFile(relativePath),
+    runner.getEpisodicLogRelativePath('cli:turn-checkpoint'),
+  );
+  const checkpointData = episodicEntries[0]?.data as Record<string, unknown> | undefined;
+
+  assert.equal(episodicEntries.length, 1);
+  assert.equal(episodicEntries[0]?.type, 'session_checkpoint');
+  assert.equal(checkpointData?.reason, 'turn_limit');
+});
+
+test('AgentRunner writes an idle summary after the configured timeout', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: {
+      ANTHROPIC_API_KEY: 'test-anthropic-key',
+    },
+  });
+  await security.load();
+
+  const runner = await AgentRunner.create({
+    workspace,
+    security,
+    streamFn: createSequentialStreamFn([
+      () => createTextResponseStream('idle reply'),
+    ]),
+    idleSummaryTimeoutMs: 20,
+    checkpointSummaryGenerator: async ({ history, reason }) =>
+      `${reason}: ${history.map((entry) => entry.content).join(' | ')}`,
+  });
+
+  await runner.openSession({
+    sessionId: 'cli:idle-checkpoint',
+    source: { kind: 'cli', interactive: true },
+  });
+  await runner.postMessage('cli:idle-checkpoint', { text: 'wait for idle' });
+  await runner.waitForSessionIdle('cli:idle-checkpoint');
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  await runner.waitForSessionIdle('cli:idle-checkpoint');
+
+  const episodicEntries = await readJsonl(
+    (relativePath) => workspace.readFile(relativePath),
+    runner.getEpisodicLogRelativePath('cli:idle-checkpoint'),
+  );
+  const idleData = episodicEntries[0]?.data as Record<string, unknown> | undefined;
+
+  assert.equal(episodicEntries.length, 1);
+  assert.equal(episodicEntries[0]?.type, 'session_summary');
+  assert.equal(idleData?.reason, 'idle');
+});
+
 test('AgentRunner surfaces a missing API key as an error event instead of crashing', async (t) => {
   const { workspace, security } = await createSecurityFixture(t);
   await security.load();
@@ -611,11 +725,6 @@ test('AgentRunner pauses on require_approval_for and resumes after respondToAppr
     (relativePath) => workspace.readFile(relativePath),
     runner.getSessionLogRelativePath('cli:approval-session'),
   );
-  const episodicEntries = await readJsonl(
-    (relativePath) => workspace.readFile(relativePath),
-    runner.getEpisodicLogRelativePath('cli:approval-session'),
-  );
-
   assert.ok(
     sessionEntries.some(
       (entry) =>
@@ -631,36 +740,6 @@ test('AgentRunner pauses on require_approval_for and resumes after respondToAppr
         entry.decision === 'approved',
     ),
   );
-  assert.ok(
-    episodicEntries.some(
-      (entry) =>
-        entry.type === 'tool_approval_requested' &&
-        entry.data &&
-        typeof entry.data === 'object' &&
-        'toolName' in entry.data &&
-        entry.data.toolName === 'write_file',
-    ),
-  );
-  assert.ok(
-    episodicEntries.some(
-      (entry) =>
-        entry.type === 'tool_approval_resolved' &&
-        entry.data &&
-        typeof entry.data === 'object' &&
-        'decision' in entry.data &&
-        entry.data.decision === 'approved',
-    ),
-  );
-  const approvalFlow = episodicEntries
-    .map((entry) => String(entry.type))
-    .filter((type) => trackedToolEventTypes.has(type));
-  assert.deepEqual(approvalFlow, [
-    'tool_requested',
-    'tool_approval_requested',
-    'tool_approval_resolved',
-    'tool_started',
-    'tool_result',
-  ]);
 });
 
 test('AgentRunner rejects tool call when respondToApproval sends false', async (t) => {
@@ -748,11 +827,6 @@ test('AgentRunner rejects tool call when respondToApproval sends false', async (
     (relativePath) => workspace.readFile(relativePath),
     runner.getSessionLogRelativePath('cli:deny-session'),
   );
-  const episodicEntries = await readJsonl(
-    (relativePath) => workspace.readFile(relativePath),
-    runner.getEpisodicLogRelativePath('cli:deny-session'),
-  );
-
   assert.ok(
     sessionEntries.some(
       (entry) =>
@@ -768,25 +842,6 @@ test('AgentRunner rejects tool call when respondToApproval sends false', async (
         entry.decision === 'rejected',
     ),
   );
-  assert.ok(
-    episodicEntries.some(
-      (entry) =>
-        entry.type === 'tool_approval_resolved' &&
-        entry.data &&
-        typeof entry.data === 'object' &&
-        'decision' in entry.data &&
-        entry.data.decision === 'rejected',
-    ),
-  );
-  const deniedFlow = episodicEntries
-    .map((entry) => String(entry.type))
-    .filter((type) => trackedToolEventTypes.has(type));
-  assert.deepEqual(deniedFlow, [
-    'tool_requested',
-    'tool_approval_requested',
-    'tool_approval_resolved',
-    'tool_result',
-  ]);
 });
 
 test('AgentRunner skips approval for full autonomy level', async (t) => {

@@ -10,6 +10,7 @@ export interface RunnerSession extends SessionDescriptor {
   queue: Promise<void>;
   sideEffects: Promise<void>;
   backgroundTasks: Promise<void>;
+  idleSummaryTimer: ReturnType<typeof setTimeout> | undefined;
   sessionLogRelativePath: string;
   episodicRelativePath: string;
   latestAssistantText: string | undefined;
@@ -17,6 +18,10 @@ export interface RunnerSession extends SessionDescriptor {
   approvalGate: ApprovalGate;
   status: SessionStatus;
   messageCount: number;
+  completedTurnCount: number;
+  lastSummarizedHistoryCount: number;
+  lastSummarizedTurnCount: number;
+  lastSummarizedAt?: string;
   description?: string;
   descriptionSource?: 'fallback' | 'ai';
   lastMessagePreview?: string;
@@ -34,4 +39,14 @@ export interface AgentRunnerOptions {
       config: AgentConfig;
     },
   ) => Promise<string | undefined>;
+  checkpointSummaryGenerator?: (
+    input: {
+      sessionId: string;
+      reason: 'manual' | 'new_session' | 'turn_limit' | 'idle';
+      history: Array<{ role: 'user' | 'assistant' | 'error'; content: string; ts: string }>;
+      config: AgentConfig;
+    },
+  ) => Promise<string | undefined>;
+  idleSummaryTimeoutMs?: number;
+  checkpointTurnInterval?: number;
 }

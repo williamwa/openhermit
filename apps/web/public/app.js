@@ -407,6 +407,16 @@ const selectSession = async (sessionId) => {
 };
 
 const createAndSelectSession = async () => {
+  if (state.currentSessionId) {
+    await fetch(`/api/sessions/${encodeURIComponent(state.currentSessionId)}/checkpoint`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ reason: 'new_session' }),
+    });
+  }
+
   const sessionId = createSessionId();
   await fetch('/api/sessions', {
     method: 'POST',

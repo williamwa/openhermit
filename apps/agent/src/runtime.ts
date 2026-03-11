@@ -45,6 +45,10 @@ export interface SessionRuntime {
   openSession(spec: SessionSpec): Promise<SessionDescriptor>;
   listSessions(query?: SessionListQuery): Promise<SessionSummary[]>;
   listSessionMessages(sessionId: string): Promise<SessionHistoryMessage[]>;
+  checkpointSession(
+    sessionId: string,
+    reason?: 'manual' | 'new_session' | 'turn_limit' | 'idle',
+  ): Promise<boolean>;
   postMessage(
     sessionId: string,
     message: SessionMessage,
@@ -196,6 +200,10 @@ export class InMemoryAgentRuntime implements SessionRuntime {
     }
 
     return [...session.history].reverse();
+  }
+
+  async checkpointSession(_sessionId: string): Promise<boolean> {
+    return false;
   }
 
   async postMessage(

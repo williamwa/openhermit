@@ -45,9 +45,6 @@ export class SessionLogWriter {
   ): Promise<void> {
     const entries = createSessionStartedEntries(paths, spec, model);
 
-    await Promise.all([
-      this.appendSession(entries.paths.sessionLogRelativePath, entries.session),
-      this.appendEpisodic(entries.paths.episodicRelativePath, entries.episodic),
-    ]);
+    await this.appendSession(entries.paths.sessionLogRelativePath, entries.session);
   }
 }

@@ -217,6 +217,16 @@ export const createWebServer = (options: WebServerOptions): http.Server =>
         return;
       }
 
+      const checkpointMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/checkpoint$/);
+      if (checkpointMatch && req.method === 'POST') {
+        const { client } = await createAgentClient(options.workspaceRoot);
+        const payload = await readJsonBody(req);
+        const sessionId = decodeURIComponent(checkpointMatch[1] ?? '');
+        const response = await client.checkpointSession(sessionId, (payload ?? {}) as never);
+        sendJson(res, 200, response);
+        return;
+      }
+
       const eventsMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/events$/);
       if (eventsMatch && req.method === 'GET') {
         const sessionId = decodeURIComponent(eventsMatch[1] ?? '');
