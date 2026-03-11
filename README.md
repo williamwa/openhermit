@@ -29,8 +29,19 @@ openhermit/
 │   ├── protocol/             # Shared session/event contracts and route constants
 │   ├── sdk/                  # Thin client for agent-local API calls
 │   └── shared/               # Errors, runtime file constants, small shared helpers
-└── docs/                     # Architecture, planning, ADRs
+└── docs/
+    ├── v1/                  # Frozen docs for the current implementation baseline
+    └── v2/                  # Next planning track
 ```
+
+## Documentation Tracks
+
+- `v1` documents the current implemented architecture:
+  [docs/v1/architecture.md](docs/v1/architecture.md),
+  [docs/v1/plan.md](docs/v1/plan.md)
+- `v2` is the next planning track for program-level memory and scheduling:
+  [docs/v2/architecture.md](docs/v2/architecture.md),
+  [docs/v2/plan.md](docs/v2/plan.md)
 
 ## Quick Start
 
