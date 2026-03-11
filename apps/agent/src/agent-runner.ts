@@ -35,6 +35,7 @@ import {
 } from './session-logs.js';
 import {
   createFallbackDescription,
+  createSessionWorkingMemoryRelativePath,
   normalizeGeneratedDescription,
 } from './session-utils.js';
 import { type SessionDescriptor, SessionEventBroker, type SessionRuntime } from './runtime.js';
@@ -381,7 +382,40 @@ export class AgentRunner implements SessionRuntime {
       },
     });
 
+    await this.updateSessionWorkingMemory(session, {
+      checkpointSummary: summary,
+      reason,
+      config,
+    });
+
     return true;
+  }
+
+  private async updateSessionWorkingMemory(
+    session: RunnerSession,
+    input: {
+      checkpointSummary: string;
+      reason: 'manual' | 'new_session' | 'turn_limit' | 'idle';
+      config: AgentConfig;
+    },
+  ): Promise<void> {
+    const relativePath = createSessionWorkingMemoryRelativePath(session.spec.sessionId);
+    const previousWorkingMemory = await this.options.workspace
+      .readFile(relativePath)
+      .catch(() => undefined);
+    const nextWorkingMemory = await this.generateSessionWorkingMemory({
+      sessionId: session.spec.sessionId,
+      previousWorkingMemory,
+      checkpointSummary: input.checkpointSummary,
+      reason: input.reason,
+      config: input.config,
+    });
+
+    if (!nextWorkingMemory) {
+      return;
+    }
+
+    await this.options.workspace.writeFile(relativePath, `${nextWorkingMemory.trim()}\n`);
   }
 
   async postMessage(
@@ -596,7 +630,7 @@ export class AgentRunner implements SessionRuntime {
       ...(this.options.streamFn ? { streamFn: this.options.streamFn } : {}),
       getApiKey: (provider) => this.resolveApiKey(provider),
       transformContext: (messages, signal) =>
-        this.transformContext(messages, signal),
+        this.transformContext(spec.sessionId, messages, signal),
       transport: 'sse',
     });
   }
@@ -628,30 +662,46 @@ export class AgentRunner implements SessionRuntime {
   }
 
   private async transformContext(
+    sessionId: string,
     messages: AgentMessage[],
     _signal?: AbortSignal,
   ): Promise<AgentMessage[]> {
-    const workingMemory = await this.options.workspace
+    const sessionWorking = await this.options.workspace
+      .readFile(createSessionWorkingMemoryRelativePath(sessionId))
+      .catch(() => '');
+    const globalWorking = await this.options.workspace
       .readFile('memory/working.md')
       .catch(() => '');
 
-    if (!workingMemory.trim()) {
-      return messages;
-    }
+    const contextBlocks: AgentMessage[] = [];
 
-    return [
-      {
+    if (sessionWorking.trim()) {
+      contextBlocks.push({
         role: 'user',
         content: [
           {
             type: 'text',
-            text: `Working memory (read-only context):\n\n${workingMemory}`,
+            text: `Session-local working memory (read-only context):\n\n${sessionWorking}`,
           },
         ],
         timestamp: Date.now(),
-      },
-      ...messages,
-    ];
+      });
+    }
+
+    if (globalWorking.trim()) {
+      contextBlocks.push({
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: `Global working memory (read-only context):\n\n${globalWorking}`,
+          },
+        ],
+        timestamp: Date.now(),
+      });
+    }
+
+    return contextBlocks.concat(messages);
   }
 
   private resolveApiKey(provider: string): string | undefined {
@@ -1103,6 +1153,100 @@ export class AgentRunner implements SessionRuntime {
     }
 
     const normalized = value.replace(/\s+/g, ' ').trim();
+    return normalized.length > 0 ? normalized : undefined;
+  }
+
+  private async generateSessionWorkingMemory(input: {
+    sessionId: string;
+    previousWorkingMemory: string | undefined;
+    checkpointSummary: string;
+    reason: 'manual' | 'new_session' | 'turn_limit' | 'idle';
+    config: AgentConfig;
+  }): Promise<string | undefined> {
+    if (this.options.sessionWorkingMemoryGenerator) {
+      return this.normalizeSessionWorkingMemory(
+        await this.options.sessionWorkingMemoryGenerator(input),
+      );
+    }
+
+    if (this.options.streamFn) {
+      return this.createFallbackSessionWorkingMemory(input);
+    }
+
+    const apiKey = this.resolveApiKey(input.config.model.provider);
+
+    if (!apiKey) {
+      return this.createFallbackSessionWorkingMemory(input);
+    }
+
+    const response = await complete(
+      resolveModel(input.config),
+      {
+        systemPrompt: [
+          'Rewrite the session-local working memory for one agent session.',
+          'Preserve still-relevant context from the previous version.',
+          'Incorporate the new checkpoint summary.',
+          'Remove stale or completed context.',
+          'Return markdown only.',
+          'Keep it concise and structured.',
+        ].join(' '),
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: [
+                  `Session: ${input.sessionId}`,
+                  `Reason: ${input.reason}`,
+                  'Previous session-local working memory:',
+                  input.previousWorkingMemory?.trim() || '(none)',
+                  'New checkpoint summary:',
+                  input.checkpointSummary,
+                ].join('\n\n'),
+              },
+            ],
+            timestamp: Date.now(),
+          },
+        ],
+      },
+      { apiKey },
+    );
+
+    return (
+      this.normalizeSessionWorkingMemory(extractAssistantText(response))
+      ?? this.createFallbackSessionWorkingMemory(input)
+    );
+  }
+
+  private createFallbackSessionWorkingMemory(input: {
+    sessionId: string;
+    previousWorkingMemory: string | undefined;
+    checkpointSummary: string;
+    reason: 'manual' | 'new_session' | 'turn_limit' | 'idle';
+  }): string {
+    const previous = input.previousWorkingMemory?.trim();
+
+    return [
+      '# Session Working Memory',
+      '',
+      `Session: ${input.sessionId}`,
+      `Last update reason: ${input.reason}`,
+      '',
+      '## Current Context',
+      input.checkpointSummary,
+      '',
+      '## Previous Working Memory',
+      previous && previous.length > 0 ? previous : '(none)',
+    ].join('\n');
+  }
+
+  private normalizeSessionWorkingMemory(value: string | undefined): string | undefined {
+    if (!value) {
+      return undefined;
+    }
+
+    const normalized = value.trim();
     return normalized.length > 0 ? normalized : undefined;
   }
 }

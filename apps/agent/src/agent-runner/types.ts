@@ -47,6 +47,15 @@ export interface AgentRunnerOptions {
       config: AgentConfig;
     },
   ) => Promise<string | undefined>;
+  sessionWorkingMemoryGenerator?: (
+    input: {
+      sessionId: string;
+      previousWorkingMemory: string | undefined;
+      checkpointSummary: string;
+      reason: 'manual' | 'new_session' | 'turn_limit' | 'idle';
+      config: AgentConfig;
+    },
+  ) => Promise<string | undefined>;
   idleSummaryTimeoutMs?: number;
   checkpointTurnInterval?: number;
 }

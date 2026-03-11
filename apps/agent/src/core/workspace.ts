@@ -74,6 +74,7 @@ const SCAFFOLD_DIRECTORIES = [
   'memory/episodic',
   'memory/notes',
   'sessions',
+  'sessions/working',
   'containers',
   'files',
   'hooks',

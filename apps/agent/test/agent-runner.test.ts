@@ -11,6 +11,7 @@ import {
 } from '@mariozechner/pi-ai';
 
 import { AgentRunner } from '../src/agent-runner.js';
+import { createSessionWorkingMemoryRelativePath } from '../src/session-utils.js';
 import { createSecurityFixture } from './helpers.js';
 
 const zeroUsage: Usage = {
@@ -263,6 +264,56 @@ test('AgentRunner injects runtime mission and container guidance into the system
   assert.match(capturedSystemPrompt, /mounted files appear under \/workspace inside the container/);
 });
 
+test('AgentRunner injects session-local working memory before global working memory', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: {
+      ANTHROPIC_API_KEY: 'test-anthropic-key',
+    },
+  });
+  await security.load();
+
+  await workspace.writeFile(
+    createSessionWorkingMemoryRelativePath('cli:working-context'),
+    '# Session Working Memory\nsession local context\n',
+  );
+  await workspace.writeFile('memory/working.md', '# Working Memory\nglobal context\n');
+
+  let capturedMessages: Context['messages'] = [];
+  const runner = await AgentRunner.create({
+    workspace,
+    security,
+    streamFn: createSequentialStreamFn([
+      (context) => {
+        capturedMessages = context.messages;
+        return createTextResponseStream('captured');
+      },
+    ]),
+  });
+
+  await runner.openSession({
+    sessionId: 'cli:working-context',
+    source: {
+      kind: 'cli',
+      interactive: true,
+    },
+  });
+  await runner.postMessage('cli:working-context', {
+    text: 'use memory',
+  });
+  await runner.waitForSessionIdle('cli:working-context');
+
+  assert.equal(capturedMessages[0]?.role, 'user');
+  assert.match(
+    JSON.stringify(capturedMessages[0]?.content ?? ''),
+    /Session-local working memory/,
+  );
+  assert.equal(capturedMessages[1]?.role, 'user');
+  assert.match(
+    JSON.stringify(capturedMessages[1]?.content ?? ''),
+    /Global working memory/,
+  );
+});
+
 test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: {
@@ -454,6 +505,16 @@ test('AgentRunner writes episodic checkpoints on explicit checkpoint requests an
     ]),
     checkpointSummaryGenerator: async ({ history, reason }) =>
       `${reason}: ${history.map((entry) => `${entry.role}:${entry.content}`).join(' | ')}`,
+    sessionWorkingMemoryGenerator: async ({
+      previousWorkingMemory,
+      checkpointSummary,
+      reason,
+    }) =>
+      [
+        `reason=${reason}`,
+        `summary=${checkpointSummary}`,
+        `previous=${previousWorkingMemory?.replace(/\n/g, ' ') ?? '(none)'}`,
+      ].join('\n'),
   });
 
   await runner.openSession({
@@ -495,6 +556,13 @@ test('AgentRunner writes episodic checkpoints on explicit checkpoint requests an
   assert.match(String(firstData?.summary ?? ''), /first question/);
   assert.doesNotMatch(String(secondData?.summary ?? ''), /first question/);
   assert.match(String(secondData?.summary ?? ''), /second question/);
+
+  const workingMemory = await workspace.readFile(
+    createSessionWorkingMemoryRelativePath('cli:checkpoint-session'),
+  );
+  assert.match(workingMemory, /reason=manual/);
+  assert.match(workingMemory, /summary=manual: user:second question \| assistant:second reply/);
+  assert.match(workingMemory, /previous=reason=new_session/);
 });
 
 test('AgentRunner writes a checkpoint automatically every configured turn interval', async (t) => {
