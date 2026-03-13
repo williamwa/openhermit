@@ -127,6 +127,12 @@ Agent responsibilities:
 - rewrite working memory
 - generate promoted long-term memory content
 
+Operational model:
+
+- every completed user-visible turn is followed by a program-triggered self-introspection turn
+- long-term consolidation runs separately during idle / low-activity periods
+- explicit user instructions such as "remember ..." may directly update long-term memory
+
 **Rationale**:
 
 - predictable lifecycle

@@ -45,6 +45,7 @@ OpenHermit is moving toward:
 - configurable checkpoint turn interval
 - session-local working memory stored in `sessions`
 - global and future long-term memories stored in `memories`
+- memory model now targets a post-turn `self-introspection` pass
 
 ### Internal State Migration
 
@@ -66,14 +67,22 @@ Completed.
 - decide what belongs to system-managed long-term memory vs user-authored knowledge
 - move system-managed long-term memory into `state.sqlite`
 - keep user-authored knowledge in external files
+- support explicit user-driven long-term memory updates
 
-### 1.3 Identity Split
+### 1.3 Self-Introspection
+
+- after every completed user-visible turn, run an internal self-introspection turn
+- use the new session-log range plus existing memory state as input
+- update episodic and working memory through this pass
+- prepare the same lifecycle for future long-term consolidation
+
+### 1.4 Identity Split
 
 - treat `identity/*.md` as user-authored identity inputs
 - define normalized internal identity state
 - stop treating workspace identity files as canonical runtime state
 
-### 1.4 Container Runtime Migration
+### 1.5 Container Runtime Migration
 
 - move container runtime inventory out of `containers/registry.jsonl`
 - store runtime inventory in `state.sqlite`
@@ -108,9 +117,10 @@ Completed.
 ## Immediate Implementation Order
 
 1. define the split between system long-term memory and user-authored knowledge
-2. migrate container runtime inventory into `state.sqlite`
-3. design and implement the scheduler
-4. split identity inputs from normalized internal identity state
+2. implement the self-introspection turn
+3. migrate container runtime inventory into `state.sqlite`
+4. design and implement the scheduler
+5. split identity inputs from normalized internal identity state
 
 ## Design Constraints
 
