@@ -36,14 +36,18 @@ export class UnauthorizedError extends OpenHermitError {
   }
 }
 
-export const runtimeFiles = {
-  apiPort: 'runtime/api.port',
-  apiToken: 'runtime/api.token',
-} as const;
-
 export const internalStateFiles = {
   sqlite: 'state.sqlite',
+  runtime: 'runtime.json',
 } as const;
+
+export interface RuntimeStateFile {
+  http_api: {
+    port: number;
+    token: string;
+  };
+  updated_at: string;
+}
 
 export const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error) {

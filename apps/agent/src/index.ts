@@ -1,10 +1,11 @@
 import { randomBytes } from 'node:crypto';
+import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 
 import { createAdaptorServer } from '@hono/node-server';
 
-import { runtimeFiles } from '@openhermit/shared';
+import type { RuntimeStateFile } from '@openhermit/shared';
 
 import { AgentRunner } from './agent-runner.js';
 import { createAgentApp } from './app.js';
@@ -112,10 +113,18 @@ const apiToken = randomBytes(24).toString('hex');
 const app = createAgentApp(runner, { apiToken });
 const { info, usedFallback } = await listen(app.fetch, preferredPort);
 
-await Promise.all([
-  workspace.writeFile(runtimeFiles.apiToken, `${apiToken}\n`),
-  workspace.writeFile(runtimeFiles.apiPort, `${info.port}\n`),
-]);
+const runtimeState: RuntimeStateFile = {
+  http_api: {
+    port: info.port,
+    token: apiToken,
+  },
+  updated_at: new Date().toISOString(),
+};
+await fs.writeFile(
+  security.runtimeFilePath,
+  `${JSON.stringify(runtimeState, null, 2)}\n`,
+  'utf8',
+);
 
 console.log(
   `[openhermit-agent] listening on http://localhost:${info.port} (workspace: ${workspaceRoot})${

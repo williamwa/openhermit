@@ -5,6 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 
+import { internalStateFiles } from '@openhermit/shared';
+
 import { createWebServer, parseWebCliArgs, resolveWorkspaceRoot } from '../src/index.js';
 
 test('resolveWorkspaceRoot uses explicit workspace when provided', () => {
@@ -47,14 +49,29 @@ test('parseWebCliArgs validates port values', () => {
 
 test('createWebServer tolerates SSE client disconnects without crashing', async () => {
   const originalFetch = globalThis.fetch;
+  const originalOpenHermitHome = process.env.OPENHERMIT_HOME;
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'openhermit-web-test-'));
   const workspaceRoot = path.join(tempRoot, '.openhermit-dev', 'agent-dev');
-  const runtimeRoot = path.join(workspaceRoot, 'runtime');
+  const openHermitHome = path.join(tempRoot, '.openhermit');
+  const agentRoot = path.join(openHermitHome, 'agent-dev');
   const encoder = new TextEncoder();
 
-  await fs.mkdir(runtimeRoot, { recursive: true });
-  await fs.writeFile(path.join(runtimeRoot, 'api.port'), '3999\n', 'utf8');
-  await fs.writeFile(path.join(runtimeRoot, 'api.token'), 'test-token\n', 'utf8');
+  await fs.mkdir(agentRoot, { recursive: true });
+  await fs.writeFile(
+    path.join(agentRoot, internalStateFiles.runtime),
+    `${JSON.stringify(
+      {
+        http_api: {
+          port: 3999,
+          token: 'test-token',
+        },
+        updated_at: '2026-03-13T00:00:00.000Z',
+      },
+      null,
+      2,
+    )}\n`,
+    'utf8',
+  );
 
   globalThis.fetch = async (_input, init) =>
     new Response(
@@ -85,6 +102,7 @@ test('createWebServer tolerates SSE client disconnects without crashing', async 
     agentId: 'agent-dev',
     workspaceRoot,
   });
+  process.env.OPENHERMIT_HOME = openHermitHome;
 
   try {
     try {
@@ -130,6 +148,11 @@ test('createWebServer tolerates SSE client disconnects without crashing', async 
     assert.equal(server.listening, true);
   } finally {
     globalThis.fetch = originalFetch;
+    if (originalOpenHermitHome === undefined) {
+      delete process.env.OPENHERMIT_HOME;
+    } else {
+      process.env.OPENHERMIT_HOME = originalOpenHermitHome;
+    }
     await fs.rm(tempRoot, { recursive: true, force: true });
 
     if (server.listening) {

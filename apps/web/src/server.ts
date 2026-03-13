@@ -71,13 +71,13 @@ const readJsonBody = async (req: IncomingMessage): Promise<unknown> => {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 };
 
-const createAgentClient = async (workspaceRoot: string): Promise<{
+const createAgentClient = async (agentId: string): Promise<{
   client: AgentLocalClient;
   token: string;
   baseUrl: string;
   port: string;
 }> => {
-  const runtime = await readAgentRuntimeConnection(workspaceRoot);
+  const runtime = await readAgentRuntimeConnection(agentId);
 
   return {
     client: new AgentLocalClient({
@@ -137,7 +137,7 @@ export const createWebServer = (options: WebServerOptions): http.Server =>
       }
 
       if (pathname === '/api/bootstrap' && req.method === 'GET') {
-        const runtime = await readAgentRuntimeConnection(options.workspaceRoot);
+        const runtime = await readAgentRuntimeConnection(options.agentId);
         sendJson(res, 200, {
           agentId: options.agentId,
           workspaceRoot: options.workspaceRoot,
@@ -147,7 +147,7 @@ export const createWebServer = (options: WebServerOptions): http.Server =>
       }
 
       if (pathname === '/api/sessions' && req.method === 'GET') {
-        const { client } = await createAgentClient(options.workspaceRoot);
+        const { client } = await createAgentClient(options.agentId);
         const interactive = searchParams.get('interactive');
         const limit = searchParams.get('limit');
         const query: {
@@ -182,7 +182,7 @@ export const createWebServer = (options: WebServerOptions): http.Server =>
       }
 
       if (pathname === '/api/sessions' && req.method === 'POST') {
-        const { client } = await createAgentClient(options.workspaceRoot);
+        const { client } = await createAgentClient(options.agentId);
         const payload = await readJsonBody(req);
         const response = await client.openSession(payload as never);
         sendJson(res, 200, response);
@@ -191,7 +191,7 @@ export const createWebServer = (options: WebServerOptions): http.Server =>
 
       const messageMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/messages$/);
       if (messageMatch && req.method === 'GET') {
-        const { client } = await createAgentClient(options.workspaceRoot);
+        const { client } = await createAgentClient(options.agentId);
         const sessionId = decodeURIComponent(messageMatch[1] ?? '');
         const response = await client.listSessionMessages(sessionId);
         sendJson(res, 200, response);
@@ -199,7 +199,7 @@ export const createWebServer = (options: WebServerOptions): http.Server =>
       }
 
       if (messageMatch && req.method === 'POST') {
-        const { client } = await createAgentClient(options.workspaceRoot);
+        const { client } = await createAgentClient(options.agentId);
         const payload = await readJsonBody(req);
         const sessionId = decodeURIComponent(messageMatch[1] ?? '');
         const response = await client.postMessage(sessionId, payload as never);
@@ -209,7 +209,7 @@ export const createWebServer = (options: WebServerOptions): http.Server =>
 
       const approveMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/approve$/);
       if (approveMatch && req.method === 'POST') {
-        const { client } = await createAgentClient(options.workspaceRoot);
+        const { client } = await createAgentClient(options.agentId);
         const payload = await readJsonBody(req);
         const sessionId = decodeURIComponent(approveMatch[1] ?? '');
         const response = await client.submitApproval(sessionId, payload as never);
@@ -219,7 +219,7 @@ export const createWebServer = (options: WebServerOptions): http.Server =>
 
       const checkpointMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/checkpoint$/);
       if (checkpointMatch && req.method === 'POST') {
-        const { client } = await createAgentClient(options.workspaceRoot);
+        const { client } = await createAgentClient(options.agentId);
         const payload = await readJsonBody(req);
         const sessionId = decodeURIComponent(checkpointMatch[1] ?? '');
         const response = await client.checkpointSession(sessionId, (payload ?? {}) as never);
@@ -231,7 +231,7 @@ export const createWebServer = (options: WebServerOptions): http.Server =>
       if (eventsMatch && req.method === 'GET') {
         const sessionId = decodeURIComponent(eventsMatch[1] ?? '');
 
-        const runtime = await createAgentClient(options.workspaceRoot);
+        const runtime = await createAgentClient(options.agentId);
         const controller = new AbortController();
         const abortUpstream = (): void => {
           if (!controller.signal.aborted) {

@@ -69,7 +69,6 @@ const SCAFFOLD_DIRECTORIES = [
   'containers',
   'files',
   'hooks',
-  'runtime',
   'logs',
 ] as const;
 

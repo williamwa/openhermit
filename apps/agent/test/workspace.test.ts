@@ -25,6 +25,7 @@ test('AgentWorkspace init scaffolds config and identity files', async (t) => {
   assert.ok(rootEntries.some((entry) => entry.path === 'identity'));
   assert.ok(rootEntries.every((entry) => entry.path !== 'memory'));
   assert.ok(rootEntries.every((entry) => entry.path !== 'sessions'));
+  assert.ok(rootEntries.every((entry) => entry.path !== 'runtime'));
 });
 
 test('AgentWorkspace supports write, read, list, and delete', async (t) => {

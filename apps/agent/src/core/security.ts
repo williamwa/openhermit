@@ -42,9 +42,9 @@ export class AgentSecurity {
 
   readonly secretsFilePath: string;
 
-  readonly runtimeDir: string;
-
   readonly stateFilePath: string;
+
+  readonly runtimeFilePath: string;
 
   constructor(private readonly options: AgentSecurityOptions) {
     const baseDir =
@@ -55,13 +55,12 @@ export class AgentSecurity {
     this.rootDir = path.join(baseDir, options.agentId);
     this.securityFilePath = path.join(this.rootDir, 'security.json');
     this.secretsFilePath = path.join(this.rootDir, 'secrets.json');
-    this.runtimeDir = path.join(this.rootDir, 'runtime');
     this.stateFilePath = path.join(this.rootDir, internalStateFiles.sqlite);
+    this.runtimeFilePath = path.join(this.rootDir, internalStateFiles.runtime);
   }
 
   async init(): Promise<void> {
     await fs.mkdir(this.rootDir, { recursive: true });
-    await fs.mkdir(this.runtimeDir, { recursive: true });
     await ensureJsonFile(this.securityFilePath, DEFAULT_SECURITY_POLICY);
     await ensureJsonFile(this.secretsFilePath, {});
   }

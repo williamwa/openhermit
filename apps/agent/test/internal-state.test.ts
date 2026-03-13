@@ -25,6 +25,7 @@ test('AgentSecurity exposes per-agent internal state paths outside the workspace
   const { security, root } = await createSecurityFixture(t);
 
   assert.match(security.stateFilePath, new RegExp(`${internalStateFiles.sqlite.replace('.', '\\.')}$`));
+  assert.match(security.runtimeFilePath, new RegExp(`${internalStateFiles.runtime.replace('.', '\\.')}$`));
   assert.equal(security.stateFilePath.startsWith(root), false);
-  assert.equal(security.runtimeDir.startsWith(root), false);
+  assert.equal(security.runtimeFilePath.startsWith(root), false);
 });

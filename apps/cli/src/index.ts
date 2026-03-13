@@ -2,12 +2,11 @@ import { pathToFileURL } from 'node:url';
 import { stderr } from 'node:process';
 
 import { AgentLocalClient } from '@openhermit/sdk';
-import { runtimeFiles } from '@openhermit/shared';
 
 import { parseChatCliArgs, resolveWorkspaceRoot } from './args.js';
 import { parseSlashCommand } from './commands.js';
 import { formatSessionList } from './formatting.js';
-import { readRuntimeValue } from './runtime-files.js';
+import { readRuntimeState } from './runtime-files.js';
 import { listCliSessions, selectStartupSession } from './sessions.js';
 import { parseSseFrames, waitForAssistantTurn } from './sse.js';
 import { runTuiChatLoop } from './tui/index.js';
@@ -24,8 +23,9 @@ export {
 
 export const main = async (): Promise<void> => {
   const options = parseChatCliArgs(process.argv.slice(2));
-  const port = await readRuntimeValue(options.workspaceRoot, runtimeFiles.apiPort);
-  const token = await readRuntimeValue(options.workspaceRoot, runtimeFiles.apiToken);
+  const runtimeState = await readRuntimeState(options.agentId);
+  const port = String(runtimeState.http_api.port);
+  const token = runtimeState.http_api.token;
   const client = new AgentLocalClient({
     baseUrl: `http://127.0.0.1:${port}`,
     token,
