@@ -66,3 +66,18 @@ test('AgentSecurity rejects invalid autonomy levels', async (t) => {
 
   await assert.rejects(() => security.load(), ValidationError);
 });
+
+test('AgentSecurity surfaces security.json parse errors with the file path', async (t) => {
+  const { security } = await createSecurityFixture(t);
+
+  await fs.writeFile(
+    security.securityFilePath,
+    '{\n  "autonomy_level": "supervised",\n  "require_approval_for": [\n}\n',
+    'utf8',
+  );
+
+  await assert.rejects(
+    () => security.load(),
+    /Invalid JSON in .*security\.json:/i,
+  );
+});

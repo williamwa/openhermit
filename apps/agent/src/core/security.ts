@@ -31,6 +31,17 @@ const ensureJsonFile = async (
   }
 };
 
+const parseJsonFile = <T>(content: string, filePath: string): T => {
+  try {
+    return JSON.parse(content) as T;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new ValidationError(
+      `Invalid JSON in ${filePath}: ${message}`,
+    );
+  }
+};
+
 export class AgentSecurity {
   private policy: SecurityPolicy = DEFAULT_SECURITY_POLICY;
 
@@ -71,8 +82,14 @@ export class AgentSecurity {
       fs.readFile(this.secretsFilePath, 'utf8'),
     ]);
 
-    const parsedPolicy = JSON.parse(securityContent) as SecurityPolicy;
-    const parsedSecrets = JSON.parse(secretsContent) as SecretsMap;
+    const parsedPolicy = parseJsonFile<SecurityPolicy>(
+      securityContent,
+      this.securityFilePath,
+    );
+    const parsedSecrets = parseJsonFile<SecretsMap>(
+      secretsContent,
+      this.secretsFilePath,
+    );
 
     if (
       parsedPolicy.autonomy_level !== 'readonly' &&

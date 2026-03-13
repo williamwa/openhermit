@@ -130,6 +130,17 @@ const fileTypeFromDirent = (entry: Dirent): WorkspaceListEntry['type'] => {
   return 'other';
 };
 
+const parseJsonFile = <T>(content: string, filePath: string): T => {
+  try {
+    return JSON.parse(content) as T;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new ValidationError(
+      `Invalid JSON in ${filePath}: ${message}`,
+    );
+  }
+};
+
 export const createDefaultAgentConfig = ({
   agentId,
   name,
@@ -227,7 +238,7 @@ export class AgentWorkspace {
     });
     const content = await fs.readFile(configPath, 'utf8');
 
-    return JSON.parse(content) as AgentConfig;
+    return parseJsonFile<AgentConfig>(content, configPath);
   }
 
   async writeConfig(config: AgentConfig): Promise<void> {

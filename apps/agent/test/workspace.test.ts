@@ -76,3 +76,14 @@ test('AgentWorkspace rejects symlink escapes for new files', async (t) => {
     ValidationError,
   );
 });
+
+test('AgentWorkspace surfaces config.json parse errors with the file path', async (t) => {
+  const { workspace } = await createWorkspaceFixture(t);
+
+  await workspace.writeFile('config.json', '{\n  "agent_id": "agent-test",\n  ]\n');
+
+  await assert.rejects(
+    () => workspace.readConfig(),
+    /Invalid JSON in .*config\.json: .*line 3/i,
+  );
+});
