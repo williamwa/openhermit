@@ -84,6 +84,22 @@ test('createAgentApp rejects protected routes without a bearer token', async () 
   });
 });
 
+test('createAgentApp logs request method path status and duration', async () => {
+  const logs: string[] = [];
+  const app = createAgentApp(new InMemoryAgentRuntime(), {
+    apiToken: bearer,
+    logger: (message) => {
+      logs.push(message);
+    },
+  });
+
+  const response = await app.request(agentLocalRoutes.health);
+
+  assert.equal(response.status, 200);
+  assert.equal(logs.length, 1);
+  assert.match(logs[0] ?? '', /^\[openhermit-agent\] GET \/health -> 200 \d+ms$/);
+});
+
 test('createAgentApp opens a session, accepts a message, and streams the backlog', async () => {
   const runtime = new InMemoryAgentRuntime();
   const app = createAgentApp(runtime, { apiToken: bearer });

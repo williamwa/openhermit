@@ -15,6 +15,10 @@ import { initializeInternalStateDatabase } from './internal-state/sqlite.js';
 const defaultPort = 3001;
 type NodeFetchCallback = Parameters<typeof createAdaptorServer>[0]['fetch'];
 
+const logStartup = (message: string): void => {
+  console.log(`[openhermit-agent] ${message}`);
+};
+
 const listen = async (
   fetch: NodeFetchCallback,
   preferredPort: number,
@@ -81,6 +85,8 @@ const agentName =
   process.env.OPENHERMIT_AGENT_NAME ?? 'OpenHermit Dev Agent';
 
 const workspace = new AgentWorkspace(workspaceRoot);
+logStartup(`booting agent ${agentId}`);
+logStartup(`workspace root: ${workspaceRoot}`);
 await workspace.init({
   agentId,
   name: agentName,
@@ -94,6 +100,9 @@ const security = new AgentSecurity({
 await security.init();
 await security.load();
 initializeInternalStateDatabase(security.stateFilePath).close();
+logStartup(`internal state: ${security.stateFilePath}`);
+logStartup(`runtime metadata: ${security.runtimeFilePath}`);
+logStartup(`autonomy: ${security.getAutonomyLevel()}`);
 
 const runner = await AgentRunner.create({
   workspace,
@@ -108,6 +117,10 @@ const preferredPort = rawPort
 if (Number.isNaN(preferredPort)) {
   throw new Error(`Invalid PORT value: ${rawPort}`);
 }
+
+logStartup(
+  `preferred port: ${preferredPort}${rawPort ? ' (from PORT env)' : ' (from config/default)'}`,
+);
 
 const apiToken = randomBytes(24).toString('hex');
 const app = createAgentApp(runner, { apiToken });
@@ -126,8 +139,10 @@ await fs.writeFile(
   'utf8',
 );
 
-console.log(
-  `[openhermit-agent] listening on http://localhost:${info.port} (workspace: ${workspaceRoot})${
+logStartup(
+  `listening on http://localhost:${info.port}${
     usedFallback ? `; preferred port ${preferredPort} was unavailable` : ''
   }`,
 );
+logStartup(`agent name: ${agentName}`);
+logStartup(`token written to runtime.json`);

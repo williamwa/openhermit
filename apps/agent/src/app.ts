@@ -120,9 +120,27 @@ const parseSessionListQuery = (request: Request): SessionListQuery => {
 
 export const createAgentApp = (
   runtime: SessionRuntime | AgentRunner = new InMemoryAgentRuntime(),
-  options: { apiToken?: string } = {},
+  options: { apiToken?: string; logger?: (message: string) => void } = {},
 ): Hono => {
   const app = new Hono();
+  const log = options.logger ?? ((message: string) => console.log(message));
+
+  app.use('*', async (c, next) => {
+    const startedAt = Date.now();
+
+    try {
+      await next();
+      log(
+        `[openhermit-agent] ${c.req.method} ${c.req.path} -> ${c.res.status} ${Date.now() - startedAt}ms`,
+      );
+    } catch (error) {
+      const status = error instanceof OpenHermitError ? error.statusCode : 500;
+      log(
+        `[openhermit-agent] ${c.req.method} ${c.req.path} -> ${status} ${Date.now() - startedAt}ms`,
+      );
+      throw error;
+    }
+  });
 
   app.use('*', async (c, next) => {
     if (c.req.path === agentLocalRoutes.health) {

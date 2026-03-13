@@ -63,6 +63,10 @@ export class AgentRunner implements SessionRuntime {
 
   private readonly internalStateDatabase: DatabaseSync;
 
+  private logRuntime(message: string): void {
+    console.log(`[openhermit-agent] ${message}`);
+  }
+
   private constructor(private readonly options: AgentRunnerOptions) {
     this.internalStateDatabase = openInternalStateDatabase(
       options.security.stateFilePath,
@@ -196,6 +200,7 @@ export class AgentRunner implements SessionRuntime {
         model: config.model.model,
       });
     }
+    this.logRuntime(`session opened: ${effectiveSpec.sessionId}`);
 
     return {
       spec: session.spec,
@@ -393,6 +398,7 @@ export class AgentRunner implements SessionRuntime {
           summary,
         },
       });
+      this.logRuntime(`session checkpoint: ${reason}`);
 
       await this.updateSessionWorkingMemory(
         session,
@@ -418,6 +424,7 @@ export class AgentRunner implements SessionRuntime {
       `${nextWorkingMemory.trim()}\n`,
       new Date().toISOString(),
     );
+    this.logRuntime(`memory updated: session/${session.spec.sessionId}`);
   }
 
   async postMessage(
