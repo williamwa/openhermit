@@ -14,7 +14,7 @@ test('initializeInternalStateDatabase bootstraps per-agent state.sqlite with sch
 
   try {
     assert.equal(database.databasePath, security.stateFilePath);
-    assert.equal(database.getSchemaVersion(), 1);
+    assert.equal(database.getSchemaVersion(), 2);
     assert.equal(existsSync(security.stateFilePath), true);
   } finally {
     database.close();

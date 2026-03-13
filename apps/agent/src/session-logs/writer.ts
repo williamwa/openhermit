@@ -153,13 +153,13 @@ export class SessionLogWriter {
   async getSessionWorkingMemory(sessionId: string): Promise<string | undefined> {
     const row = this.database
       .prepare(
-        `SELECT content
-         FROM session_working_memory
+        `SELECT working_memory
+         FROM sessions
          WHERE session_id = ?`,
       )
-      .get(sessionId) as { content?: string } | undefined;
+      .get(sessionId) as { working_memory?: string } | undefined;
 
-    return typeof row?.content === 'string' ? row.content : undefined;
+    return typeof row?.working_memory === 'string' ? row.working_memory : undefined;
   }
 
   async setSessionWorkingMemory(
@@ -169,13 +169,11 @@ export class SessionLogWriter {
   ): Promise<void> {
     this.database
       .prepare(
-        `INSERT INTO session_working_memory(session_id, content, updated_at)
-         VALUES (?, ?, ?)
-         ON CONFLICT(session_id) DO UPDATE SET
-           content = excluded.content,
-           updated_at = excluded.updated_at`,
+        `UPDATE sessions
+         SET working_memory = ?, working_memory_updated_at = ?
+         WHERE session_id = ?`,
       )
-      .run(sessionId, content, updatedAt);
+      .run(content, updatedAt, sessionId);
   }
 
   async getGlobalWorkingMemory(): Promise<string | undefined> {

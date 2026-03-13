@@ -2,12 +2,12 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-const CURRENT_SCHEMA_VERSION = 1;
+const CURRENT_SCHEMA_VERSION = 2;
 
 const bootstrapStatements = [
   'PRAGMA journal_mode = WAL;',
   'PRAGMA foreign_keys = ON;',
-  `CREATE TABLE IF NOT EXISTS schema_meta (
+  `CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
   ) STRICT;`,
@@ -36,6 +36,8 @@ const bootstrapStatements = [
     last_summarized_turn_count INTEGER NOT NULL DEFAULT 0,
     last_summarized_at TEXT,
     last_message_preview TEXT,
+    working_memory TEXT,
+    working_memory_updated_at TEXT,
     metadata_json TEXT NOT NULL DEFAULT '{}',
     status TEXT NOT NULL DEFAULT 'idle'
   ) STRICT;`,
@@ -74,12 +76,6 @@ const bootstrapStatements = [
   ) STRICT;`,
   `CREATE INDEX IF NOT EXISTS idx_episodic_checkpoints_session_ts
     ON episodic_checkpoints(session_id, ts DESC);`,
-  `CREATE TABLE IF NOT EXISTS session_working_memory (
-    session_id TEXT PRIMARY KEY,
-    content TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
-  ) STRICT;`,
   `CREATE TABLE IF NOT EXISTS global_working_memory (
     singleton_key TEXT PRIMARY KEY CHECK (singleton_key = 'global'),
     content TEXT NOT NULL,
@@ -157,11 +153,39 @@ class SqliteInternalStateDatabase implements InternalStateDatabase {
 
   getSchemaVersion(): number {
     const row = this.database
-      .prepare(`SELECT value FROM schema_meta WHERE key = 'schema_version'`)
+      .prepare(`SELECT value FROM meta WHERE key = 'schema_version'`)
       .get() as { value?: string } | undefined;
     return Number.parseInt(row?.value ?? '0', 10);
   }
 }
+
+const ensureMetaTable = (database: DatabaseSync): void => {
+  database.exec(
+    `CREATE TABLE IF NOT EXISTS meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    ) STRICT;`,
+  );
+};
+
+const ensureSessionColumns = (database: DatabaseSync): void => {
+  const rows = database
+    .prepare(`PRAGMA table_info(sessions)`)
+    .all() as Array<{ name?: string }>;
+  const names = new Set(
+    rows
+      .map((row) => row.name)
+      .filter((name): name is string => typeof name === 'string'),
+  );
+
+  if (!names.has('working_memory')) {
+    database.exec(`ALTER TABLE sessions ADD COLUMN working_memory TEXT;`);
+  }
+
+  if (!names.has('working_memory_updated_at')) {
+    database.exec(`ALTER TABLE sessions ADD COLUMN working_memory_updated_at TEXT;`);
+  }
+};
 
 export const initializeInternalStateDatabase = (
   databasePath: string,
@@ -182,9 +206,12 @@ export const openInternalStateDatabase = (
       database.exec(statement);
     }
 
+    ensureMetaTable(database);
+    ensureSessionColumns(database);
+
     database
       .prepare(
-        `INSERT INTO schema_meta(key, value)
+        `INSERT INTO meta(key, value)
          VALUES ('schema_version', ?)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       )
