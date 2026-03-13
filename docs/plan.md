@@ -44,7 +44,7 @@ OpenHermit is moving toward:
 - session checkpoint endpoint
 - configurable checkpoint turn interval
 - session-local working memory stored in `sessions`
-- global and future long-term memories stored in `memories`
+- named memories stored in `memories`, including `main` and `now`
 - checkpoint execution is moving from external summarization toward agent-driven internal checkpoint turns
 
 ### Internal State Migration
@@ -64,12 +64,17 @@ Completed.
 
 ### 1.2 Long-Term Memory Rework
 
-- decide what belongs to system-managed long-term memory vs user-authored knowledge
-- move system-managed long-term memory into `state.sqlite`
+- decide what belongs to named system memory vs user-authored knowledge
+- store named system memory in `state.sqlite`
 - keep user-authored knowledge in external files
 - support explicit user-driven long-term memory updates
-- add `memory_recall` for agent-facing long-term memory retrieval
-- add `memory_update` for explicit long-term memory writes
+- add `memory_get` for exact named-memory reads before rewriting
+- add `memory_recall` for agent-facing named-memory retrieval
+- add `memory_update` for explicit named-memory writes
+- define conventions for:
+  - `main`
+  - `now`
+  - structured keys such as `project/...`
 
 ### 1.3 Agent-Driven Checkpoint Turns
 
@@ -131,4 +136,4 @@ Completed.
 - internal state should not flow back into the workspace by default
 - user-editable inputs and agent-managed runtime state must remain distinct
 - episodic and working memory remain runtime-managed and are not exposed as generic agent tools
-- agent-facing memory tools should target long-term memory only
+- agent-facing memory tools should target named system memory only

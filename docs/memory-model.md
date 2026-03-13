@@ -81,12 +81,12 @@ Fields should include:
 - `turn_count`
 - `summary`
 
-## 2. Working Memory
+## 2. Active Memory
 
-Working memory should be split into:
+Active memory should be split into:
 
 - `session-local working memory`
-- `global working memory`
+- `now`
 
 ### Session-Local Working Memory
 
@@ -108,36 +108,40 @@ Storage:
 - internal state
 - session-local working memory is stored on the session record
 
-### Global Working Memory
+### `now`
 
 Purpose:
 
-- hold cross-session, high-signal current context for one agent
+- hold the agent's current cross-session state
+- record what the agent is working on right now
 
 Examples:
 
-- important active threads
+- I am working in `session:cli:...` on email triage
+- I am working in `session:web:...` on a feature implementation
+- current important active threads
 - recent cross-session decisions
 - important currently running services
-- short-lived cross-session context
 
 Storage:
 
 - internal state
 - stored in `state.sqlite`
-- keyed inside the shared `memories` table
+- keyed in the shared `memories` table under the memory key `now`
 
-## 3. Long-Term Memory
+## 3. Durable Memory
 
-Long-term memory should be split into:
+Durable memory should be split into:
 
-- `system long-term memory`
+- `main`
+- structured named memories
 - `user-authored knowledge`
 
-### System Long-Term Memory
+### `main`
 
 Purpose:
 
+- the primary stable memory for one agent
 - stable reusable facts the runtime decides are worth preserving
 
 Examples:
@@ -150,14 +154,33 @@ Storage:
 
 - internal state
 - stored in `state.sqlite`
-- keyed inside the shared `memories` table
+- keyed in the shared `memories` table under the memory key `main`
+
+### Structured Named Memories
+
+Purpose:
+
+- organize memory by topic instead of only by layer
+
+Examples:
+
+- `project/openhermit/plan`
+- `project/openhermit/architecture`
+- `user/preferences/communication`
+- `ops/railway/production`
+
+Rule:
+
+- use keys to express the purpose and topic of the memory
+- prefer structured keys when the memory belongs to a specific project, user preference set, or operational domain
 
 Agent-facing tools:
 
+- `memory_get`
 - `memory_recall`
 - `memory_update`
 
-These tools are only for system-managed long-term memory.
+These tools are for named system memories such as `main`, `now`, and structured keys.
 
 ### User-Authored Knowledge
 
@@ -233,9 +256,9 @@ Outputs of a checkpoint turn should include:
 
 ### Long-Term Consolidation
 
-Long-term memory should not be rewritten on every turn.
+Durable memory should not be rewritten on every turn.
 
-Instead, long-term consolidation should happen through two paths:
+Instead, durable-memory consolidation should happen through two paths:
 
 #### 1. Idle / sleep-time consolidation
 
@@ -247,7 +270,7 @@ That pass should read:
 - episodic memory
 - working memory
 
-Then it should extract only stable, durable information and write it into system long-term memory.
+Then it should extract only stable, durable information and write it into named durable memory such as `main` or structured keys.
 
 This is how transient activity becomes persistent memory.
 
@@ -281,18 +304,33 @@ They should not be treated as ordinary mutable tools the agent can freely rewrit
 
 ### Long-term memory tools
 
-Long-term memory is different because it supports:
+Named durable memory is different because it supports:
 
 - explicit user-directed remembering
 - future recall across sessions
 
-OpenHermit should therefore expose two agent-facing long-term memory tools:
+OpenHermit should therefore expose three agent-facing memory tools:
+
+#### `memory_get`
+
+Purpose:
+
+- read one named system memory by exact key
+- fetch the full current content before rewriting it
+
+Typical parameters:
+
+- `key`
+
+Typical result:
+
+- one full memory entry with key, content, and metadata
 
 #### `memory_recall`
 
 Purpose:
 
-- search and retrieve system long-term memory
+- search and retrieve named system memory
 
 Typical parameters:
 
@@ -302,13 +340,13 @@ Typical parameters:
 
 Typical result:
 
-- matching memory entries with title, snippet/content, and metadata
+- matching memory entries with keys, title, snippet/content, and metadata
 
 #### `memory_update`
 
 Purpose:
 
-- create or update long-term memory when the user explicitly asks the agent to remember something
+- create or update named memory when the user explicitly asks the agent to remember something
 
 Typical parameters:
 
@@ -319,6 +357,12 @@ Typical parameters:
 - update mode such as `upsert`
 
 This tool should not update episodic memory or working memory.
+
+Recommended conventions:
+
+- use `main` for durable cross-session facts
+- use `now` for the current cross-session state
+- use structured keys such as `project/...` or `user/preferences/...` for topic-specific memory
 
 ## Orchestration Responsibility
 
@@ -370,13 +414,17 @@ Long-term memory is different.
 
 Because the user may explicitly ask the agent to remember or update a durable fact, the agent should have explicit mutation capability for system long-term memory.
 
-This implies future tools such as:
+OpenHermit should expose:
 
-- create long-term memory entry
-- update long-term memory entry
-- possibly delete or supersede long-term memory entry
+- `memory_get`
+- `memory_recall`
+- `memory_update`
 
-The exact tool names can be decided later, but the capability should exist.
+Recommended usage:
+
+- use `memory_recall` to discover relevant named memories
+- use `memory_get` to read the full current content of one memory
+- use `memory_update` to rewrite or extend the chosen memory key
 
 ### Retrieval Strategy
 

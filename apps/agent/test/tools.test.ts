@@ -12,6 +12,8 @@ import {
   type DockerRunner,
   DockerContainerManager,
 } from '../src/core/index.js';
+import { openInternalStateDatabase } from '../src/internal-state/sqlite.js';
+import { SessionLogWriter } from '../src/session-logs.js';
 import { createBuiltInTools, withApproval } from '../src/tools.js';
 import { createSecurityFixture, createTempDir } from './helpers.js';
 
@@ -287,6 +289,174 @@ test('file_search finds literal matches across workspace files', async (t) => {
   assert.equal(details.totalMatches, 3);
   assert.equal(details.returnedMatches, 3);
   assert.equal(details.truncated, false);
+});
+
+test('memory_update stores named memory, memory_recall finds it, and memory_get returns full content', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  const database = openInternalStateDatabase(security.stateFilePath);
+  t.after(() => database.close());
+  const memoryStore = new SessionLogWriter(database);
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+    stateFilePath: security.stateFilePath,
+  });
+  const tools = createBuiltInTools({
+    workspace,
+    security,
+    containerManager,
+    memoryStore,
+  });
+  const updateTool = findTool(tools, 'memory_update');
+  const getTool = findTool(tools, 'memory_get');
+  const recallTool = findTool(tools, 'memory_recall');
+
+  const updateResult = await updateTool.execute('call-memory-update', {
+    key: 'main',
+    title: 'Language preference',
+    content: 'The user prefers TypeScript for new examples.',
+    tags: ['preferences', 'language'],
+  });
+
+  const updateDetails = updateResult.details as Record<string, unknown>;
+  assert.equal(updateDetails.memoryKey, 'main');
+
+  const recallResult = await recallTool.execute('call-memory-recall', {
+    query: 'TypeScript',
+    limit: 3,
+  });
+
+  const recallText = getFirstText(recallResult);
+  assert.match(recallText, /TypeScript/);
+  assert.match(recallText, /Language preference/);
+
+  const recallDetails = recallResult.details as Record<string, unknown>;
+  assert.equal(recallDetails.query, 'TypeScript');
+  assert.equal(recallDetails.count, 1);
+
+  const getResult = await getTool.execute('call-memory-get', {
+    key: 'main',
+  });
+  const getDetails = getResult.details as Record<string, unknown>;
+  assert.equal(getDetails.memoryKey, 'main');
+  assert.equal(
+    getDetails.content,
+    'The user prefers TypeScript for new examples.',
+  );
+  assert.equal(getDetails.title, 'Language preference');
+});
+
+test('memory_recall supports key_prefix filtering and memory_update can write now', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  const database = openInternalStateDatabase(security.stateFilePath);
+  t.after(() => database.close());
+  const memoryStore = new SessionLogWriter(database);
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+    stateFilePath: security.stateFilePath,
+  });
+  const tools = createBuiltInTools({
+    workspace,
+    security,
+    containerManager,
+    memoryStore,
+  });
+  const updateTool = findTool(tools, 'memory_update');
+  const recallTool = findTool(tools, 'memory_recall');
+
+  await updateTool.execute('call-memory-update-now', {
+    key: 'now',
+    content: 'I am currently working in session:web:abc on the OpenHermit web UI.',
+  });
+  await updateTool.execute('call-memory-update-project', {
+    key: 'project/openhermit/plan',
+    content: 'Next up: scheduler and identity split.',
+  });
+
+  const recallResult = await recallTool.execute('call-memory-recall-prefix', {
+    query: 'scheduler',
+    key_prefix: 'project/openhermit/',
+  });
+
+  const recallDetails = recallResult.details as Record<string, unknown>;
+  assert.equal(recallDetails.count, 1);
+  assert.equal(
+    (recallDetails.matches as Array<Record<string, unknown>>)[0]?.memoryKey,
+    'project/openhermit/plan',
+  );
+});
+
+test('memory_get rejects unknown keys', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  const database = openInternalStateDatabase(security.stateFilePath);
+  t.after(() => database.close());
+  const memoryStore = new SessionLogWriter(database);
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+    stateFilePath: security.stateFilePath,
+  });
+  const tools = createBuiltInTools({
+    workspace,
+    security,
+    containerManager,
+    memoryStore,
+  });
+  const getTool = findTool(tools, 'memory_get');
+
+  await assert.rejects(
+    () =>
+      getTool.execute('call-memory-get-missing', {
+        key: 'project/missing',
+      }),
+    (error: unknown) =>
+      error instanceof ValidationError
+      && /Memory not found: project\/missing/.test(error.message),
+  );
+});
+
+test('memory_update is blocked in readonly mode', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+    security: {
+      autonomy_level: 'readonly',
+      require_approval_for: [],
+    },
+  });
+  await security.load();
+
+  const database = openInternalStateDatabase(security.stateFilePath);
+  t.after(() => database.close());
+  const memoryStore = new SessionLogWriter(database);
+  const containerManager = new DockerContainerManager(workspace, {
+    runner: new FakeDockerRunner([]),
+    stateFilePath: security.stateFilePath,
+  });
+  const tools = createBuiltInTools({
+    workspace,
+    security,
+    containerManager,
+    memoryStore,
+  });
+  const updateTool = findTool(tools, 'memory_update');
+
+  await assert.rejects(
+    () =>
+      updateTool.execute('call-memory-readonly', {
+        content: 'Remember this forever.',
+      }),
+    ValidationError,
+  );
 });
 
 test('file_search supports path scoping and glob filters', async (t) => {

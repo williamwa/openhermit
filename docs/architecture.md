@@ -40,8 +40,9 @@ Examples:
 - session messages and events
 - episodic checkpoints
 - session-local working memory
-- global working memory
-- long-term system memory
+- `now`
+- `main`
+- structured named memories
 - approvals
 - bindings
 - schedules and schedule runs
@@ -50,7 +51,7 @@ Examples:
 
 Internal state is not part of the agent's ordinary task workspace.
 
-Agent-facing memory tools should only target long-term system memory.
+Agent-facing memory tools should only target named system memory such as `main`, `now`, and structured keys. The current tool set should include `memory_get`, `memory_recall`, and `memory_update`.
 Episodic and working memory remain runtime-managed internal state.
 
 ## Storage Layout
@@ -230,16 +231,16 @@ OpenHermit uses four logical memory layers:
 
 - session log
 - episodic memory
-- working memory
-- long-term memory
+- active memory
+- durable memory
 
 Current direction:
 
 - raw session history, episodic checkpoints, and memories live in `state.sqlite`
-- system-managed long-term memory should also live in `state.sqlite`
+- system-managed memories such as `main`, `now`, and structured keys live in `state.sqlite`
 - user-authored knowledge should remain external and searchable as normal files
 - checkpoints should be executed as internal agent turns rather than external bare summaries
-- long-term memory should be updated through idle consolidation and explicit user instruction
+- durable memory should be updated through idle consolidation and explicit user instruction
 
 See:
 
