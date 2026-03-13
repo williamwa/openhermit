@@ -50,6 +50,9 @@ Examples:
 
 Internal state is not part of the agent's ordinary task workspace.
 
+Agent-facing memory tools should only target long-term system memory.
+Episodic and working memory remain runtime-managed internal state.
+
 ## Storage Layout
 
 ### Workspace
@@ -68,7 +71,6 @@ workspace/
 │   └── AGENTS.md
 ├── files/
 ├── containers/
-│   ├── registry.jsonl
 │   └── {container-name}/
 │       └── data/
 ├── hooks/
@@ -81,6 +83,7 @@ Notes:
 - `identity/` currently remains workspace-authored input
 - `files/` is the main area the agent reads, writes, and searches
 - `containers/{name}/data/` is external state because it contains mounted task data
+- container runtime inventory is internal state and now lives in `state.sqlite`
 - the workspace no longer defaults to storing session, memory, or runtime discovery state
 
 ### Per-Agent Internal State
@@ -100,7 +103,7 @@ Current responsibilities:
 - `security.json`: autonomy and approval policy
 - `secrets.json`: provider and integration secrets
 - `runtime.json`: local discovery metadata for the agent-local API
-- `state.sqlite`: sessions, messages, episodic checkpoints, and other runtime-owned records
+- `state.sqlite`: sessions, messages, memories, container runtime inventory, and other runtime-owned records
 
 ## Runtime Discovery
 

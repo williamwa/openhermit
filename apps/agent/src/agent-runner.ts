@@ -68,7 +68,10 @@ export class AgentRunner implements SessionRuntime {
       options.security.stateFilePath,
     );
     this.containerManager =
-      options.containerManager ?? new DockerContainerManager(options.workspace);
+      options.containerManager
+      ?? new DockerContainerManager(options.workspace, {
+        stateFilePath: options.security.stateFilePath,
+      });
     this.sessionIndex = new SessionIndexStore(this.internalStateDatabase);
     this.logWriter = new SessionLogWriter(this.internalStateDatabase);
   }

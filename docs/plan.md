@@ -68,6 +68,8 @@ Completed.
 - move system-managed long-term memory into `state.sqlite`
 - keep user-authored knowledge in external files
 - support explicit user-driven long-term memory updates
+- add `memory_recall` for agent-facing long-term memory retrieval
+- add `memory_update` for explicit long-term memory writes
 
 ### 1.3 Agent-Driven Checkpoint Turns
 
@@ -85,7 +87,7 @@ Completed.
 
 ### 1.5 Container Runtime Migration
 
-- move container runtime inventory out of `containers/registry.jsonl`
+- move container runtime inventory out of workspace files
 - store runtime inventory in `state.sqlite`
 - keep `containers/{name}/data/` as external task data
 
@@ -128,3 +130,5 @@ Completed.
 - no backward-compatibility layer is required during development
 - internal state should not flow back into the workspace by default
 - user-editable inputs and agent-managed runtime state must remain distinct
+- episodic and working memory remain runtime-managed and are not exposed as generic agent tools
+- agent-facing memory tools should target long-term memory only

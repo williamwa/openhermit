@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import type { DatabaseSync } from 'node:sqlite';
 
 import { OpenHermitError, NotFoundError, ValidationError } from '@openhermit/shared';
 
@@ -10,10 +11,12 @@ import type {
   ContainerProcessResult,
   ContainerRegistryEntry,
   ContainerStatus,
+  ContainerType,
   EphemeralContainerArgs,
   ServiceContainerArgs,
 } from './types.js';
 import { AgentWorkspace } from './workspace.js';
+import { openInternalStateDatabase } from '../internal-state/sqlite.js';
 
 const OUTPUT_START = '---OPENHERMIT_OUTPUT_START---';
 const OUTPUT_END = '---OPENHERMIT_OUTPUT_END---';
@@ -161,34 +164,89 @@ class DockerCliRunner implements DockerRunner {
 
 export interface DockerContainerManagerOptions {
   runner?: DockerRunner;
+  stateFilePath?: string;
 }
 
 export class ContainerRegistryStore {
-  private readonly registryPath: string;
+  constructor(private readonly database: DatabaseSync) {}
 
-  constructor(private readonly workspace: AgentWorkspace) {
-    this.registryPath = path.join(workspace.root, 'containers', 'registry.jsonl');
+  private serializeMetadata(entry: ContainerRegistryEntry): string {
+    return JSON.stringify({
+      id: entry.id,
+      ...(entry.command !== undefined ? { command: entry.command } : {}),
+      ...(entry.ports !== undefined ? { ports: entry.ports } : {}),
+      ...(entry.mount !== undefined ? { mount: entry.mount } : {}),
+      ...(entry.mount_target !== undefined ? { mount_target: entry.mount_target } : {}),
+      ...(entry.network !== undefined ? { network: entry.network } : {}),
+      ...(entry.runtime_container_id !== undefined
+        ? { runtime_container_id: entry.runtime_container_id }
+        : {}),
+      ...(entry.exit_code !== undefined ? { exit_code: entry.exit_code } : {}),
+      created: entry.created,
+      ...(entry.removed !== undefined ? { removed: entry.removed } : {}),
+    });
   }
 
-  async ensureExists(): Promise<void> {
-    await fs.mkdir(path.dirname(this.registryPath), { recursive: true });
+  private mapRow(
+    row: {
+      container_name: string;
+      container_type: string;
+      image: string;
+      status: string;
+      description: string | null;
+      metadata_json: string;
+    },
+  ): ContainerRegistryEntry {
+    const metadata = JSON.parse(row.metadata_json || '{}') as Record<string, unknown>;
 
-    try {
-      await fs.access(this.registryPath);
-    } catch {
-      await fs.writeFile(this.registryPath, '', 'utf8');
-    }
+    return {
+      id:
+        typeof metadata.id === 'string'
+          ? metadata.id
+          : row.container_name,
+      name: row.container_name,
+      image: row.image,
+      type: row.container_type as ContainerType,
+      status: row.status as ContainerStatus,
+      ...(row.description ? { description: row.description } : {}),
+      ...(typeof metadata.command === 'string' ? { command: metadata.command } : {}),
+      ...(metadata.ports && typeof metadata.ports === 'object'
+        ? { ports: metadata.ports as Record<string, number> }
+        : {}),
+      ...(typeof metadata.mount === 'string' ? { mount: metadata.mount } : {}),
+      ...(typeof metadata.mount_target === 'string'
+        ? { mount_target: metadata.mount_target }
+        : {}),
+      ...(typeof metadata.network === 'string' ? { network: metadata.network } : {}),
+      ...(typeof metadata.runtime_container_id === 'string'
+        ? { runtime_container_id: metadata.runtime_container_id }
+        : {}),
+      ...(typeof metadata.exit_code === 'number' ? { exit_code: metadata.exit_code } : {}),
+      created:
+        typeof metadata.created === 'string'
+          ? metadata.created
+          : new Date().toISOString(),
+      ...(typeof metadata.removed === 'string' ? { removed: metadata.removed } : {}),
+    };
   }
 
   async readAll(): Promise<ContainerRegistryEntry[]> {
-    await this.ensureExists();
-    const content = await fs.readFile(this.registryPath, 'utf8');
+    const rows = this.database
+      .prepare(
+        `SELECT container_name, container_type, image, status, description, metadata_json
+         FROM container_runtime_entries
+         ORDER BY json_extract(metadata_json, '$.created') ASC, container_name ASC`,
+      )
+      .all() as Array<{
+      container_name: string;
+      container_type: string;
+      image: string;
+      status: string;
+      description: string | null;
+      metadata_json: string;
+    }>;
 
-    return content
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
-      .map((line) => JSON.parse(line) as ContainerRegistryEntry);
+    return rows.map((row) => this.mapRow(row));
   }
 
   async findByName(name: string): Promise<ContainerRegistryEntry | undefined> {
@@ -197,10 +255,35 @@ export class ContainerRegistryStore {
   }
 
   async upsert(entry: ContainerRegistryEntry): Promise<void> {
-    const entries = await this.readAll();
-    const nextEntries = entries.filter((current) => current.id !== entry.id);
-    nextEntries.push(entry);
-    await this.writeAll(nextEntries);
+    this.database
+      .prepare(
+        `INSERT INTO container_runtime_entries(
+          container_name,
+          container_type,
+          image,
+          status,
+          description,
+          metadata_json,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(container_name) DO UPDATE SET
+          container_type = excluded.container_type,
+          image = excluded.image,
+          status = excluded.status,
+          description = excluded.description,
+          metadata_json = excluded.metadata_json,
+          updated_at = excluded.updated_at`,
+      )
+      .run(
+        entry.name,
+        entry.type,
+        entry.image,
+        entry.status,
+        entry.description ?? null,
+        this.serializeMetadata(entry),
+        new Date().toISOString(),
+      );
   }
 
   async updateByName(
@@ -221,22 +304,8 @@ export class ContainerRegistryStore {
     }
 
     const updated = update(currentEntry);
-    entries[index] = updated;
-    await this.writeAll(entries);
+    await this.upsert(updated);
     return updated;
-  }
-
-  private async writeAll(entries: ContainerRegistryEntry[]): Promise<void> {
-    await this.ensureExists();
-    const serialized = entries
-      .map((entry) => JSON.stringify(entry))
-      .join('\n');
-
-    await fs.writeFile(
-      this.registryPath,
-      serialized.length > 0 ? `${serialized}\n` : '',
-      'utf8',
-    );
   }
 }
 
@@ -249,6 +318,7 @@ interface LiveDockerContainer {
 
 export class DockerContainerManager {
   private readonly docker: DockerRunner;
+  private readonly database: DatabaseSync;
 
   readonly registry: ContainerRegistryStore;
 
@@ -257,7 +327,11 @@ export class DockerContainerManager {
     options: DockerContainerManagerOptions = {},
   ) {
     this.docker = options.runner ?? new DockerCliRunner();
-    this.registry = new ContainerRegistryStore(workspace);
+    this.database = openInternalStateDatabase(
+      options.stateFilePath
+      ?? path.join(workspace.root, '.openhermit-internal', 'state.sqlite'),
+    );
+    this.registry = new ContainerRegistryStore(this.database);
   }
 
   private async requireRegisteredService(

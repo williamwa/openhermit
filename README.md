@@ -28,7 +28,7 @@ Current internal-state files include:
 - `security.json`
 - `secrets.json`
 
-`state.sqlite` now stores sessions, session history, episodic checkpoints, and memories.
+`state.sqlite` now stores sessions, session history, memories, and container runtime inventory.
 
 ## Repository Structure
 

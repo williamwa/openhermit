@@ -255,7 +255,8 @@ test('AgentRunner injects runtime mission and container guidance into the system
   assert.match(capturedSystemPrompt, /Container tool rules:/);
   assert.match(capturedSystemPrompt, /containers\/\{name\}\/data/);
   assert.match(capturedSystemPrompt, /Files under files\/ or the workspace root are not mounted automatically/);
-  assert.match(capturedSystemPrompt, /mounted files appear under \/workspace inside the container/);
+  assert.match(capturedSystemPrompt, /You may choose the in-container mount target/);
+  assert.match(capturedSystemPrompt, /Defaults are \/workspace for ephemeral runs and \/data for service containers/);
 });
 
 test('AgentRunner injects session-local working memory before global working memory', async (t) => {

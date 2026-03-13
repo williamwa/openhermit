@@ -61,7 +61,6 @@ Use this file for workspace-specific instructions, preferences, and collaboratio
 
 const OTHER_SCAFFOLD_FILES = {
   'hooks/hooks.json': '{}\n',
-  'containers/registry.jsonl': '',
 } as const;
 
 const SCAFFOLD_DIRECTORIES = [
