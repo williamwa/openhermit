@@ -9,6 +9,19 @@ OpenHermit is a host-based autonomous agent platform:
 - external task files live in a workspace
 - internal runtime state lives outside the workspace
 
+## Project Goals
+
+OpenHermit is intentionally shaped around a few problems that show up in OpenClaw-style systems:
+
+- **security through sandboxed execution**
+  OpenHermit treats isolated execution as a first-class requirement. Dangerous code execution and service hosting should happen inside controlled containers rather than inheriting broad host trust by default.
+
+- **multi-user and multi-agent readiness**
+  OpenHermit is not only for one self-hosting operator. The architecture is being built so that multiple agents, multiple users, future scheduling, and future gateway-style deployment remain natural extensions instead of afterthoughts.
+
+- **clear component boundaries**
+  OpenHermit avoids collapsing runtime, client, gateway, and protocol concerns into one large package. Components should stay separate and communicate through explicit APIs and contracts.
+
 ## Core Boundary
 
 OpenHermit separates state into two categories:

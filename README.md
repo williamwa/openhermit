@@ -14,6 +14,19 @@ Like a hermit crab living inside its protective shell, an agent can use shells a
 - **API-first**: All agent operations exposed via a clean HTTP + SSE API
 - **Cloud-native**: Deployable on any VPS/cloud, orchestrated via Docker Compose or Kubernetes
 
+## Why OpenHermit
+
+OpenHermit is explicitly designed to address several structural issues that appear in OpenClaw-style systems:
+
+1. **Safer execution by default**
+   OpenClaw exposes a large amount of host power directly. OpenHermit treats sandboxing as a first-class design goal: code execution and long-running services are pushed into isolated containers so the agent can stay powerful without defaulting to host-level trust.
+
+2. **Built for multi-user, multi-agent deployment from the start**
+   OpenClaw is primarily optimized for self-hosting by a single operator. OpenHermit is designed from the beginning around multiple agents, multiple users, and future platform-style deployment. Its internal state model, runtime discovery, and planned scheduler/gateway layers all aim toward hosted operation rather than only personal local use.
+
+3. **Clear boundaries between components**
+   OpenClaw concentrates many concerns into one large package. OpenHermit keeps the system split into focused components such as `agent`, `cli`, `web`, future `gateway`, and shared protocol/sdk packages. Components are expected to communicate through explicit interfaces instead of hidden in-process coupling.
+
 ## State Layout
 
 OpenHermit separates:

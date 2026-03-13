@@ -1,5 +1,19 @@
 # OpenHermit Architecture Decisions
 
+## ADR-000: OpenHermit prioritizes sandboxing, hosted multi-agent use, and clear interfaces
+
+**Decision**: The project should optimize for three top-level goals from the beginning:
+
+- stronger safety through sandboxed execution
+- future multi-user and multi-agent deployment
+- strict boundaries between major components
+
+**Rationale**:
+
+- isolated execution is a core answer to the safety problems seen in more host-trusting agent systems
+- the system should grow toward platform deployment, not only personal self-hosting
+- separate components with explicit interfaces are easier to reason about than one large mixed package
+
 ## ADR-001: Agent runs on host, containers are tools
 
 **Decision**: The agent process runs on the host. Containers are sandboxed workers and services controlled by the agent.
