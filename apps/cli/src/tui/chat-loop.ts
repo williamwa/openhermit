@@ -43,7 +43,8 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
     addText,
     addStatusLine,
     addAgentLabel,
-    beginAssistantMessage,
+    addAssistantMessage,
+    requestApproval,
   } = layout;
 
   let currentSessionId = startupSession.sessionId;
@@ -252,58 +253,8 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
       addAgentLabel();
       agentLabelShown = true;
     };
-    let assistantHandle: ReturnType<typeof beginAssistantMessage> | null = null;
-    const ensureAssistantHandle = () => {
-      clearThinking();
-      if (!assistantHandle) {
-        assistantHandle = beginAssistantMessage(!agentLabelShown);
-        agentLabelShown = true;
-      }
-
-      return assistantHandle;
-    };
-
     let nextEventId: number | null = null;
-    const promptApproval = async (): Promise<boolean> => {
-      const promptHandle = addStatusLine(gray('Approve? [y/N]'));
-      const previousDisableSubmit = editor.disableSubmit;
-      editor.disableSubmit = true;
-      tui.requestRender();
-
-      return await new Promise<boolean>((resolve) => {
-        const finish = (approved: boolean) => {
-          removeApprovalListener();
-          promptHandle.remove();
-          editor.disableSubmit = previousDisableSubmit;
-          tui.requestRender();
-          resolve(approved);
-        };
-
-        const removeApprovalListener = tui.addInputListener((data) => {
-          if (matchesKey(data, Key.enter)) {
-            finish(false);
-            return { consume: true };
-          }
-
-          if (matchesKey(data, Key.escape)) {
-            finish(false);
-            return { consume: true };
-          }
-
-          if (data === 'y' || data === 'Y') {
-            finish(true);
-            return { consume: true };
-          }
-
-          if (data === 'n' || data === 'N') {
-            finish(false);
-            return { consume: true };
-          }
-
-          return undefined;
-        });
-      });
-    };
+    let streamedAssistantText = '';
 
     try {
       nextEventId = await waitForAssistantTurn(
@@ -313,18 +264,28 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
         currentLastEventId,
         {
           signal: currentTurnAbort.signal,
-          onApprovalRequired: async (_toolName, _toolCallId, _args) => {
+          onApprovalRequired: async (toolName, _toolCallId, args) => {
             ensureAgentLabel();
-            const approved = await promptApproval();
+            const approved = await requestApproval(toolName, args);
             addText(approved ? green('[approved]') : red('[denied]'));
             return approved;
           },
           output: {
             onTextDelta: (delta) => {
-              ensureAssistantHandle().appendDelta(delta);
+              clearThinking();
+              streamedAssistantText += delta;
             },
             onTextFinal: (fullText, sawDelta) => {
-              ensureAssistantHandle().finalise(fullText, sawDelta);
+              clearThinking();
+              const text = sawDelta ? streamedAssistantText : fullText;
+
+              if (text.trim()) {
+                ensureAgentLabel();
+                addAssistantMessage(text, false);
+                agentLabelShown = true;
+              }
+
+              streamedAssistantText = '';
             },
             onToolRequested: (tool, args) => {
               ensureAgentLabel();
