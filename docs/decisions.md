@@ -129,7 +129,8 @@ Agent responsibilities:
 
 Operational model:
 
-- every completed user-visible turn is followed by a program-triggered self-introspection turn
+- checkpoint triggers are program-driven, but checkpoint content is produced by the agent itself
+- `memory.checkpoint_turn_interval` remains the trigger configuration for periodic checkpoint turns
 - long-term consolidation runs separately during idle / low-activity periods
 - explicit user instructions such as "remember ..." may directly update long-term memory
 

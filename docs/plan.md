@@ -45,7 +45,7 @@ OpenHermit is moving toward:
 - configurable checkpoint turn interval
 - session-local working memory stored in `sessions`
 - global and future long-term memories stored in `memories`
-- memory model now targets a post-turn `self-introspection` pass
+- checkpoint execution is moving from external summarization toward agent-driven internal checkpoint turns
 
 ### Internal State Migration
 
@@ -69,11 +69,12 @@ Completed.
 - keep user-authored knowledge in external files
 - support explicit user-driven long-term memory updates
 
-### 1.3 Self-Introspection
+### 1.3 Agent-Driven Checkpoint Turns
 
-- after every completed user-visible turn, run an internal self-introspection turn
+- keep `memory.checkpoint_turn_interval` as the checkpoint trigger config
+- make checkpoint execution run through the agent itself, not a bare external summarizer
 - use the new session-log range plus existing memory state as input
-- update episodic and working memory through this pass
+- update episodic and working memory through this checkpoint turn
 - prepare the same lifecycle for future long-term consolidation
 
 ### 1.4 Identity Split
@@ -117,7 +118,7 @@ Completed.
 ## Immediate Implementation Order
 
 1. define the split between system long-term memory and user-authored knowledge
-2. implement the self-introspection turn
+2. implement agent-driven checkpoint turns
 3. migrate container runtime inventory into `state.sqlite`
 4. design and implement the scheduler
 5. split identity inputs from normalized internal identity state

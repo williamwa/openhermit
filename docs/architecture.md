@@ -235,7 +235,7 @@ Current direction:
 - raw session history, episodic checkpoints, and memories live in `state.sqlite`
 - system-managed long-term memory should also live in `state.sqlite`
 - user-authored knowledge should remain external and searchable as normal files
-- every completed user-visible turn should be followed by a program-triggered self-introspection turn
+- checkpoints should be executed as internal agent turns rather than external bare summaries
 - long-term memory should be updated through idle consolidation and explicit user instruction
 
 See:

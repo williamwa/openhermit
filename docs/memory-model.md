@@ -68,7 +68,7 @@ Storage:
 Rule:
 
 - episodic memory is not a duplicate transcript
-- it stores checkpoint summaries only
+- it stores checkpoint outputs only
 
 Fields should include:
 
@@ -182,15 +182,15 @@ OpenHermit should manage memory in two main phases:
 - `self-introspection`
 - `long-term consolidation`
 
-### Self-Introspection
+### Checkpoint Turn
 
-After every user-visible agent turn completes, OpenHermit should run one additional internal turn.
+OpenHermit should treat a checkpoint as an internal agent turn.
 
-This is a `self-introspection` turn.
+This is a checkpoint turn driven by the runtime, but executed by the same agent.
 
 Its purpose is:
 
-- reflect on what just happened
+- reflect on what happened since the last checkpoint
 - decide whether the session state changed in a meaningful way
 - update episodic memory
 - update session-local working memory
@@ -198,17 +198,27 @@ Its purpose is:
 
 This turn is program-triggered, not user-triggered.
 
-The user does not explicitly ask for it, and the agent should not decide whether it exists.  
-The runtime decides that every completed turn is followed by one introspection turn.
+The runtime decides when a checkpoint should happen.  
+The agent does not decide whether checkpointing exists, but it does perform the checkpoint work.
 
-Inputs for self-introspection should include:
+Checkpoint triggers should include:
+
+- explicit checkpoint
+- adapter session switch such as `/new`
+- idle timeout
+- `memory.checkpoint_turn_interval`
+
+The config name `memory.checkpoint_turn_interval` can stay as-is.  
+Its meaning is: after every N completed user-visible turns, run one checkpoint turn.
+
+Inputs for a checkpoint turn should include:
 
 - the new session-log range since the last memory checkpoint
 - previous session-local working memory
 - current session metadata
 - optionally recent global working memory
 
-Outputs of self-introspection should include:
+Outputs of a checkpoint turn should include:
 
 - a new episodic checkpoint, if warranted
 - rewritten session-local working memory
@@ -257,7 +267,7 @@ Memory behavior should be split between:
 
 The program should decide:
 
-- when self-introspection runs
+- when checkpoint turns run
 - what transcript range it sees
 - when to checkpoint episodic memory
 - when to refresh working memory
@@ -323,5 +333,5 @@ User-authored knowledge remains external and should continue to use normal file 
 - working memory = active state
 - long-term memory = durable system knowledge
 - user-authored knowledge = external files, not system memory
-- every completed user-visible turn should be followed by a program-triggered self-introspection turn
+- every checkpoint should be executed as a program-triggered internal agent turn
 - long-term memory should update through idle consolidation and explicit user instruction
