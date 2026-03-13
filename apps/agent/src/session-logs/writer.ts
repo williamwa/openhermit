@@ -180,8 +180,8 @@ export class SessionLogWriter {
     const row = this.database
       .prepare(
         `SELECT content
-         FROM global_working_memory
-         WHERE singleton_key = 'global'`,
+         FROM memories
+         WHERE memory_key = 'working:global'`,
       )
       .get() as { content?: string } | undefined;
 
@@ -194,9 +194,9 @@ export class SessionLogWriter {
   ): Promise<void> {
     this.database
       .prepare(
-        `INSERT INTO global_working_memory(singleton_key, content, updated_at)
-         VALUES ('global', ?, ?)
-         ON CONFLICT(singleton_key) DO UPDATE SET
+        `INSERT INTO memories(memory_key, memory_kind, content, metadata_json, updated_at)
+         VALUES ('working:global', 'working', ?, '{}', ?)
+         ON CONFLICT(memory_key) DO UPDATE SET
            content = excluded.content,
            updated_at = excluded.updated_at`,
       )

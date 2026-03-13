@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-const CURRENT_SCHEMA_VERSION = 2;
+const CURRENT_SCHEMA_VERSION = 3;
 
 const bootstrapStatements = [
   'PRAGMA journal_mode = WAL;',
@@ -76,20 +76,15 @@ const bootstrapStatements = [
   ) STRICT;`,
   `CREATE INDEX IF NOT EXISTS idx_episodic_checkpoints_session_ts
     ON episodic_checkpoints(session_id, ts DESC);`,
-  `CREATE TABLE IF NOT EXISTS global_working_memory (
-    singleton_key TEXT PRIMARY KEY CHECK (singleton_key = 'global'),
+  `CREATE TABLE IF NOT EXISTS memories (
+    memory_key TEXT PRIMARY KEY,
+    memory_kind TEXT NOT NULL,
     content TEXT NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
     updated_at TEXT NOT NULL
   ) STRICT;`,
-  `CREATE TABLE IF NOT EXISTS long_term_memory_entries (
-    id INTEGER PRIMARY KEY,
-    topic TEXT NOT NULL,
-    content TEXT NOT NULL,
-    source TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  ) STRICT;`,
-  `CREATE INDEX IF NOT EXISTS idx_long_term_memory_entries_topic
-    ON long_term_memory_entries(topic);`,
+  `CREATE INDEX IF NOT EXISTS idx_memories_kind_key
+    ON memories(memory_kind, memory_key);`,
   `CREATE TABLE IF NOT EXISTS approvals (
     approval_id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL,

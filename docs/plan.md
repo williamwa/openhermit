@@ -43,7 +43,8 @@ OpenHermit is moving toward:
 - checkpoint-based episodic summaries
 - session checkpoint endpoint
 - configurable checkpoint turn interval
-- session-local and global working memory stored in `state.sqlite`
+- session-local working memory stored in `sessions`
+- global and future long-term memories stored in `memories`
 
 ### Internal State Migration
 
