@@ -10,7 +10,7 @@ Like a hermit crab living inside its protective shell, an agent can use shells a
 
 - **Sandboxed Execution**: Code execution and long-running services run in isolated Docker containers controlled by the agent
 - **Lifecycle Management**: Support both ephemeral (short-term) and persistent (long-term) agents
-- **Memory System**: Multi-layer memory — working memory, episodic memory, long-term knowledge
+- **Memory System**: Multi-layer memory — session state, episodic checkpoints, and named memories like `main` and `now`
 - **API-first**: All agent operations exposed via a clean HTTP + SSE API
 - **Cloud-native**: Deployable on any VPS/cloud, orchestrated via Docker Compose or Kubernetes
 
@@ -28,7 +28,7 @@ Current internal-state files include:
 - `security.json`
 - `secrets.json`
 
-`state.sqlite` now stores sessions, session history, memories, and container runtime inventory.
+`state.sqlite` now stores sessions, session history, named memories, and container runtime inventory.
 
 ## Repository Structure
 

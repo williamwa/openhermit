@@ -641,6 +641,7 @@ export class AgentRunner implements SessionRuntime {
         workspace: this.options.workspace,
         security: this.options.security,
         containerManager: this.containerManager,
+        memoryStore: this.logWriter,
         ...(input.approvalCallback ? { approvalCallback: input.approvalCallback } : {}),
         ...(input.onToolRequested ? { onToolRequested: input.onToolRequested } : {}),
         ...(input.onToolStarted ? { onToolStarted: input.onToolStarted } : {}),
@@ -692,8 +693,10 @@ export class AgentRunner implements SessionRuntime {
   ): Promise<AgentMessage[]> {
     const sessionWorking =
       (await this.logWriter.getSessionWorkingMemory(sessionId)) ?? '';
-    const globalWorking =
-      (await this.logWriter.getGlobalWorkingMemory()) ?? '';
+    const nowMemory =
+      (await this.logWriter.getNowMemory()) ?? '';
+    const mainMemory =
+      (await this.logWriter.getMainMemory()) ?? '';
 
     const contextBlocks: AgentMessage[] = [];
 
@@ -710,13 +713,26 @@ export class AgentRunner implements SessionRuntime {
       });
     }
 
-    if (globalWorking.trim()) {
+    if (nowMemory.trim()) {
       contextBlocks.push({
         role: 'user',
         content: [
           {
             type: 'text',
-            text: `Global working memory (read-only context):\n\n${globalWorking}`,
+            text: `Now memory (read-only context):\n\n${nowMemory}`,
+          },
+        ],
+        timestamp: Date.now(),
+      });
+    }
+
+    if (mainMemory.trim()) {
+      contextBlocks.push({
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: `Main memory (read-only context):\n\n${mainMemory}`,
           },
         ],
         timestamp: Date.now(),

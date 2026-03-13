@@ -259,7 +259,7 @@ test('AgentRunner injects runtime mission and container guidance into the system
   assert.match(capturedSystemPrompt, /Defaults are \/workspace for ephemeral runs and \/data for service containers/);
 });
 
-test('AgentRunner injects session-local working memory before global working memory', async (t) => {
+test('AgentRunner injects session-local working memory before now and main memory', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: {
       ANTHROPIC_API_KEY: 'test-anthropic-key',
@@ -294,8 +294,14 @@ test('AgentRunner injects session-local working memory before global working mem
     '# Session Working Memory\nsession local context\n',
     '2026-03-13T00:00:00.000Z',
   );
-  await logWriter.setGlobalWorkingMemory(
-    '# Working Memory\nglobal context\n',
+  await logWriter.setMemory(
+    'now',
+    '# Now Memory\ncurrent active work\n',
+    '2026-03-13T00:00:00.000Z',
+  );
+  await logWriter.setMemory(
+    'main',
+    '# Main Memory\nstable user preference\n',
     '2026-03-13T00:00:00.000Z',
   );
   await runner.postMessage('cli:working-context', {
@@ -311,7 +317,12 @@ test('AgentRunner injects session-local working memory before global working mem
   assert.equal(capturedMessages[1]?.role, 'user');
   assert.match(
     JSON.stringify(capturedMessages[1]?.content ?? ''),
-    /Global working memory/,
+    /Now memory/,
+  );
+  assert.equal(capturedMessages[2]?.role, 'user');
+  assert.match(
+    JSON.stringify(capturedMessages[2]?.content ?? ''),
+    /Main memory/,
   );
 });
 
