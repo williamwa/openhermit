@@ -60,19 +60,12 @@ Use this file for workspace-specific instructions, preferences, and collaboratio
 } as const;
 
 const OTHER_SCAFFOLD_FILES = {
-  'memory/working.md': '# Working Memory\n',
-  'memory/long-term.md': '# Long-Term Memory\n\n## Index\n',
-  'memory/heartbeat.md': '# Heartbeat Checklist\n',
   'hooks/hooks.json': '{}\n',
   'containers/registry.jsonl': '',
 } as const;
 
 const SCAFFOLD_DIRECTORIES = [
   'identity',
-  'memory',
-  'memory/notes',
-  'sessions',
-  'sessions/working',
   'containers',
   'files',
   'hooks',
