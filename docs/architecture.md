@@ -232,8 +232,8 @@ OpenHermit uses four logical memory layers:
 
 Current direction:
 
-- raw session history and episodic checkpoints live in `state.sqlite`
-- working memory and long-term memory are being migrated out of workspace files
+- raw session history, episodic checkpoints, and working memory live in `state.sqlite`
+- system-managed long-term memory should also live in `state.sqlite`
 - user-authored knowledge should remain external and searchable as normal files
 
 See:

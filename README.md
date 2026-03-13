@@ -28,6 +28,8 @@ Current internal-state files include:
 - `security.json`
 - `secrets.json`
 
+`state.sqlite` now stores sessions, session history, episodic checkpoints, and working memory.
+
 ## Repository Structure
 
 ```text

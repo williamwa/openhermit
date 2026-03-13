@@ -43,6 +43,7 @@ OpenHermit is moving toward:
 - checkpoint-based episodic summaries
 - session checkpoint endpoint
 - configurable checkpoint turn interval
+- session-local and global working memory stored in `state.sqlite`
 
 ### Internal State Migration
 
@@ -57,11 +58,7 @@ OpenHermit is moving toward:
 ## Phase 1 — Finish Internal/External State Separation
 
 ### 1.1 Working Memory Migration
-
-- move session-local working memory out of `sessions/working/*.md`
-- move global working memory out of `memory/working.md`
-- store both in `state.sqlite`
-- update prompt injection to read from the internal store
+Completed.
 
 ### 1.2 Long-Term Memory Rework
 
@@ -109,10 +106,10 @@ OpenHermit is moving toward:
 
 ## Immediate Implementation Order
 
-1. migrate session-local and global working memory into `state.sqlite`
-2. define the split between system long-term memory and user-authored knowledge
-3. migrate container runtime inventory into `state.sqlite`
-4. design and implement the scheduler
+1. define the split between system long-term memory and user-authored knowledge
+2. migrate container runtime inventory into `state.sqlite`
+3. design and implement the scheduler
+4. split identity inputs from normalized internal identity state
 
 ## Design Constraints
 
