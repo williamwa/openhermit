@@ -38,6 +38,21 @@ const isContainerMountPath = (relativePath: string): boolean => {
   return segments.length >= 3 && segments[0] === 'containers' && segments[2] === 'data';
 };
 
+const normalizeContainerMountTarget = (targetPath: string): string =>
+  path.posix.normalize(targetPath.split(path.sep).join(path.posix.sep));
+
+const isValidContainerMountTarget = (targetPath: string): boolean => {
+  const normalized = normalizeContainerMountTarget(targetPath);
+
+  return (
+    normalized.length > 1 &&
+    normalized.startsWith('/') &&
+    normalized !== '/.' &&
+    normalized !== '/..' &&
+    !normalized.includes('/../')
+  );
+};
+
 const parseStructuredOutput = (stdout: string): unknown => {
   const startIndex = stdout.indexOf(OUTPUT_START);
   const endIndex = stdout.indexOf(OUTPUT_END);
@@ -273,6 +288,15 @@ export class DockerContainerManager {
 
     const mountPath = await this.workspace.resolve(mountRelative);
     await fs.mkdir(mountPath, { recursive: true });
+    const mountTarget = normalizeContainerMountTarget(
+      args.mount_target ?? '/workspace',
+    );
+
+    if (!isValidContainerMountTarget(mountTarget)) {
+      throw new ValidationError(
+        `Ephemeral mount target must be an absolute in-container path: ${mountTarget}`,
+      );
+    }
 
     const entry: ContainerRegistryEntry = {
       id: randomUUID(),
@@ -283,6 +307,7 @@ export class DockerContainerManager {
       ...(args.description ? { description: args.description } : {}),
       command: args.command,
       mount: this.workspace.toRelativePath(mountPath),
+      mount_target: mountTarget,
       created: new Date().toISOString(),
     };
     await this.registry.upsert(entry);
@@ -293,9 +318,9 @@ export class DockerContainerManager {
       '--name',
       name,
       '-v',
-      `${mountPath}:/workspace`,
+      `${mountPath}:${mountTarget}`,
       '-w',
-      args.workdir ?? '/workspace',
+      args.workdir ?? mountTarget,
     ];
 
     for (const [key, value] of Object.entries(args.env ?? {})) {
@@ -340,6 +365,15 @@ export class DockerContainerManager {
 
     const mountPath = await this.workspace.resolve(mountRelative);
     await fs.mkdir(mountPath, { recursive: true });
+    const mountTarget = normalizeContainerMountTarget(
+      args.mount_target ?? '/data',
+    );
+
+    if (!isValidContainerMountTarget(mountTarget)) {
+      throw new ValidationError(
+        `Service mount target must be an absolute in-container path: ${mountTarget}`,
+      );
+    }
 
     const dockerArgs = [
       'run',
@@ -347,7 +381,7 @@ export class DockerContainerManager {
       '--name',
       args.name,
       '-v',
-      `${mountPath}:/data`,
+      `${mountPath}:${mountTarget}`,
     ];
 
     for (const [containerPort, hostPort] of Object.entries(args.ports ?? {})) {
@@ -384,6 +418,7 @@ export class DockerContainerManager {
       ...(args.description ? { description: args.description } : {}),
       ...(args.ports ? { ports: args.ports } : {}),
       mount: this.workspace.toRelativePath(mountPath),
+      mount_target: mountTarget,
       ...(args.network ? { network: args.network } : {}),
       ...(runtimeContainerId ? { runtime_container_id: runtimeContainerId } : {}),
       created: existing?.created ?? new Date().toISOString(),

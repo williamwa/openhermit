@@ -88,6 +88,34 @@ test('DockerContainerManager rejects mount traversal outside containers/{name}/d
   assert.equal(runner.calls.length, 0);
 });
 
+test('DockerContainerManager rejects invalid in-container mount targets', async (t) => {
+  const { workspace } = await createWorkspaceFixture(t);
+  const runner = new FakeDockerRunner([]);
+  const manager = new DockerContainerManager(workspace, { runner });
+
+  await assert.rejects(
+    () =>
+      manager.runEphemeral({
+        image: 'alpine:3.20',
+        command: 'echo hello',
+        mount_target: 'workspace',
+      }),
+    ValidationError,
+  );
+
+  await assert.rejects(
+    () =>
+      manager.startService({
+        name: 'nginx-site',
+        image: 'nginx:1.27-alpine',
+        mount_target: '../usr/share/nginx/html',
+      }),
+    ValidationError,
+  );
+
+  assert.equal(runner.calls.length, 0);
+});
+
 test('DockerContainerManager runEphemeral records the container and parses structured output', async (t) => {
   const { workspace } = await createWorkspaceFixture(t);
   const runner = new FakeDockerRunner([
@@ -107,10 +135,11 @@ test('DockerContainerManager runEphemeral records the container and parses struc
     image: 'node:20-alpine',
     command: 'node -e "console.log(1)"',
     description: 'Run a one-off node task',
+    mount_target: '/app',
     env: {
       DEMO: '1',
     },
-    workdir: '/workspace/app',
+    workdir: '/app/app',
   });
 
   assert.equal(runner.calls.length, 1);
@@ -121,9 +150,10 @@ test('DockerContainerManager runEphemeral records the container and parses struc
   assert.equal(dockerArgs[0], 'run');
   assert.equal(dockerArgs[1], '--rm');
   assert.ok(mountIndex >= 0);
-  assert.match(dockerArgs[mountIndex + 1] ?? '', /\/containers\/run-.*\/data:\/workspace$/);
+  assert.match(dockerArgs[mountIndex + 1] ?? '', /\/containers\/run-.*\/data:\/app$/);
   assert.equal(envIndex >= 0, true);
   assert.equal(dockerArgs[envIndex + 1], 'DEMO=1');
+  assert.equal(dockerArgs[dockerArgs.indexOf('-w') + 1], '/app/app');
   assert.deepEqual(dockerArgs.slice(-4), [
     'node:20-alpine',
     'sh',
@@ -143,6 +173,7 @@ test('DockerContainerManager runEphemeral records the container and parses struc
   assert.equal(result.container.command, 'node -e "console.log(1)"');
   assert.equal(result.container.exit_code, 0);
   assert.match(result.container.mount ?? '', /^containers\/run-.*\/data$/);
+  assert.equal(result.container.mount_target, '/app');
 
   const registryEntries = await manager.registry.readAll();
   assert.equal(registryEntries.length, 1);
@@ -162,6 +193,7 @@ test('DockerContainerManager startService and stopService persist service lifecy
     name: 'redis-cache',
     image: 'redis:7',
     description: 'Cache service',
+    mount_target: '/var/lib/redis-data',
     ports: {
       '6379': 6379,
     },
@@ -175,6 +207,7 @@ test('DockerContainerManager startService and stopService persist service lifecy
   assert.equal(started.status, 'running');
   assert.equal(started.runtime_container_id, 'container-123');
   assert.equal(started.description, 'Cache service');
+  assert.equal(started.mount_target, '/var/lib/redis-data');
   assert.deepEqual(started.ports, {
     '6379': 6379,
   });
@@ -184,7 +217,7 @@ test('DockerContainerManager startService and stopService persist service lifecy
     '--name',
     'redis-cache',
     '-v',
-    `${workspace.root}/containers/redis-cache/data:/data`,
+    `${workspace.root}/containers/redis-cache/data:/var/lib/redis-data`,
     '-p',
     '6379:6379',
     '-e',

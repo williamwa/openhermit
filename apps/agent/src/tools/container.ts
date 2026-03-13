@@ -26,6 +26,12 @@ const ContainerRunParams = Type.Object({
         'Optional workspace path under containers/{name}/data. If omitted, a fresh empty mount is created. Files under files/ are not mounted automatically.',
     }),
   ),
+  mount_target: Type.Optional(
+    Type.String({
+      description:
+        'Absolute in-container path where the mounted data should appear. Defaults to /workspace for ephemeral runs.',
+    }),
+  ),
   env_secrets: Type.Optional(
     Type.Array(
       Type.String({
@@ -51,7 +57,7 @@ export const createContainerRunTool = ({
   name: 'container_run',
   label: 'Run Container',
   description:
-    'Run a one-off command in an ephemeral Docker container. The container only sees the selected mount under containers/{name}/data; if you need to run a script, write or copy it there first and pass that mount.',
+    'Run a one-off command in an ephemeral Docker container. The container only sees the selected mount under containers/{name}/data; if you need to run a script, write or copy it there first and pass that mount. You may also choose where that mount appears inside the container.',
   parameters: ContainerRunParams,
   execute: async (_toolCallId, args: ContainerRunArgs) => {
     ensureAutonomyAllows(security, 'container_run');
@@ -66,6 +72,7 @@ export const createContainerRunTool = ({
       command: args.command,
       ...(args.description ? { description: args.description } : {}),
       ...(args.mount ? { mount: args.mount } : {}),
+      ...(args.mount_target ? { mount_target: args.mount_target } : {}),
       ...(args.workdir ? { workdir: args.workdir } : {}),
       ...(env ? { env } : {}),
     });
@@ -121,7 +128,13 @@ const ContainerStartParams = Type.Object({
   mount: Type.Optional(
     Type.String({
       description:
-        'Workspace path under containers/{name}/data to mount at /data inside the container. Defaults to containers/{name}/data.',
+        'Workspace path under containers/{name}/data to mount into the container. Defaults to containers/{name}/data.',
+    }),
+  ),
+  mount_target: Type.Optional(
+    Type.String({
+      description:
+        'Absolute in-container path for the mounted data. Defaults to /data. Use this when a service expects files at a specific location such as /usr/share/nginx/html.',
     }),
   ),
   ports: Type.Optional(
@@ -182,6 +195,7 @@ export const createContainerStartTool = ({
       image: args.image,
       ...(args.description ? { description: args.description } : {}),
       ...(args.mount ? { mount: args.mount } : {}),
+      ...(args.mount_target ? { mount_target: args.mount_target } : {}),
       ...(args.ports ? { ports: args.ports } : {}),
       ...(env ? { env } : {}),
       ...(args.network ? { network: args.network } : {}),

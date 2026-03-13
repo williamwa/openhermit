@@ -8,7 +8,8 @@ const CONTAINER_TOOL_GUIDANCE = [
   '- Valid mounts must stay under containers/{name}/data.',
   '- Files under files/ or the workspace root are not mounted automatically.',
   '- Before running code in a container, write or copy the needed files into the chosen mount directory first.',
-  '- For ephemeral runs, mounted files appear under /workspace inside the container.',
+  '- You may choose the in-container mount target. Defaults are /workspace for ephemeral runs and /data for service containers.',
+  '- If a service expects files in a specific location, set mount_target explicitly, for example /usr/share/nginx/html for nginx static content.',
   '- If a container tool fails, inspect the tool result details and correct the mount or in-container path before retrying.',
 ].join('\n');
 

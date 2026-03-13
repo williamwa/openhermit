@@ -103,6 +103,7 @@ export interface ContainerRegistryEntry {
   command?: string;
   ports?: Record<string, number>;
   mount?: string;
+  mount_target?: string;
   network?: string;
   runtime_container_id?: string;
   exit_code?: number;
@@ -123,6 +124,7 @@ export interface EphemeralContainerArgs {
   command: string;
   description?: string;
   mount?: string;
+  mount_target?: string;
   env?: Record<string, string>;
   workdir?: string;
 }
@@ -132,6 +134,7 @@ export interface ServiceContainerArgs {
   name: string;
   description?: string;
   mount?: string;
+  mount_target?: string;
   ports?: Record<string, number>;
   env?: Record<string, string>;
   network?: string;
