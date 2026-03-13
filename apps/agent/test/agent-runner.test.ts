@@ -144,16 +144,6 @@ const createSequentialStreamFn = (
   };
 };
 
-const readJsonl = async (
-  readFile: (relativePath: string) => Promise<string>,
-  relativePath: string,
-): Promise<Array<Record<string, unknown>>> =>
-  (await readFile(relativePath))
-    .trim()
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as Record<string, unknown>);
-
 const readSessionLog = async (
   runner: AgentRunner,
   sessionId: string,
@@ -538,10 +528,7 @@ test('AgentRunner writes episodic checkpoints on explicit checkpoint requests an
     true,
   );
 
-  const episodicEntries = await readJsonl(
-    (relativePath) => workspace.readFile(relativePath),
-    runner.getEpisodicLogRelativePath('cli:checkpoint-session'),
-  );
+  const episodicEntries = await runner.listEpisodicEntries('cli:checkpoint-session');
   const firstData = episodicEntries[0]?.data as Record<string, unknown> | undefined;
   const secondData = episodicEntries[1]?.data as Record<string, unknown> | undefined;
 
@@ -588,10 +575,7 @@ test('AgentRunner writes a checkpoint automatically every configured turn interv
   await runner.postMessage('cli:turn-checkpoint', { text: 'checkpoint me' });
   await runner.waitForSessionIdle('cli:turn-checkpoint');
 
-  const episodicEntries = await readJsonl(
-    (relativePath) => workspace.readFile(relativePath),
-    runner.getEpisodicLogRelativePath('cli:turn-checkpoint'),
-  );
+  const episodicEntries = await runner.listEpisodicEntries('cli:turn-checkpoint');
   const checkpointData = episodicEntries[0]?.data as Record<string, unknown> | undefined;
 
   assert.equal(episodicEntries.length, 1);
@@ -627,10 +611,7 @@ test('AgentRunner writes an idle summary after the configured timeout', async (t
   await new Promise((resolve) => setTimeout(resolve, 40));
   await runner.waitForSessionIdle('cli:idle-checkpoint');
 
-  const episodicEntries = await readJsonl(
-    (relativePath) => workspace.readFile(relativePath),
-    runner.getEpisodicLogRelativePath('cli:idle-checkpoint'),
-  );
+  const episodicEntries = await runner.listEpisodicEntries('cli:idle-checkpoint');
   const idleData = episodicEntries[0]?.data as Record<string, unknown> | undefined;
 
   assert.equal(episodicEntries.length, 1);

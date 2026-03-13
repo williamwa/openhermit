@@ -25,7 +25,6 @@ export const createPersistedSessionIndexEntry = (
   ...(session.lastMessagePreview
     ? { lastMessagePreview: session.lastMessagePreview }
     : {}),
-  episodicRelativePath: session.episodicRelativePath,
   ...(session.spec.metadata ? { metadata: session.spec.metadata } : {}),
 });
 

@@ -31,7 +31,6 @@ import {
 import {
   SessionIndexStore,
   SessionLogWriter,
-  createSessionLogPaths,
 } from './session-logs.js';
 import {
   createFallbackDescription,
@@ -72,7 +71,7 @@ export class AgentRunner implements SessionRuntime {
     this.containerManager =
       options.containerManager ?? new DockerContainerManager(options.workspace);
     this.sessionIndex = new SessionIndexStore(this.internalStateDatabase);
-    this.logWriter = new SessionLogWriter(options.workspace, this.internalStateDatabase);
+    this.logWriter = new SessionLogWriter(this.internalStateDatabase);
   }
 
   static async create(options: AgentRunnerOptions): Promise<AgentRunner> {
@@ -154,11 +153,6 @@ export class AgentRunner implements SessionRuntime {
         return this.makeToolStartedCallback(session)(...args);
       },
     );
-    const paths = persisted
-      ? {
-          episodicRelativePath: persisted.episodicRelativePath,
-        }
-      : createSessionLogPaths(createdAt);
     session = {
       spec: effectiveSpec,
       createdAt,
@@ -168,7 +162,6 @@ export class AgentRunner implements SessionRuntime {
       sideEffects: Promise.resolve(),
       backgroundTasks: Promise.resolve(),
       idleSummaryTimer: undefined,
-      episodicRelativePath: paths.episodicRelativePath,
       latestAssistantText: undefined,
       approvalGate,
       status: 'idle',
@@ -195,7 +188,7 @@ export class AgentRunner implements SessionRuntime {
     this.sessions.set(spec.sessionId, session);
     await this.persistSessionIndex(session);
     if (!persisted) {
-      await this.logWriter.writeSessionStarted(paths, effectiveSpec, {
+      await this.logWriter.writeSessionStarted(effectiveSpec, {
         provider: config.model.provider,
         model: config.model.model,
       });
@@ -252,9 +245,21 @@ export class AgentRunner implements SessionRuntime {
     return this.logWriter.listHistoryMessages(persisted.sessionId);
   }
 
-  getEpisodicLogRelativePath(sessionId: string): string {
-    const session = this.getRequiredSession(sessionId);
-    return session.episodicRelativePath;
+  async listEpisodicEntries(sessionId: string) {
+    const activeSession = this.sessions.get(sessionId);
+
+    if (activeSession) {
+      await activeSession.sideEffects;
+      return this.logWriter.listEpisodicEntries(activeSession.spec.sessionId);
+    }
+
+    const persisted = await this.sessionIndex.get(sessionId);
+
+    if (!persisted) {
+      throw new NotFoundError(`Session not found: ${sessionId}`);
+    }
+
+    return this.logWriter.listEpisodicEntries(persisted.sessionId);
   }
 
   /**
@@ -360,7 +365,7 @@ export class AgentRunner implements SessionRuntime {
     session.lastSummarizedAt = ts;
     await this.persistSessionIndex(session);
 
-    await this.logWriter.appendEpisodic(session.episodicRelativePath, {
+    await this.logWriter.appendEpisodic(session.spec.sessionId, {
       ts,
       session: session.spec.sessionId,
       type: reason === 'turn_limit' ? 'session_checkpoint' : 'session_summary',

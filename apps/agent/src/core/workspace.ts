@@ -70,7 +70,6 @@ const OTHER_SCAFFOLD_FILES = {
 const SCAFFOLD_DIRECTORIES = [
   'identity',
   'memory',
-  'memory/episodic',
   'memory/notes',
   'sessions',
   'sessions/working',

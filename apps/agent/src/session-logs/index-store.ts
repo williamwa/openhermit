@@ -47,9 +47,8 @@ export class SessionIndexStore {
             last_summarized_at,
             last_message_preview,
             metadata_json,
-            episodic_relative_path,
             status
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(session_id) DO UPDATE SET
             source_kind = excluded.source_kind,
             source_platform = excluded.source_platform,
@@ -65,7 +64,6 @@ export class SessionIndexStore {
             last_summarized_at = excluded.last_summarized_at,
             last_message_preview = excluded.last_message_preview,
             metadata_json = excluded.metadata_json,
-            episodic_relative_path = excluded.episodic_relative_path,
             status = excluded.status`,
         )
         .run(
@@ -84,7 +82,6 @@ export class SessionIndexStore {
           entry.lastSummarizedAt ?? null,
           entry.lastMessagePreview ?? null,
           JSON.stringify(entry.metadata ?? {}),
-          entry.episodicRelativePath,
           'idle',
         );
     });
@@ -114,8 +111,7 @@ export class SessionIndexStore {
           last_summarized_turn_count,
           last_summarized_at,
           last_message_preview,
-          metadata_json,
-          episodic_relative_path
+          metadata_json
          FROM sessions
          ORDER BY last_activity_at DESC`,
       )
@@ -138,7 +134,6 @@ export class SessionIndexStore {
         completedTurnCount: Number(row.completed_turn_count),
         lastSummarizedHistoryCount: Number(row.last_summarized_history_count),
         lastSummarizedTurnCount: Number(row.last_summarized_turn_count),
-        episodicRelativePath: String(row.episodic_relative_path),
       };
 
       if (typeof row.last_summarized_at === 'string') {

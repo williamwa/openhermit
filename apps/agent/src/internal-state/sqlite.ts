@@ -37,7 +37,6 @@ const bootstrapStatements = [
     last_summarized_at TEXT,
     last_message_preview TEXT,
     metadata_json TEXT NOT NULL DEFAULT '{}',
-    episodic_relative_path TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'idle'
   ) STRICT;`,
   `CREATE TABLE IF NOT EXISTS session_messages (

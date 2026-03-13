@@ -1,37 +1,15 @@
-import { promises as fs } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
-import path from 'node:path';
 
-import { AgentWorkspace } from '../core/index.js';
 import type {
   EpisodicLogEntry,
   SessionLogEntry,
 } from './types.js';
-import { createSessionStartedEntries, type SessionLogPaths } from './types.js';
+import { createSessionStartedEntries } from './types.js';
 import type { SessionSpec } from '@openhermit/protocol';
 import { insertSessionLogEntry, mapHistoryRowToMessage, parseStoredSessionLogEntry } from './sqlite-shared.js';
 
-const ensureJsonlFile = async (
-  workspace: AgentWorkspace,
-  relativePath: string,
-): Promise<string> => {
-  const target = await workspace.resolve(relativePath);
-  await fs.mkdir(path.dirname(target), { recursive: true });
-  return target;
-};
-
-const appendJsonl = async (
-  workspace: AgentWorkspace,
-  relativePath: string,
-  value: unknown,
-): Promise<void> => {
-  const target = await ensureJsonlFile(workspace, relativePath);
-  await fs.appendFile(target, `${JSON.stringify(value)}\n`, 'utf8');
-};
-
 export class SessionLogWriter {
   constructor(
-    private readonly workspace: AgentWorkspace,
     private readonly database: DatabaseSync,
   ) {}
 
@@ -39,16 +17,39 @@ export class SessionLogWriter {
     insertSessionLogEntry(this.database, sessionId, entry);
   }
 
-  async appendEpisodic(relativePath: string, entry: EpisodicLogEntry): Promise<void> {
-    await appendJsonl(this.workspace, relativePath, entry);
+  async appendEpisodic(sessionId: string, entry: EpisodicLogEntry): Promise<void> {
+    const checkpointData = entry.data;
+
+    this.database
+      .prepare(
+        `INSERT INTO episodic_checkpoints(
+          session_id,
+          ts,
+          checkpoint_type,
+          reason,
+          history_from,
+          history_to,
+          turn_count,
+          summary
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        sessionId,
+        entry.ts,
+        entry.type,
+        String(checkpointData.reason ?? 'manual'),
+        Number(checkpointData.fromHistoryCount ?? 0),
+        Number(checkpointData.toHistoryCount ?? 0),
+        Number(checkpointData.turnCount ?? 0),
+        String(checkpointData.summary ?? ''),
+      );
   }
 
   async writeSessionStarted(
-    paths: SessionLogPaths,
     spec: SessionSpec,
     model: { provider: string; model: string },
   ): Promise<void> {
-    const entries = createSessionStartedEntries(paths, spec, model);
+    const entries = createSessionStartedEntries(spec, model);
 
     await this.appendSession(spec.sessionId, entries.session);
   }
@@ -108,5 +109,44 @@ export class SessionLogWriter {
       .all(sessionId) as Array<{ payload_json: string }>;
 
     return rows.map((row) => parseStoredSessionLogEntry(row.payload_json));
+  }
+
+  async listEpisodicEntries(sessionId: string): Promise<EpisodicLogEntry[]> {
+    const rows = this.database
+      .prepare(
+        `SELECT
+          ts,
+          checkpoint_type,
+          reason,
+          history_from,
+          history_to,
+          turn_count,
+          summary
+         FROM episodic_checkpoints
+         WHERE session_id = ?
+         ORDER BY ts ASC, id ASC`,
+      )
+      .all(sessionId) as Array<{
+      ts: string;
+      checkpoint_type: string;
+      reason: string;
+      history_from: number;
+      history_to: number;
+      turn_count: number;
+      summary: string;
+    }>;
+
+    return rows.map((row) => ({
+      ts: row.ts,
+      session: sessionId,
+      type: row.checkpoint_type,
+      data: {
+        reason: row.reason,
+        fromHistoryCount: row.history_from,
+        toHistoryCount: row.history_to,
+        turnCount: row.turn_count,
+        summary: row.summary,
+      },
+    }));
   }
 }
