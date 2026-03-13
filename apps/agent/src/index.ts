@@ -9,6 +9,7 @@ import { runtimeFiles } from '@openhermit/shared';
 import { AgentRunner } from './agent-runner.js';
 import { createAgentApp } from './app.js';
 import { AgentSecurity, AgentWorkspace } from './core/index.js';
+import { initializeInternalStateDatabase } from './internal-state/sqlite.js';
 
 const defaultPort = 3001;
 type NodeFetchCallback = Parameters<typeof createAdaptorServer>[0]['fetch'];
@@ -91,6 +92,7 @@ const security = new AgentSecurity({
 });
 await security.init();
 await security.load();
+initializeInternalStateDatabase(security.stateFilePath).close();
 
 const runner = await AgentRunner.create({
   workspace,

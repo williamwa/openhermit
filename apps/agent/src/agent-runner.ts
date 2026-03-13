@@ -1,5 +1,6 @@
 import { Agent, type AgentEvent, type AgentMessage } from '@mariozechner/pi-agent-core';
 import { complete } from '@mariozechner/pi-ai';
+import type { DatabaseSync } from 'node:sqlite';
 import type { SessionHistoryMessage, SessionListQuery, SessionMessage, SessionSpec, SessionSummary } from '@openhermit/protocol';
 import { NotFoundError, ValidationError, getErrorMessage } from '@openhermit/shared';
 
@@ -31,7 +32,6 @@ import {
   SessionIndexStore,
   SessionLogWriter,
   createSessionLogPaths,
-  parseSessionHistoryMessages,
 } from './session-logs.js';
 import {
   createFallbackDescription,
@@ -46,6 +46,7 @@ import {
   type ToolStartedCallback,
   createBuiltInTools,
 } from './tools.js';
+import { openInternalStateDatabase } from './internal-state/sqlite.js';
 
 export class AgentRunner implements SessionRuntime {
   readonly events = new SessionEventBroker();
@@ -62,11 +63,16 @@ export class AgentRunner implements SessionRuntime {
 
   private readonly sessions = new Map<string, RunnerSession>();
 
+  private readonly internalStateDatabase: DatabaseSync;
+
   private constructor(private readonly options: AgentRunnerOptions) {
+    this.internalStateDatabase = openInternalStateDatabase(
+      options.security.stateFilePath,
+    );
     this.containerManager =
       options.containerManager ?? new DockerContainerManager(options.workspace);
-    this.sessionIndex = new SessionIndexStore(options.workspace);
-    this.logWriter = new SessionLogWriter(options.workspace);
+    this.sessionIndex = new SessionIndexStore(options.workspace, this.internalStateDatabase);
+    this.logWriter = new SessionLogWriter(options.workspace, this.internalStateDatabase);
   }
 
   static async create(options: AgentRunnerOptions): Promise<AgentRunner> {
@@ -150,10 +156,9 @@ export class AgentRunner implements SessionRuntime {
     );
     const paths = persisted
       ? {
-          sessionLogRelativePath: persisted.sessionLogRelativePath,
           episodicRelativePath: persisted.episodicRelativePath,
         }
-      : createSessionLogPaths(effectiveSpec.sessionId, createdAt);
+      : createSessionLogPaths(createdAt);
     session = {
       spec: effectiveSpec,
       createdAt,
@@ -163,7 +168,6 @@ export class AgentRunner implements SessionRuntime {
       sideEffects: Promise.resolve(),
       backgroundTasks: Promise.resolve(),
       idleSummaryTimer: undefined,
-      sessionLogRelativePath: paths.sessionLogRelativePath,
       episodicRelativePath: paths.episodicRelativePath,
       latestAssistantText: undefined,
       approvalGate,
@@ -189,13 +193,13 @@ export class AgentRunner implements SessionRuntime {
     });
 
     this.sessions.set(spec.sessionId, session);
+    await this.persistSessionIndex(session);
     if (!persisted) {
       await this.logWriter.writeSessionStarted(paths, effectiveSpec, {
         provider: config.model.provider,
         model: config.model.model,
       });
     }
-    await this.persistSessionIndex(session);
 
     return {
       spec: session.spec,
@@ -236,10 +240,7 @@ export class AgentRunner implements SessionRuntime {
 
     if (activeSession) {
       await activeSession.sideEffects;
-      const content = await this.options.workspace.readFile(
-        activeSession.sessionLogRelativePath,
-      );
-      return parseSessionHistoryMessages(content);
+      return this.logWriter.listHistoryMessages(activeSession.spec.sessionId);
     }
 
     const persisted = await this.sessionIndex.get(sessionId);
@@ -248,15 +249,7 @@ export class AgentRunner implements SessionRuntime {
       throw new NotFoundError(`Session not found: ${sessionId}`);
     }
 
-    const content = await this.options.workspace.readFile(
-      persisted.sessionLogRelativePath,
-    );
-    return parseSessionHistoryMessages(content);
-  }
-
-  getSessionLogRelativePath(sessionId: string): string {
-    const session = this.getRequiredSession(sessionId);
-    return session.sessionLogRelativePath;
+    return this.logWriter.listHistoryMessages(persisted.sessionId);
   }
 
   getEpisodicLogRelativePath(sessionId: string): string {
@@ -338,10 +331,9 @@ export class AgentRunner implements SessionRuntime {
     await session.queue;
     await session.sideEffects;
 
-    const content = await this.options.workspace.readFile(
-      session.sessionLogRelativePath,
-    ).catch(() => '');
-    const chronologicalHistory = parseSessionHistoryMessages(content).reverse();
+    const chronologicalHistory = await this.logWriter.listCheckpointHistory(
+      session.spec.sessionId,
+    );
     const newHistory = chronologicalHistory.slice(session.lastSummarizedHistoryCount);
 
     if (newHistory.length === 0) {
@@ -441,7 +433,7 @@ export class AgentRunner implements SessionRuntime {
 
     const receivedAt = new Date().toISOString();
     await this.queueSideEffect(session, async () => {
-      await this.logWriter.appendSession(session.sessionLogRelativePath, {
+      await this.logWriter.appendSession(session.spec.sessionId, {
         ts: receivedAt,
         role: 'user',
         messageId: message.messageId,
@@ -522,7 +514,7 @@ export class AgentRunner implements SessionRuntime {
       });
 
       await this.queueSideEffect(session, async () => {
-        await this.logWriter.appendSession(session.sessionLogRelativePath, {
+        await this.logWriter.appendSession(session.spec.sessionId, {
           ts,
           role: 'tool_call',
           type: 'tool_started',
@@ -546,7 +538,7 @@ export class AgentRunner implements SessionRuntime {
       });
 
       await this.queueSideEffect(session, async () => {
-        await this.logWriter.appendSession(session.sessionLogRelativePath, {
+        await this.logWriter.appendSession(session.spec.sessionId, {
           ts,
           role: 'tool_call',
           type: 'tool_requested',
@@ -567,7 +559,7 @@ export class AgentRunner implements SessionRuntime {
     const ts = new Date().toISOString();
 
     await this.queueSideEffect(session, async () => {
-      await this.logWriter.appendSession(session.sessionLogRelativePath, {
+      await this.logWriter.appendSession(session.spec.sessionId, {
         ts,
         role: 'system',
         type: 'tool_approval_requested',
@@ -587,7 +579,7 @@ export class AgentRunner implements SessionRuntime {
     const ts = new Date().toISOString();
 
     await this.queueSideEffect(session, async () => {
-      await this.logWriter.appendSession(session.sessionLogRelativePath, {
+      await this.logWriter.appendSession(session.spec.sessionId, {
         ts,
         role: 'system',
         type: 'tool_approval_resolved',
@@ -742,7 +734,7 @@ export class AgentRunner implements SessionRuntime {
       case 'agent_start': {
         const ts = new Date().toISOString();
         void this.queueSideEffect(session, async () => {
-          await this.logWriter.appendSession(session.sessionLogRelativePath, {
+          await this.logWriter.appendSession(session.spec.sessionId, {
             ts,
             role: 'system',
             type: 'agent_start',
@@ -791,7 +783,7 @@ export class AgentRunner implements SessionRuntime {
         void this.persistSessionIndex(session);
 
         void this.queueSideEffect(session, async () => {
-          await this.logWriter.appendSession(session.sessionLogRelativePath, {
+          await this.logWriter.appendSession(session.spec.sessionId, {
             ts,
             role: 'assistant',
             content: assistantText,
@@ -834,7 +826,7 @@ export class AgentRunner implements SessionRuntime {
         });
 
         void this.queueSideEffect(session, async () => {
-          await this.logWriter.appendSession(session.sessionLogRelativePath, {
+          await this.logWriter.appendSession(session.spec.sessionId, {
             ts,
             role: 'tool_result',
             name: event.toolName,
@@ -880,7 +872,7 @@ export class AgentRunner implements SessionRuntime {
 
         session.latestAssistantText = undefined;
         void this.queueSideEffect(session, async () => {
-          await this.logWriter.appendSession(session.sessionLogRelativePath, {
+          await this.logWriter.appendSession(session.spec.sessionId, {
             ts,
             role: 'system',
             type: 'agent_end',
@@ -918,7 +910,7 @@ export class AgentRunner implements SessionRuntime {
       });
       this.scheduleIdleSummary(session);
       await this.queueSideEffect(session, async () => {
-        await this.logWriter.appendSession(session.sessionLogRelativePath, {
+        await this.logWriter.appendSession(session.spec.sessionId, {
           ts,
           role: 'error',
           message,
@@ -972,6 +964,14 @@ export class AgentRunner implements SessionRuntime {
 
   private async persistSessionIndex(session: RunnerSession): Promise<void> {
     await this.sessionIndex.upsert(createPersistedSessionIndexEntry(session));
+  }
+
+  async listSessionLogEntries(sessionId: string) {
+    const activeSession = this.sessions.get(sessionId);
+    if (activeSession) {
+      await activeSession.sideEffects.catch(() => undefined);
+    }
+    return this.logWriter.listSessionEntries(sessionId);
   }
 
   private async maybeGenerateSessionDescription(

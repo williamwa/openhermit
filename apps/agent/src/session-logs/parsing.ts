@@ -8,6 +8,7 @@ import type {
 import {
   createEmptySessionIndexDocument,
   type PersistedSessionIndexEntry,
+  type SessionLogEntry,
   type SessionIndexDocument,
   type StartedSessionLogEntry,
 } from './types.js';
@@ -83,7 +84,6 @@ export const parseSessionIndexDocument = (value: unknown): SessionIndexDocument 
       typeof entry.createdAt !== 'string' ||
       typeof entry.lastActivityAt !== 'string' ||
       typeof entry.messageCount !== 'number' ||
-      typeof entry.sessionLogRelativePath !== 'string' ||
       typeof entry.episodicRelativePath !== 'string'
     ) {
       return false;
@@ -161,7 +161,6 @@ export const parseSessionIndexDocument = (value: unknown): SessionIndexDocument 
 };
 
 export const deriveSessionIndexEntryFromLog = (
-  sessionLogRelativePath: string,
   content: string,
 ): PersistedSessionIndexEntry | undefined => {
   const lines = content
@@ -226,11 +225,23 @@ export const deriveSessionIndexEntryFromLog = (
         }
       : {}),
     ...(lastMessagePreview ? { lastMessagePreview } : {}),
-    sessionLogRelativePath,
     episodicRelativePath: `memory/episodic/${startedEntry.ts.slice(0, 7)}.jsonl`,
     ...(metadata ? { metadata } : {}),
   };
 };
+
+export const parseSessionLogEntries = (content: string): SessionLogEntry[] =>
+  content
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as unknown)
+    .filter(
+      (value): value is SessionLogEntry =>
+        isRecord(value) &&
+        typeof value.ts === 'string' &&
+        typeof value.role === 'string',
+    );
 
 export const parseSessionHistoryMessages = (
   content: string,

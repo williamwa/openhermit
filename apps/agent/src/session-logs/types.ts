@@ -19,7 +19,6 @@ export interface EpisodicLogEntry {
 }
 
 export interface SessionLogPaths {
-  sessionLogRelativePath: string;
   episodicRelativePath: string;
 }
 
@@ -36,7 +35,6 @@ export interface PersistedSessionIndexEntry {
   description?: string;
   descriptionSource?: 'fallback' | 'ai';
   lastMessagePreview?: string;
-  sessionLogRelativePath: string;
   episodicRelativePath: string;
   metadata?: Record<string, MetadataValue>;
 }
@@ -61,13 +59,8 @@ export const createEmptySessionIndexDocument = (): SessionIndexDocument => ({
 });
 
 export const createSessionLogPaths = (
-  sessionId: string,
   createdAt: string,
 ): SessionLogPaths => ({
-  sessionLogRelativePath: `sessions/${createdAt.slice(0, 10)}-${sessionId
-    .trim()
-    .replace(/[^a-zA-Z0-9._-]+/g, '_')
-    .replace(/^_+|_+$/g, '') || 'session'}.jsonl`,
   episodicRelativePath: `memory/episodic/${createdAt.slice(0, 7)}.jsonl`,
 });
 

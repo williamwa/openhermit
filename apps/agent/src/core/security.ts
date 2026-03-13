@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { internalStateFiles } from '@openhermit/shared';
 import { NotFoundError, ValidationError } from '@openhermit/shared';
 
 import type { ResolvePathOptions } from './workspace.js';
@@ -41,6 +42,10 @@ export class AgentSecurity {
 
   readonly secretsFilePath: string;
 
+  readonly runtimeDir: string;
+
+  readonly stateFilePath: string;
+
   constructor(private readonly options: AgentSecurityOptions) {
     const baseDir =
       options.openHermitHome ??
@@ -50,10 +55,13 @@ export class AgentSecurity {
     this.rootDir = path.join(baseDir, options.agentId);
     this.securityFilePath = path.join(this.rootDir, 'security.json');
     this.secretsFilePath = path.join(this.rootDir, 'secrets.json');
+    this.runtimeDir = path.join(this.rootDir, 'runtime');
+    this.stateFilePath = path.join(this.rootDir, internalStateFiles.sqlite);
   }
 
   async init(): Promise<void> {
     await fs.mkdir(this.rootDir, { recursive: true });
+    await fs.mkdir(this.runtimeDir, { recursive: true });
     await ensureJsonFile(this.securityFilePath, DEFAULT_SECURITY_POLICY);
     await ensureJsonFile(this.secretsFilePath, {});
   }

@@ -41,6 +41,10 @@ export const runtimeFiles = {
   apiToken: 'runtime/api.token',
 } as const;
 
+export const internalStateFiles = {
+  sqlite: 'state.sqlite',
+} as const;
+
 export const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error) {
     return error.message;

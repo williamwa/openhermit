@@ -154,6 +154,12 @@ const readJsonl = async (
     .filter(Boolean)
     .map((line) => JSON.parse(line) as Record<string, unknown>);
 
+const readSessionLog = async (
+  runner: AgentRunner,
+  sessionId: string,
+): Promise<Array<Record<string, unknown>>> =>
+  (await runner.listSessionLogEntries(sessionId)) as Array<Record<string, unknown>>;
+
 test('AgentRunner publishes SSE text events and writes minimal logs', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: {
@@ -200,10 +206,7 @@ test('AgentRunner publishes SSE text events and writes minimal logs', async (t) 
     ),
   );
 
-  const sessionEntries = await readJsonl(
-    (relativePath) => workspace.readFile(relativePath),
-    runner.getSessionLogRelativePath('cli:test-session'),
-  );
+  const sessionEntries = await readSessionLog(runner, 'cli:test-session');
   assert.ok(
     sessionEntries.some((entry) => entry.type === 'session_started'),
   );
@@ -390,10 +393,7 @@ test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
     ),
   );
 
-  const sessionEntries = await readJsonl(
-    (relativePath) => workspace.readFile(relativePath),
-    runner.getSessionLogRelativePath('cli:tool-session'),
-  );
+  const sessionEntries = await readSessionLog(runner, 'cli:tool-session');
 
   assert.ok(
     sessionEntries.some(
@@ -472,10 +472,7 @@ test('AgentRunner ignores whitespace-only assistant messages emitted before tool
     1,
   );
 
-  const sessionEntries = await readJsonl(
-    (relativePath) => workspace.readFile(relativePath),
-    runner.getSessionLogRelativePath('cli:tool-whitespace-session'),
-  );
+  const sessionEntries = await readSessionLog(runner, 'cli:tool-whitespace-session');
   const assistantEntries = sessionEntries.filter((entry) => entry.role === 'assistant');
 
   assert.equal(assistantEntries.length, 1);
@@ -671,10 +668,7 @@ test('AgentRunner surfaces a missing API key as an error event instead of crashi
     /Missing API key for provider "anthropic"/,
   );
 
-  const sessionEntries = await readJsonl(
-    (relativePath) => workspace.readFile(relativePath),
-    runner.getSessionLogRelativePath('cli:no-key-session'),
-  );
+  const sessionEntries = await readSessionLog(runner, 'cli:no-key-session');
 
   assert.ok(
     sessionEntries.some(
@@ -789,10 +783,7 @@ test('AgentRunner pauses on require_approval_for and resumes after respondToAppr
   const fileContent = await workspace.readFile('files/out.txt');
   assert.equal(fileContent, 'approved content');
 
-  const sessionEntries = await readJsonl(
-    (relativePath) => workspace.readFile(relativePath),
-    runner.getSessionLogRelativePath('cli:approval-session'),
-  );
+  const sessionEntries = await readSessionLog(runner, 'cli:approval-session');
   assert.ok(
     sessionEntries.some(
       (entry) =>
@@ -891,10 +882,7 @@ test('AgentRunner rejects tool call when respondToApproval sends false', async (
     /rejected by the user/,
   );
 
-  const sessionEntries = await readJsonl(
-    (relativePath) => workspace.readFile(relativePath),
-    runner.getSessionLogRelativePath('cli:deny-session'),
-  );
+  const sessionEntries = await readSessionLog(runner, 'cli:deny-session');
   assert.ok(
     sessionEntries.some(
       (entry) =>
@@ -1101,12 +1089,9 @@ test('AgentRunner rebuilds and reuses persisted session index across restarts', 
   });
   await runner.waitForSessionIdle('cli:persisted-session');
 
-  const originalLogPath = runner.getSessionLogRelativePath('cli:persisted-session');
   const indexedSessions = await runner.listSessions({ kind: 'cli' });
   assert.equal(indexedSessions.length, 1);
   assert.equal(indexedSessions[0]?.sessionId, 'cli:persisted-session');
-
-  await workspace.deleteFile('sessions/index.json');
 
   const restoredRunner = await AgentRunner.create({
     workspace,
@@ -1132,19 +1117,15 @@ test('AgentRunner rebuilds and reuses persisted session index across restarts', 
       interactive: true,
     },
   });
-  assert.equal(
-    restoredRunner.getSessionLogRelativePath('cli:persisted-session'),
-    originalLogPath,
-  );
 
   await restoredRunner.postMessage('cli:persisted-session', {
     text: 'continue persistence',
   });
   await restoredRunner.waitForSessionIdle('cli:persisted-session');
 
-  const sessionEntries = await readJsonl(
-    (relativePath) => workspace.readFile(relativePath),
-    originalLogPath,
+  const sessionEntries = await readSessionLog(
+    restoredRunner,
+    'cli:persisted-session',
   );
   assert.equal(
     sessionEntries.filter((entry) => entry.type === 'session_started').length,

@@ -11,7 +11,6 @@ export interface RunnerSession extends SessionDescriptor {
   sideEffects: Promise<void>;
   backgroundTasks: Promise<void>;
   idleSummaryTimer: ReturnType<typeof setTimeout> | undefined;
-  sessionLogRelativePath: string;
   episodicRelativePath: string;
   latestAssistantText: string | undefined;
   lastUserMessageText?: string;

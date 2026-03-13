@@ -14,7 +14,6 @@ test('AgentWorkspace init scaffolds config and identity files', async (t) => {
   const identity = await workspace.readFile('identity/IDENTITY.md');
   const agentsInstructions = await workspace.readFile('identity/AGENTS.md');
   const longTerm = await workspace.readFile('memory/long-term.md');
-  const sessionIndex = await workspace.readFile('sessions/index.json');
   const rootEntries = await workspace.listFiles('.');
 
   assert.equal(config.agent_id, 'agent-test');
@@ -24,7 +23,6 @@ test('AgentWorkspace init scaffolds config and identity files', async (t) => {
   assert.match(agentsInstructions, /workspace-specific instructions, preferences, and collaboration rules/);
   assert.doesNotMatch(agentsInstructions, /Container tool rules:/);
   assert.match(longTerm, /# Long-Term Memory/);
-  assert.match(sessionIndex, /"version": 1/);
   assert.ok(rootEntries.some((entry) => entry.path === 'config.json'));
   assert.ok(rootEntries.some((entry) => entry.path === 'identity'));
   assert.ok(rootEntries.some((entry) => entry.path === 'memory'));
