@@ -2,7 +2,7 @@ import type { AgentLocalClient } from '@openhermit/sdk';
 import process from 'node:process';
 import { Key, matchesKey } from '@mariozechner/pi-tui';
 
-import { HELP_TEXT } from '../constants.js';
+import { HELP_TEXT, OPENHERMIT_ASCII_ART } from '../constants.js';
 import {
   formatDebugValue,
   formatSessionList,
@@ -65,6 +65,7 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
   if (resumeFlag && startupSession.resumed) {
     addText(gray('[session] Resumed most recent CLI session'));
   }
+  addText(cyan(OPENHERMIT_ASCII_ART));
   addText(gray('Workspace: ' + workspaceRoot));
   addText(gray('Type /help for commands. /exit or double Ctrl-C to exit.\n'));
 
