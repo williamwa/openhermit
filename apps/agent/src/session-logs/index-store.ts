@@ -1,27 +1,15 @@
-import { promises as fs } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
-import path from 'node:path';
 
 import type { MetadataValue } from '@openhermit/protocol';
 
-import { AgentWorkspace } from '../core/index.js';
-import {
-  deriveSessionIndexEntryFromLog,
-  parseSessionLogEntries,
-  parseSessionIndexDocument,
-} from './parsing.js';
 import type {
   PersistedSessionIndexEntry,
 } from './types.js';
-import { insertSessionLogEntry } from './sqlite-shared.js';
 
 export class SessionIndexStore {
   private writeQueue = Promise.resolve();
 
-  private importedLegacyState = false;
-
   constructor(
-    private readonly workspace: AgentWorkspace,
     private readonly database: DatabaseSync,
   ) {}
 
@@ -31,7 +19,6 @@ export class SessionIndexStore {
 
   async list(): Promise<PersistedSessionIndexEntry[]> {
     await this.waitForIdle();
-    await this.ensureImportedLegacyState();
     return this.readSessions();
   }
 
@@ -176,119 +163,5 @@ export class SessionIndexStore {
 
       return entry;
     });
-  }
-
-  private async ensureImportedLegacyState(): Promise<void> {
-    if (this.importedLegacyState) {
-      return;
-    }
-    this.importedLegacyState = true;
-
-    const existing = this.database
-      .prepare('SELECT COUNT(*) AS count FROM sessions')
-      .get() as { count: number };
-
-    if (existing.count > 0) {
-      return;
-    }
-
-    await this.importLegacySessions();
-  }
-
-  private async importLegacySessions(): Promise<void> {
-    let indexedSessions: PersistedSessionIndexEntry[] = [];
-
-    try {
-      const content = await this.workspace.readFile('sessions/index.json');
-      indexedSessions = parseSessionIndexDocument(JSON.parse(content) as unknown).sessions;
-    } catch {
-      indexedSessions = [];
-    }
-
-    const sessionsDir = await this.workspace.resolve('sessions');
-    const entries = await fs.readdir(sessionsDir, { withFileTypes: true }).catch(() => []);
-    const sessions = new Map(indexedSessions.map((entry) => [entry.sessionId, entry]));
-
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith('.jsonl')) {
-        continue;
-      }
-
-      const sessionLogRelativePath = path.posix.join('sessions', entry.name);
-      const content = await this.workspace.readFile(sessionLogRelativePath).catch(() => '');
-      const rebuilt = deriveSessionIndexEntryFromLog(content);
-
-      if (rebuilt) {
-        const existingEntry = sessions.get(rebuilt.sessionId);
-        sessions.set(rebuilt.sessionId, existingEntry ? { ...rebuilt, ...existingEntry } : rebuilt);
-      }
-
-      const rawEntries = parseSessionLogEntries(content);
-      const sessionId = rebuilt?.sessionId;
-
-      if (!sessionId) {
-        continue;
-      }
-
-      this.database.exec('BEGIN');
-      try {
-        const sessionEntry = sessions.get(sessionId);
-        if (sessionEntry) {
-          this.database
-            .prepare(
-              `INSERT OR IGNORE INTO sessions(
-                session_id,
-                source_kind,
-                source_platform,
-                interactive,
-                created_at,
-                last_activity_at,
-                description,
-                description_source,
-                message_count,
-                completed_turn_count,
-                last_summarized_history_count,
-                last_summarized_turn_count,
-                last_summarized_at,
-                last_message_preview,
-                metadata_json,
-                episodic_relative_path,
-                status
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle')`,
-            )
-            .run(
-              sessionEntry.sessionId,
-              sessionEntry.source.kind,
-              sessionEntry.source.platform ?? null,
-              sessionEntry.source.interactive ? 1 : 0,
-              sessionEntry.createdAt,
-              sessionEntry.lastActivityAt,
-              sessionEntry.description ?? null,
-              sessionEntry.descriptionSource ?? null,
-              sessionEntry.messageCount,
-              sessionEntry.completedTurnCount ?? 0,
-              sessionEntry.lastSummarizedHistoryCount ?? 0,
-              sessionEntry.lastSummarizedTurnCount ?? 0,
-              sessionEntry.lastSummarizedAt ?? null,
-              sessionEntry.lastMessagePreview ?? null,
-              JSON.stringify(sessionEntry.metadata ?? {}),
-              sessionEntry.episodicRelativePath,
-            );
-        }
-
-        for (const rawEntry of rawEntries) {
-          insertSessionLogEntry(this.database, sessionId, rawEntry);
-        }
-
-        this.database.exec('COMMIT');
-      } catch (error) {
-        this.database.exec('ROLLBACK');
-        throw error;
-      }
-    }
-
-    for (const session of sessions.values()) {
-      await this.upsert(session);
-    }
   }
 }
