@@ -44,7 +44,6 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
     addStatusLine,
     addAgentLabel,
     beginAssistantMessage,
-    requestApproval,
   } = layout;
 
   let currentSessionId = startupSession.sessionId;
@@ -265,6 +264,46 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
     };
 
     let nextEventId: number | null = null;
+    const promptApproval = async (): Promise<boolean> => {
+      const promptHandle = addStatusLine(gray('Approve? [y/N]'));
+      const previousDisableSubmit = editor.disableSubmit;
+      editor.disableSubmit = true;
+      tui.requestRender();
+
+      return await new Promise<boolean>((resolve) => {
+        const finish = (approved: boolean) => {
+          removeApprovalListener();
+          promptHandle.remove();
+          editor.disableSubmit = previousDisableSubmit;
+          tui.requestRender();
+          resolve(approved);
+        };
+
+        const removeApprovalListener = tui.addInputListener((data) => {
+          if (matchesKey(data, Key.enter)) {
+            finish(false);
+            return { consume: true };
+          }
+
+          if (matchesKey(data, Key.escape)) {
+            finish(false);
+            return { consume: true };
+          }
+
+          if (data === 'y' || data === 'Y') {
+            finish(true);
+            return { consume: true };
+          }
+
+          if (data === 'n' || data === 'N') {
+            finish(false);
+            return { consume: true };
+          }
+
+          return undefined;
+        });
+      });
+    };
 
     try {
       nextEventId = await waitForAssistantTurn(
@@ -274,9 +313,9 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
         currentLastEventId,
         {
           signal: currentTurnAbort.signal,
-          onApprovalRequired: async (toolName, toolCallId, args) => {
+          onApprovalRequired: async (_toolName, _toolCallId, _args) => {
             ensureAgentLabel();
-            const approved = await requestApproval(toolName, args);
+            const approved = await promptApproval();
             addText(approved ? green('[approved]') : red('[denied]'));
             return approved;
           },
