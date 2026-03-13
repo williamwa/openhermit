@@ -224,7 +224,7 @@ Its purpose is:
 - decide whether the session state changed in a meaningful way
 - update episodic memory
 - update session-local working memory
-- optionally refresh global working memory
+- optionally refresh `now`
 
 This turn is program-triggered, not user-triggered.
 
@@ -246,13 +246,13 @@ Inputs for a checkpoint turn should include:
 - the new session-log range since the last memory checkpoint
 - previous session-local working memory
 - current session metadata
-- optionally recent global working memory
+- optionally recent `now`
 
 Outputs of a checkpoint turn should include:
 
 - a new episodic checkpoint, if warranted
 - rewritten session-local working memory
-- optionally refreshed global working memory
+- optionally refreshed `now`
 
 ### Long-Term Consolidation
 
@@ -388,7 +388,7 @@ The agent should generate:
 
 - episodic summaries
 - rewritten session-local working memory
-- rewritten global working memory
+- rewritten `now`
 - promoted long-term memory content
 
 This keeps memory behavior predictable while still using the model for summarization quality.

@@ -1,51 +1,43 @@
 # OpenHermit Plan
 
-This is the current implementation and migration plan.
+This document tracks the current implementation status and the next major work items.
 
-## Current Direction
+## Current State
 
-OpenHermit is moving toward:
+OpenHermit already has a working single-agent runtime with:
 
-- external workspace for task files
-- per-agent internal state under `~/.openhermit/{agent-id}/`
+- host-based agent execution
+- per-agent internal state in `~/.openhermit/{agent-id}/`
 - `state.sqlite` as the primary internal-state store
-- `runtime.json` as the runtime discovery file
-- scheduler extracted from heartbeat-specific logic
+- `runtime.json` for local API discovery
+- agent-local HTTP + SSE API
+- CLI client
+- local web client
+- approval gate
+- file, web, memory, and container tools
 
-## Completed So Far
+The main architectural direction is now stable:
+
+- `external state` stays in the workspace
+- `internal state` stays outside the workspace
+- checkpointing is agent-driven
+- scheduler will be extracted from heartbeat-specific logic
+
+## Completed
 
 ### Agent Runtime
 
-- host-based agent runtime
 - `pi-agent-core` integration
-- HTTP + SSE agent-local API
-- approval gate
-- CLI client
-- local web client
-
-### Tools
-
-- file tools
-- `file_search`
-- `web_fetch`
-- container tools
-
-### Session Layer
-
-- session listing
+- session lifecycle and persistence
+- SSE event streaming
+- approval pause / resume flow
 - session history API
-- session descriptions
-- session events over SSE
-- session persistence in per-agent `state.sqlite`
+- session listing API
 
-### Memory Foundations
+### Clients
 
-- checkpoint-based episodic summaries
-- session checkpoint endpoint
-- configurable checkpoint turn interval
-- session-local working memory stored in `sessions`
-- named memories stored in `memories`, including `main` and `now`
-- checkpoint execution is moving from external summarization toward agent-driven internal checkpoint turns
+- CLI client with session switching and approvals
+- local web client with chat and session list
 
 ### Internal State Migration
 
@@ -53,48 +45,70 @@ OpenHermit is moving toward:
 - per-agent `runtime.json`
 - sessions and session logs migrated out of workspace files
 - episodic checkpoints migrated out of workspace files
+- session-local working memory migrated into `sessions`
+- named memories migrated into `memories`
+- container runtime inventory migrated into `state.sqlite`
 - workspace scaffold no longer creates `memory/`, `sessions/`, or `runtime/`
 
-## Next Steps
+### Memory Foundations
 
-## Phase 1 — Finish Internal/External State Separation
-
-### 1.1 Working Memory Migration
-Completed.
-
-### 1.2 Long-Term Memory Rework
-
-- decide what belongs to named system memory vs user-authored knowledge
-- store named system memory in `state.sqlite`
-- keep user-authored knowledge in external files
-- support explicit user-driven long-term memory updates
-- add `memory_get` for exact named-memory reads before rewriting
-- add `memory_recall` for agent-facing named-memory retrieval
-- add `memory_update` for explicit named-memory writes
-- define conventions for:
+- checkpoint-based episodic memory
+- configurable `memory.checkpoint_turn_interval`
+- checkpoint endpoint
+- agent-driven internal checkpoint turns
+- session-local working memory
+- named memories with first-class keys:
   - `main`
   - `now`
   - structured keys such as `project/...`
+- agent-facing named-memory tools:
+  - `memory_get`
+  - `memory_recall`
+  - `memory_update`
 
-### 1.3 Agent-Driven Checkpoint Turns
+### Tooling
 
-- keep `memory.checkpoint_turn_interval` as the checkpoint trigger config
-- make checkpoint execution run through the agent itself, not a bare external summarizer
-- use the new session-log range plus existing memory state as input
-- update episodic and working memory through this checkpoint turn
-- prepare the same lifecycle for future long-term consolidation
+- file tools
+- `file_search`
+- `web_fetch`
+- container tools
+- configurable container `mount_target`
 
-### 1.4 Identity Split
+## Remaining Major Work
+
+## Phase 1 — Finish Internal/External State Separation
+
+### 1.1 Identity Split
 
 - treat `identity/*.md` as user-authored identity inputs
 - define normalized internal identity state
 - stop treating workspace identity files as canonical runtime state
 
-### 1.5 Container Runtime Migration
+### 1.2 Durable Memory Refinement
 
-- move container runtime inventory out of workspace files
-- store runtime inventory in `state.sqlite`
-- keep `containers/{name}/data/` as external task data
+- finalize the boundary between:
+  - named system memory
+  - user-authored knowledge
+- make `main` and `now` the default runtime-loaded memories
+- formalize structured key conventions such as:
+  - `project/...`
+  - `user/preferences/...`
+  - `ops/...`
+- define when checkpoint turns may refresh `now`
+- define when idle consolidation may refresh `main` and other durable keys
+
+### 1.3 Long-Term Consolidation
+
+- add idle-time consolidation passes
+- support user-local low-activity / sleep-time consolidation windows
+- promote durable facts from:
+  - session logs
+  - episodic checkpoints
+  - session-local working memory
+  - `now`
+- write promoted results into:
+  - `main`
+  - structured named memories
 
 ## Phase 2 — Scheduler
 
@@ -106,16 +120,30 @@ Completed.
   - `at`
   - `event`
   - `dependency`
-- add schedule execution state and retry policy
-- dispatch scheduled work into agents as ordinary sessions/runs
+- add execution policy:
+  - timeout
+  - retry
+  - backoff
+  - concurrency
+- dispatch scheduled work into agents as ordinary runs
 
-## Phase 3 — Web + Channel Maturity
+## Phase 3 — Identity + Knowledge Maturity
+
+- refine how user-authored knowledge is organized in the external workspace
+- improve the agent's use of:
+  - `memory_recall`
+  - `memory_get`
+  - `memory_update`
+- add explicit “remember this” behavior on top of named memories
+- connect normalized identity state to prompt construction
+
+## Phase 4 — Web + Channel Maturity
 
 - improve web UX on top of the existing client
-- add Telegram as a first real channel adapter
+- add Telegram as the first real channel adapter
 - make adapter/session binding first-class across channels
 
-## Phase 4 — Gateway / Multi-Agent
+## Phase 5 — Gateway / Multi-Agent
 
 - multi-agent lifecycle management
 - unified `/agents/{id}/...` routing
@@ -124,16 +152,17 @@ Completed.
 
 ## Immediate Implementation Order
 
-1. define the split between system long-term memory and user-authored knowledge
-2. implement agent-driven checkpoint turns
-3. migrate container runtime inventory into `state.sqlite`
+1. split identity inputs from normalized internal identity state
+2. define the durable-memory vs user-knowledge boundary more tightly
+3. implement idle / sleep-time long-term consolidation
 4. design and implement the scheduler
-5. split identity inputs from normalized internal identity state
+5. continue improving web and channel adapters
 
 ## Design Constraints
 
-- no backward-compatibility layer is required during development
+- do not preserve legacy compatibility unless explicitly requested
 - internal state should not flow back into the workspace by default
-- user-editable inputs and agent-managed runtime state must remain distinct
-- episodic and working memory remain runtime-managed and are not exposed as generic agent tools
+- user-editable inputs and runtime-managed state must remain distinct
+- episodic memory and session-local working memory remain runtime-managed
 - agent-facing memory tools should target named system memory only
+- mounted container task data remains external state even though container runtime inventory is internal state

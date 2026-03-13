@@ -159,7 +159,7 @@ OpenHermit provides the surrounding runtime:
 - built-in tools
 - approval orchestration
 - session persistence
-- memory updates
+- memory updates, including checkpoint turns and named-memory maintenance
 - HTTP + SSE transport
 
 ## Session Model
