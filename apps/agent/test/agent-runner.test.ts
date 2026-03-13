@@ -560,6 +560,57 @@ test('AgentRunner writes episodic checkpoints on explicit checkpoint requests an
   assert.match(workingMemory, /previous=reason=new_session/);
 });
 
+test('AgentRunner uses an internal checkpoint turn by default instead of an external summary call', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: {
+      ANTHROPIC_API_KEY: 'test-anthropic-key',
+    },
+  });
+  await security.load();
+
+  const runner = await AgentRunner.create({
+    workspace,
+    security,
+    streamFn: createSequentialStreamFn([
+      () => createTextResponseStream('first reply'),
+      () =>
+        createTextResponseStream(
+          JSON.stringify({
+            summary: 'internal summary for checkpoint',
+            sessionWorkingMemory: '# Session Working Memory\n\nremember this',
+          }),
+        ),
+    ]),
+  });
+
+  await runner.openSession({
+    sessionId: 'cli:internal-checkpoint-session',
+    source: { kind: 'cli', interactive: true },
+  });
+  await runner.postMessage('cli:internal-checkpoint-session', { text: 'first question' });
+  await runner.waitForSessionIdle('cli:internal-checkpoint-session');
+
+  assert.equal(
+    await runner.checkpointSession('cli:internal-checkpoint-session', 'manual'),
+    true,
+  );
+
+  const episodicEntries = await runner.listEpisodicEntries('cli:internal-checkpoint-session');
+  const checkpointData = episodicEntries[0]?.data as Record<string, unknown> | undefined;
+
+  assert.equal(episodicEntries.length, 1);
+  assert.equal(checkpointData?.summary, 'internal summary for checkpoint');
+
+  const database = openInternalStateDatabase(security.stateFilePath);
+  t.after(() => database.close());
+  const logWriter = new SessionLogWriter(database);
+  const workingMemory = await logWriter.getSessionWorkingMemory(
+    'cli:internal-checkpoint-session',
+  );
+
+  assert.equal(workingMemory, '# Session Working Memory\n\nremember this\n');
+});
+
 test('AgentRunner writes a checkpoint automatically every configured turn interval', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: {
@@ -573,6 +624,13 @@ test('AgentRunner writes a checkpoint automatically every configured turn interv
     security,
     streamFn: createSequentialStreamFn([
       () => createTextResponseStream('turn one'),
+      () =>
+        createTextResponseStream(
+          JSON.stringify({
+            summary: 'turn_limit: checkpoint me | turn one',
+            sessionWorkingMemory: '# Session Working Memory\n\nturn one context',
+          }),
+        ),
     ]),
     checkpointTurnInterval: 1,
     checkpointSummaryGenerator: async ({ history, reason }) =>
@@ -607,6 +665,13 @@ test('AgentRunner writes an idle summary after the configured timeout', async (t
     security,
     streamFn: createSequentialStreamFn([
       () => createTextResponseStream('idle reply'),
+      () =>
+        createTextResponseStream(
+          JSON.stringify({
+            summary: 'idle: wait for idle | idle reply',
+            sessionWorkingMemory: '# Session Working Memory\n\nidle context',
+          }),
+        ),
     ]),
     idleSummaryTimeoutMs: 20,
     checkpointSummaryGenerator: async ({ history, reason }) =>

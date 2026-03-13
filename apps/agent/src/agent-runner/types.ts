@@ -10,6 +10,7 @@ export interface RunnerSession extends SessionDescriptor {
   queue: Promise<void>;
   sideEffects: Promise<void>;
   backgroundTasks: Promise<void>;
+  checkpointInProgress: boolean;
   idleSummaryTimer: ReturnType<typeof setTimeout> | undefined;
   latestAssistantText: string | undefined;
   lastUserMessageText?: string;
