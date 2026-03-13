@@ -61,11 +61,3 @@ export const normalizeGeneratedDescription = (
     ? normalized
     : `${normalized.slice(0, 77)}...`;
 };
-
-export const createSessionWorkingMemoryRelativePath = (
-  sessionId: string,
-): string =>
-  `sessions/working/${sessionId
-    .trim()
-    .replace(/[^a-zA-Z0-9._-]+/g, '_')
-    .replace(/^_+|_+$/g, '') || 'session'}.md`;

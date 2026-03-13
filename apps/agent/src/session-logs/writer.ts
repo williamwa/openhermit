@@ -149,4 +149,59 @@ export class SessionLogWriter {
       },
     }));
   }
+
+  async getSessionWorkingMemory(sessionId: string): Promise<string | undefined> {
+    const row = this.database
+      .prepare(
+        `SELECT content
+         FROM session_working_memory
+         WHERE session_id = ?`,
+      )
+      .get(sessionId) as { content?: string } | undefined;
+
+    return typeof row?.content === 'string' ? row.content : undefined;
+  }
+
+  async setSessionWorkingMemory(
+    sessionId: string,
+    content: string,
+    updatedAt: string,
+  ): Promise<void> {
+    this.database
+      .prepare(
+        `INSERT INTO session_working_memory(session_id, content, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(session_id) DO UPDATE SET
+           content = excluded.content,
+           updated_at = excluded.updated_at`,
+      )
+      .run(sessionId, content, updatedAt);
+  }
+
+  async getGlobalWorkingMemory(): Promise<string | undefined> {
+    const row = this.database
+      .prepare(
+        `SELECT content
+         FROM global_working_memory
+         WHERE singleton_key = 'global'`,
+      )
+      .get() as { content?: string } | undefined;
+
+    return typeof row?.content === 'string' ? row.content : undefined;
+  }
+
+  async setGlobalWorkingMemory(
+    content: string,
+    updatedAt: string,
+  ): Promise<void> {
+    this.database
+      .prepare(
+        `INSERT INTO global_working_memory(singleton_key, content, updated_at)
+         VALUES ('global', ?, ?)
+         ON CONFLICT(singleton_key) DO UPDATE SET
+           content = excluded.content,
+           updated_at = excluded.updated_at`,
+      )
+      .run(content, updatedAt);
+  }
 }

@@ -14,6 +14,20 @@ Like a hermit crab living inside its protective shell, an agent can use shells a
 - **API-first**: All agent operations exposed via a clean HTTP + SSE API
 - **Cloud-native**: Deployable on any VPS/cloud, orchestrated via Docker Compose or Kubernetes
 
+## State Layout
+
+OpenHermit separates:
+
+- `external state`: the agent workspace, containing user/project files the agent can operate on
+- `internal state`: runtime-owned state stored outside the workspace under `~/.openhermit/{agent-id}/`
+
+Current internal-state files include:
+
+- `state.sqlite`
+- `runtime.json`
+- `security.json`
+- `secrets.json`
+
 ## Repository Structure
 
 ```text
@@ -28,20 +42,22 @@ openhermit/
 ├── packages/
 │   ├── protocol/             # Shared session/event contracts and route constants
 │   ├── sdk/                  # Thin client for agent-local API calls
-│   └── shared/               # Errors, runtime file constants, small shared helpers
+│   └── shared/               # Errors, runtime metadata types, small shared helpers
 └── docs/
-    ├── v1/                  # Frozen docs for the current implementation baseline
-    └── v2/                  # Next planning track
+    ├── architecture.md
+    ├── plan.md
+    ├── memory-model.md
+    ├── session-model.md
+    └── decisions.md
 ```
 
-## Documentation Tracks
+## Documentation
 
-- `v1` documents the current implemented architecture:
-  [docs/v1/architecture.md](docs/v1/architecture.md),
-  [docs/v1/plan.md](docs/v1/plan.md)
-- `v2` is the next planning track for program-level memory and scheduling:
-  [docs/v2/architecture.md](docs/v2/architecture.md),
-  [docs/v2/plan.md](docs/v2/plan.md)
+- Architecture: [docs/architecture.md](docs/architecture.md)
+- Plan: [docs/plan.md](docs/plan.md)
+- Memory model: [docs/memory-model.md](docs/memory-model.md)
+- Session model: [docs/session-model.md](docs/session-model.md)
+- Decisions: [docs/decisions.md](docs/decisions.md)
 
 ## Quick Start
 
@@ -74,6 +90,10 @@ npm run chat:agent -- --session cli:resume-me
 npm run chat:agent -- --resume
 ```
 
+The CLI discovers the running agent via:
+
+- `~/.openhermit/{agent-id}/runtime.json`
+
 4. Or start the local web client:
 
 ```bash
@@ -89,5 +109,9 @@ npm run dev:web -- --agent-id agent-dev
 npm run dev:web -- --workspace /absolute/path/to/workspace
 npm run dev:web -- --port 4310
 ```
+
+The web launcher also reads:
+
+- `~/.openhermit/{agent-id}/runtime.json`
 
 If `tsx` is not suitable in your environment, you can build first and run the compiled entrypoints from `apps/agent/dist/`, `apps/cli/dist/`, and `apps/web/dist/`.

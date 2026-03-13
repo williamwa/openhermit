@@ -1,14 +1,173 @@
-# Architecture Decisions
+# OpenHermit Architecture Decisions
 
-Decision records are versioned with the corresponding architecture track.
+## ADR-001: Agent runs on host, containers are tools
 
-## Documents
+**Decision**: The agent process runs on the host. Containers are sandboxed workers and services controlled by the agent.
 
-- `v1` ADRs: [docs/v1/decisions.md](v1/decisions.md)
-- `v2` planning and architecture: [docs/v2/architecture.md](v2/architecture.md), [docs/v2/plan.md](v2/plan.md)
+**Rationale**:
 
-## Notes
+- persistent runtime state belongs on the host
+- the agent must manage containers directly
+- the trust boundary stays clear
 
-`v1` ADRs remain the source of truth for the current implementation.
+## ADR-002: Internal state is outside the workspace
 
-`v2` should add new ADRs only after the new memory/program-store and scheduler boundaries are settled.
+**Decision**: Internal runtime state must not live in the agent workspace by default.
+
+**Current internal location**:
+
+- `~/.openhermit/{agent-id}/state.sqlite`
+- `~/.openhermit/{agent-id}/runtime.json`
+- `~/.openhermit/{agent-id}/security.json`
+- `~/.openhermit/{agent-id}/secrets.json`
+
+**Rationale**:
+
+- internal state is runtime-owned, not ordinary task data
+- the workspace should remain the agent's external sandbox
+- this prevents the workspace from mixing user files with runtime truth
+
+## ADR-003: Workspace is external state
+
+**Decision**: The workspace should contain only external task state and user-authored inputs.
+
+Examples:
+
+- project files
+- artifacts
+- user-authored docs and prompts
+- identity inputs
+- container-mounted task data
+
+**Rationale**:
+
+- cleaner security boundary
+- clearer mental model
+- better fit for future multi-agent and scheduler work
+
+## ADR-004: Per-agent SQLite internal store
+
+**Decision**: Internal state is stored in one SQLite database per agent:
+
+- `~/.openhermit/{agent-id}/state.sqlite`
+
+**Rationale**:
+
+- avoids reintroducing file-based internal state
+- keeps agent data isolated
+- simplifies per-agent migration
+- leaves room for future gateway-level aggregation without forcing a single global DB today
+
+## ADR-005: Runtime discovery uses runtime.json
+
+**Decision**: Agent-local discovery metadata is stored in:
+
+- `~/.openhermit/{agent-id}/runtime.json`
+
+Current contents include:
+
+- HTTP API port
+- bearer token
+- update timestamp
+
+**Rationale**:
+
+- one extensible file is cleaner than multiple small runtime files
+- easier to grow discovery metadata later
+- keeps runtime discovery out of the workspace
+
+## ADR-006: Sessions are durable threads
+
+**Decision**: Sessions are durable threads identified by `sessionId`. They do not have a permanent `closed` state.
+
+**Rationale**:
+
+- old threads may be resumed later
+- adapters should switch bindings, not close threads
+- summarization should not depend on irreversible session closure
+
+## ADR-007: Adapter binding is not agent-core state
+
+**Decision**: The agent core only knows `sessionId`. Adapter binding decides which session a user/channel is currently using.
+
+**Rationale**:
+
+- keeps the runtime simple
+- supports CLI, web, and IM channels uniformly
+- keeps `/new` and resume semantics at the adapter level
+
+## ADR-008: Episodic memory is checkpoint-based
+
+**Decision**: Episodic memory stores checkpoint summaries, not a raw mirror of session events.
+
+Current storage:
+
+- `episodic_checkpoints` in `state.sqlite`
+
+**Rationale**:
+
+- avoids duplicating full session history
+- keeps episodic memory retrieval-oriented
+- provides a clean bridge from transcript to higher-level memory
+
+## ADR-009: Program drives memory lifecycle
+
+**Decision**: Memory lifecycle is program-driven, while summary content is agent-generated.
+
+Program responsibilities:
+
+- when to checkpoint
+- what transcript range to summarize
+- when to refresh working memory
+- where to store results
+
+Agent responsibilities:
+
+- generate checkpoint summaries
+- rewrite working memory
+- generate promoted long-term memory content
+
+**Rationale**:
+
+- predictable lifecycle
+- auditable behavior
+- high-quality summarization without giving orchestration control to the model
+
+## ADR-010: Container runtime state is internal, mounted data is external
+
+**Decision**:
+
+- container runtime inventory belongs to internal state
+- mounted container data belongs to external state
+
+**Rationale**:
+
+- runtime lifecycle is orchestration data
+- mounted files are task data the agent works on directly
+
+## ADR-011: Scheduler is program-level orchestration
+
+**Decision**: Scheduling should be a general program-level subsystem, not heartbeat-specific logic inside the agent runtime.
+
+**Rationale**:
+
+- heartbeat is only one kind of scheduled task
+- scheduling should support cron, interval, one-shot, event, and dependency triggers
+- the agent should execute runs, not own the scheduling model
+
+## ADR-012: Agent-local API remains the execution contract
+
+**Decision**: The per-agent runtime exposes an agent-local HTTP + SSE API:
+
+- `POST /sessions`
+- `GET /sessions`
+- `GET /sessions/{sessionId}/messages`
+- `POST /sessions/{sessionId}/messages`
+- `POST /sessions/{sessionId}/approve`
+- `POST /sessions/{sessionId}/checkpoint`
+- `GET /sessions/{sessionId}/events`
+
+**Rationale**:
+
+- CLI, web, and future channels all reuse the same execution contract
+- a future gateway can proxy this later without changing the per-agent runtime boundary

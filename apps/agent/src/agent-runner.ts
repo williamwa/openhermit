@@ -34,7 +34,6 @@ import {
 } from './session-logs.js';
 import {
   createFallbackDescription,
-  createSessionWorkingMemoryRelativePath,
   normalizeGeneratedDescription,
 } from './session-utils.js';
 import { type SessionDescriptor, SessionEventBroker, type SessionRuntime } from './runtime.js';
@@ -396,10 +395,9 @@ export class AgentRunner implements SessionRuntime {
       config: AgentConfig;
     },
   ): Promise<void> {
-    const relativePath = createSessionWorkingMemoryRelativePath(session.spec.sessionId);
-    const previousWorkingMemory = await this.options.workspace
-      .readFile(relativePath)
-      .catch(() => undefined);
+    const previousWorkingMemory = await this.logWriter.getSessionWorkingMemory(
+      session.spec.sessionId,
+    );
     const nextWorkingMemory = await this.generateSessionWorkingMemory({
       sessionId: session.spec.sessionId,
       previousWorkingMemory,
@@ -412,7 +410,11 @@ export class AgentRunner implements SessionRuntime {
       return;
     }
 
-    await this.options.workspace.writeFile(relativePath, `${nextWorkingMemory.trim()}\n`);
+    await this.logWriter.setSessionWorkingMemory(
+      session.spec.sessionId,
+      `${nextWorkingMemory.trim()}\n`,
+      new Date().toISOString(),
+    );
   }
 
   async postMessage(
@@ -663,12 +665,10 @@ export class AgentRunner implements SessionRuntime {
     messages: AgentMessage[],
     _signal?: AbortSignal,
   ): Promise<AgentMessage[]> {
-    const sessionWorking = await this.options.workspace
-      .readFile(createSessionWorkingMemoryRelativePath(sessionId))
-      .catch(() => '');
-    const globalWorking = await this.options.workspace
-      .readFile('memory/working.md')
-      .catch(() => '');
+    const sessionWorking =
+      (await this.logWriter.getSessionWorkingMemory(sessionId)) ?? '';
+    const globalWorking =
+      (await this.logWriter.getGlobalWorkingMemory()) ?? '';
 
     const contextBlocks: AgentMessage[] = [];
 

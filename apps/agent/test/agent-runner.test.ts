@@ -11,7 +11,8 @@ import {
 } from '@mariozechner/pi-ai';
 
 import { AgentRunner } from '../src/agent-runner.js';
-import { createSessionWorkingMemoryRelativePath } from '../src/session-utils.js';
+import { openInternalStateDatabase } from '../src/internal-state/sqlite.js';
+import { SessionLogWriter } from '../src/session-logs.js';
 import { createSecurityFixture } from './helpers.js';
 
 const zeroUsage: Usage = {
@@ -265,12 +266,6 @@ test('AgentRunner injects session-local working memory before global working mem
   });
   await security.load();
 
-  await workspace.writeFile(
-    createSessionWorkingMemoryRelativePath('cli:working-context'),
-    '# Session Working Memory\nsession local context\n',
-  );
-  await workspace.writeFile('memory/working.md', '# Working Memory\nglobal context\n');
-
   let capturedMessages: Context['messages'] = [];
   const runner = await AgentRunner.create({
     workspace,
@@ -290,6 +285,18 @@ test('AgentRunner injects session-local working memory before global working mem
       interactive: true,
     },
   });
+  const database = openInternalStateDatabase(security.stateFilePath);
+  t.after(() => database.close());
+  const logWriter = new SessionLogWriter(database);
+  await logWriter.setSessionWorkingMemory(
+    'cli:working-context',
+    '# Session Working Memory\nsession local context\n',
+    '2026-03-13T00:00:00.000Z',
+  );
+  await logWriter.setGlobalWorkingMemory(
+    '# Working Memory\nglobal context\n',
+    '2026-03-13T00:00:00.000Z',
+  );
   await runner.postMessage('cli:working-context', {
     text: 'use memory',
   });
@@ -541,9 +548,13 @@ test('AgentRunner writes episodic checkpoints on explicit checkpoint requests an
   assert.doesNotMatch(String(secondData?.summary ?? ''), /first question/);
   assert.match(String(secondData?.summary ?? ''), /second question/);
 
-  const workingMemory = await workspace.readFile(
-    createSessionWorkingMemoryRelativePath('cli:checkpoint-session'),
+  const database = openInternalStateDatabase(security.stateFilePath);
+  t.after(() => database.close());
+  const logWriter = new SessionLogWriter(database);
+  const workingMemory = await logWriter.getSessionWorkingMemory(
+    'cli:checkpoint-session',
   );
+  assert.ok(workingMemory);
   assert.match(workingMemory, /reason=manual/);
   assert.match(workingMemory, /summary=manual: user:second question \| assistant:second reply/);
   assert.match(workingMemory, /previous=reason=new_session/);
