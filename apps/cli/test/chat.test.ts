@@ -9,54 +9,42 @@ import {
   parseChatCliArgs,
   parseSlashCommand,
   parseSseFrames,
-  resolveWorkspaceRoot,
   selectStartupSession,
   waitForAssistantTurn,
 } from '../src/index.js';
 
-test('resolveWorkspaceRoot uses explicit workspace when provided', () => {
-  assert.equal(
-    resolveWorkspaceRoot('/repo', 'agent-dev', './custom-agent'),
-    '/repo/custom-agent',
-  );
-});
-
-test('parseChatCliArgs resolves agent id, workspace, and session', () => {
+test('parseChatCliArgs resolves agent id and session', () => {
   const parsed = parseChatCliArgs(
-    ['--agent-id', 'agent-a', '--workspace', './runtime/agent-a', '--session', 'cli:123'],
-    '/repo',
+    ['--agent-id', 'agent-a', '--session', 'cli:123'],
     {},
   );
 
   assert.deepEqual(parsed, {
     agentId: 'agent-a',
-    workspaceRoot: '/repo/runtime/agent-a',
     sessionId: 'cli:123',
   });
 });
 
 test('parseChatCliArgs supports --resume', () => {
-  const parsed = parseChatCliArgs(['--resume'], '/repo', {});
+  const parsed = parseChatCliArgs(['--resume'], {});
 
   assert.deepEqual(parsed, {
-    agentId: 'agent-dev',
-    workspaceRoot: '/repo/.openhermit-dev/agent-dev',
+    agentId: 'main',
     resume: true,
   });
 });
 
 test('parseChatCliArgs rejects --resume together with --session', () => {
   assert.throws(
-    () => parseChatCliArgs(['--resume', '--session', 'cli:123'], '/repo', {}),
+    () => parseChatCliArgs(['--resume', '--session', 'cli:123'], {}),
     /Cannot use --resume together with --session/,
   );
 });
 
-test('parseChatCliArgs falls back to default dev workspace', () => {
-  const parsed = parseChatCliArgs([], '/repo', {});
+test('parseChatCliArgs falls back to the main agent id', () => {
+  const parsed = parseChatCliArgs([], {});
 
-  assert.equal(parsed.agentId, 'agent-dev');
-  assert.equal(parsed.workspaceRoot, '/repo/.openhermit-dev/agent-dev');
+  assert.equal(parsed.agentId, 'main');
 });
 
 test('parseSlashCommand parses session control commands', () => {

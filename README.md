@@ -81,7 +81,7 @@ openhermit/
 
 ## Quick Start
 
-1. Add your model API key to `~/.openhermit/agent-dev/secrets.json`, for example:
+1. Add your model API key to `~/.openhermit/main/secrets.json`, for example:
 
 ```json
 {
@@ -95,9 +95,11 @@ Optional: to emit Langfuse traces for model requests, add `LANGFUSE_PUBLIC_KEY`,
 
 ```bash
 npm run dev:agent
+npm run dev:agent -- --agent-id main
 ```
 
 `dev:agent` runs in watch mode and restarts automatically when agent source files change.
+It also accepts `--agent-id`, `--workspace`, `--name`, and `--port`.
 
 3. In another terminal, start the minimal CLI:
 
@@ -110,8 +112,7 @@ npm run chat:agent
 CLI options:
 
 ```bash
-npm run chat:agent -- --agent-id agent-dev
-npm run chat:agent -- --workspace /absolute/path/to/workspace
+npm run chat:agent -- --agent-id main
 npm run chat:agent -- --session cli:resume-me
 npm run chat:agent -- --resume
 ```
@@ -137,7 +138,7 @@ Then open [http://127.0.0.1:4310](http://127.0.0.1:4310).
 Web options:
 
 ```bash
-npm run dev:web -- --agent-id agent-dev
+npm run dev:web -- --agent-id main
 npm run dev:web -- --workspace /absolute/path/to/workspace
 npm run dev:web -- --port 4310
 ```

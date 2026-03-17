@@ -3,17 +3,16 @@ import { stderr } from 'node:process';
 
 import { AgentLocalClient } from '@openhermit/sdk';
 
-import { parseChatCliArgs, resolveWorkspaceRoot } from './args.js';
+import { parseChatCliArgs } from './args.js';
 import { parseSlashCommand } from './commands.js';
 import { formatSessionList } from './formatting.js';
-import { readRuntimeState } from './runtime-files.js';
+import { readRuntimeState, readWorkspaceRoot } from './runtime-files.js';
 import { listCliSessions, selectStartupSession } from './sessions.js';
 import { parseSseFrames, waitForAssistantTurn } from './sse.js';
 import { runTuiChatLoop } from './tui/index.js';
 
 export {
   parseChatCliArgs,
-  resolveWorkspaceRoot,
   parseSlashCommand,
   formatSessionList,
   parseSseFrames,
@@ -24,6 +23,7 @@ export {
 export const main = async (): Promise<void> => {
   const options = parseChatCliArgs(process.argv.slice(2));
   const runtimeState = await readRuntimeState(options.agentId);
+  const workspaceRoot = await readWorkspaceRoot(options.agentId);
   const port = String(runtimeState.http_api.port);
   const token = runtimeState.http_api.token;
   const client = new AgentLocalClient({
@@ -38,7 +38,7 @@ export const main = async (): Promise<void> => {
     client,
     token,
     agentId: options.agentId,
-    workspaceRoot: options.workspaceRoot,
+    workspaceRoot,
     startupSession,
     resumeFlag: options.resume,
   });

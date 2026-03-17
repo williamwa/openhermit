@@ -34,8 +34,8 @@ test('parseWebCliArgs uses defaults', () => {
   const parsed = parseWebCliArgs([], '/repo', {});
 
   assert.deepEqual(parsed, {
-    agentId: 'agent-dev',
-    workspaceRoot: '/repo/.openhermit-dev/agent-dev',
+    agentId: 'main',
+    workspaceRoot: '/repo/.openhermit-dev/main',
     port: 4310,
   });
 });
@@ -51,9 +51,9 @@ test('createWebServer tolerates SSE client disconnects without crashing', async 
   const originalFetch = globalThis.fetch;
   const originalOpenHermitHome = process.env.OPENHERMIT_HOME;
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'openhermit-web-test-'));
-  const workspaceRoot = path.join(tempRoot, '.openhermit-dev', 'agent-dev');
+  const workspaceRoot = path.join(tempRoot, '.openhermit-dev', 'main');
   const openHermitHome = path.join(tempRoot, '.openhermit');
-  const agentRoot = path.join(openHermitHome, 'agent-dev');
+  const agentRoot = path.join(openHermitHome, 'main');
   const encoder = new TextEncoder();
 
   await fs.mkdir(agentRoot, { recursive: true });
@@ -99,7 +99,7 @@ test('createWebServer tolerates SSE client disconnects without crashing', async 
     );
 
   const server = createWebServer({
-    agentId: 'agent-dev',
+    agentId: 'main',
     workspaceRoot,
   });
   process.env.OPENHERMIT_HOME = openHermitHome;

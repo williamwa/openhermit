@@ -44,7 +44,7 @@ export const parseWebCliArgs = (
   cwd = process.cwd(),
   env: NodeJS.ProcessEnv = process.env,
 ): WebCliOptions => {
-  let agentId = env.OPENHERMIT_AGENT_ID ?? 'agent-dev';
+  let agentId = env.OPENHERMIT_AGENT_ID ?? 'main';
   let explicitWorkspaceRoot = env.OPENHERMIT_WORKSPACE_ROOT;
   let port = parsePort(env.OPENHERMIT_WEB_PORT ?? '4310', 'OPENHERMIT_WEB_PORT');
 

@@ -83,10 +83,11 @@ test('AgentSecurity surfaces security.json parse errors with the file path', asy
 });
 
 test('AgentSecurity scaffolds and reads the default runtime config', async (t) => {
-  const { security } = await createSecurityFixture(t);
+  const { security, root } = await createSecurityFixture(t);
 
   const config = await security.readConfig();
 
+  assert.equal(config.workspace_root, root);
   assert.equal(config.model.provider, 'anthropic');
   assert.equal(config.http_api.preferred_port, 3000);
   assert.deepEqual(config.identity.files, [

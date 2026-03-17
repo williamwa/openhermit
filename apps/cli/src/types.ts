@@ -1,6 +1,5 @@
 export interface ChatCliOptions {
   agentId: string;
-  workspaceRoot: string;
   sessionId?: string;
   resume?: boolean;
 }

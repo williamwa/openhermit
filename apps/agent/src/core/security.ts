@@ -23,6 +23,7 @@ export interface AgentSecurityOptions {
 }
 
 const DEFAULT_RUNTIME_CONFIG: AgentRuntimeConfig = {
+  workspace_root: '',
   model: {
     provider: 'anthropic',
     model: 'claude-opus-4-5',
@@ -96,7 +97,10 @@ export class AgentSecurity {
     await fs.mkdir(this.rootDir, { recursive: true });
     await ensureJsonFile(this.securityFilePath, DEFAULT_SECURITY_POLICY);
     await ensureJsonFile(this.secretsFilePath, {});
-    await ensureJsonFile(this.configFilePath, DEFAULT_RUNTIME_CONFIG);
+    await ensureJsonFile(this.configFilePath, {
+      ...DEFAULT_RUNTIME_CONFIG,
+      workspace_root: this.options.workspace.root,
+    });
   }
 
   async load(): Promise<void> {

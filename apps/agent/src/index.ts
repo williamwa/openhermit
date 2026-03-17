@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { promises as fs } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { pathToFileURL } from 'node:url';
@@ -10,6 +11,7 @@ import { createAdaptorServer } from '@hono/node-server';
 import type { RuntimeStateFile } from '@openhermit/shared';
 
 import { AgentRunner } from './agent-runner.js';
+import { parseAgentCliArgs } from './args.js';
 import { createAgentApp } from './app.js';
 import { AgentSecurity, AgentWorkspace } from './core/index.js';
 import { initializeInternalStateDatabase } from './internal-state/sqlite.js';
@@ -31,6 +33,26 @@ type NodeFetchCallback = Parameters<typeof createAdaptorServer>[0]['fetch'];
 
 const logStartup = (message: string): void => {
   console.log(`[openhermit-agent] ${message}`);
+};
+
+const readConfiguredWorkspaceRoot = async (
+  agentId: string,
+): Promise<string | undefined> => {
+  const baseDir =
+    process.env.OPENHERMIT_HOME ??
+    path.join(os.homedir(), '.openhermit');
+  const configPath = path.join(baseDir, agentId, 'config.json');
+
+  try {
+    const content = await fs.readFile(configPath, 'utf8');
+    const parsed = JSON.parse(content) as { workspace_root?: unknown };
+
+    return typeof parsed.workspace_root === 'string' && parsed.workspace_root.length > 0
+      ? parsed.workspace_root
+      : undefined;
+  } catch {
+    return undefined;
+  }
 };
 
 const listen = async (
@@ -111,12 +133,14 @@ export const main = async (): Promise<void> => {
     logStartup(`loaded ${loadedEnvCount} environment variable(s) from ${agentEnvPath}`);
   }
 
-  const agentId = process.env.OPENHERMIT_AGENT_ID ?? 'agent-dev';
+  const cliOptions = parseAgentCliArgs(process.argv.slice(2));
+  const agentId = cliOptions.agentId;
+  const configuredWorkspaceRoot = await readConfiguredWorkspaceRoot(agentId);
   const workspaceRoot =
-    process.env.OPENHERMIT_WORKSPACE_ROOT ??
-    path.join(process.cwd(), '.openhermit-dev', agentId);
-  const agentName =
-    process.env.OPENHERMIT_AGENT_NAME ?? 'OpenHermit Dev Agent';
+    cliOptions.workspaceRoot
+    ?? configuredWorkspaceRoot
+    ?? path.join(process.cwd(), '.openhermit-dev', agentId);
+  const agentName = cliOptions.agentName ?? 'OpenHermit Dev Agent';
 
   const workspace = new AgentWorkspace(workspaceRoot);
   logStartup(`booting agent ${agentId}`);
@@ -132,7 +156,17 @@ export const main = async (): Promise<void> => {
   });
   await security.init();
   await security.load();
-  const config = await security.readConfig();
+  const initialConfig = await security.readConfig();
+  const config =
+    initialConfig.workspace_root === workspaceRoot
+      ? initialConfig
+      : {
+          ...initialConfig,
+          workspace_root: workspaceRoot,
+        };
+  if (config !== initialConfig) {
+    await security.writeConfig(config);
+  }
   initializeInternalStateDatabase(security.stateFilePath).close();
   logStartup(`internal state: ${security.stateFilePath}`);
   logStartup(`internal config: ${security.configFilePath}`);
@@ -156,7 +190,7 @@ export const main = async (): Promise<void> => {
     ...(langfuse ? { langfuse } : {}),
   });
 
-  const rawPort = process.env.PORT;
+  const rawPort = cliOptions.port !== undefined ? String(cliOptions.port) : process.env.PORT;
   const preferredPort = rawPort
     ? Number.parseInt(rawPort, 10)
     : config.http_api.preferred_port || defaultPort;
@@ -166,7 +200,13 @@ export const main = async (): Promise<void> => {
   }
 
   logStartup(
-    `preferred port: ${preferredPort}${rawPort ? ' (from PORT env)' : ' (from config/default)'}`,
+    `preferred port: ${preferredPort}${
+      cliOptions.port !== undefined
+        ? ' (from CLI flag)'
+        : rawPort
+          ? ' (from PORT env)'
+          : ' (from config/default)'
+    }`,
   );
 
   const apiToken = randomBytes(24).toString('hex');

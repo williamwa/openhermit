@@ -70,6 +70,7 @@ export const DEFAULT_WORKSPACE_IDENTITY_FILES = [
 ] as const;
 
 export interface AgentRuntimeConfig {
+  workspace_root: string;
   model: AgentModelConfig;
   identity: AgentIdentityConfig;
   http_api: HttpApiConfig;

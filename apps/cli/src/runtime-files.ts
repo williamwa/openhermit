@@ -17,6 +17,12 @@ export const resolveRuntimeFilePath = (
 ): string =>
   path.join(resolveOpenHermitHome(env), agentId, internalStateFiles.runtime);
 
+const resolveConfigFilePath = (
+  agentId: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string =>
+  path.join(resolveOpenHermitHome(env), agentId, internalStateFiles.config);
+
 export const readRuntimeState = async (
   agentId: string,
   env: NodeJS.ProcessEnv = process.env,
@@ -42,4 +48,18 @@ export const readRuntimeState = async (
         ? parsed.updated_at
         : new Date(0).toISOString(),
   };
+};
+
+export const readWorkspaceRoot = async (
+  agentId: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<string> => {
+  const content = await fs.readFile(resolveConfigFilePath(agentId, env), 'utf8');
+  const parsed = JSON.parse(content) as { workspace_root?: unknown };
+
+  if (typeof parsed.workspace_root !== 'string' || parsed.workspace_root.length === 0) {
+    throw new ValidationError(`Invalid internal config for agent: ${agentId}`);
+  }
+
+  return parsed.workspace_root;
 };
