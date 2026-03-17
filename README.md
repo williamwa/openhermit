@@ -11,6 +11,7 @@ Like a hermit crab living inside its protective shell, an agent can use shells a
 - **Sandboxed Execution**: Code execution and long-running services run in isolated Docker containers controlled by the agent
 - **Lifecycle Management**: Support both ephemeral (short-term) and persistent (long-term) agents
 - **Memory System**: Multi-layer memory — session state, episodic checkpoints, and named memories like `main` and `now`
+- **Context Hygiene**: Long sessions can compact older prompt history into runtime summaries while preserving recent turns
 - **API-first**: All agent operations exposed via a clean HTTP + SSE API
 - **Cloud-native**: Deployable on any VPS/cloud, orchestrated via Docker Compose or Kubernetes
 

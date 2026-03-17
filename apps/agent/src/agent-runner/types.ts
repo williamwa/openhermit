@@ -58,6 +58,9 @@ export interface AgentRunnerOptions {
       config: AgentConfig;
     },
   ) => Promise<string | undefined>;
+  contextCompactionMaxTokens?: number;
+  contextCompactionRecentMessageCount?: number;
+  contextCompactionSummaryMaxChars?: number;
   idleSummaryTimeoutMs?: number;
   checkpointTurnInterval?: number;
 }

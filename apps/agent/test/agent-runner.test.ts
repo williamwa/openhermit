@@ -371,6 +371,139 @@ test('AgentRunner injects session-local working memory before now and main memor
   );
 });
 
+test('AgentRunner compacts older context when the estimated prompt budget is exceeded', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: {
+      ANTHROPIC_API_KEY: 'test-anthropic-key',
+    },
+  });
+  await security.load();
+
+  const longUserA = 'alpha '.repeat(80).trim();
+  const longAssistantA = 'response-alpha '.repeat(80).trim();
+  const longUserB = 'beta '.repeat(80).trim();
+  const longAssistantB = 'response-beta '.repeat(80).trim();
+  let capturedMessages: Context['messages'] = [];
+  const runner = await AgentRunner.create({
+    workspace,
+    security,
+    contextCompactionMaxTokens: 180,
+    contextCompactionRecentMessageCount: 2,
+    contextCompactionSummaryMaxChars: 800,
+    streamFn: createSequentialStreamFn([
+      () => createTextResponseStream(longAssistantA),
+      () => createTextResponseStream(longAssistantB),
+      (context) => {
+        capturedMessages = context.messages;
+        return createTextResponseStream('final reply');
+      },
+    ]),
+  });
+
+  await runner.openSession({
+    sessionId: 'cli:compaction-session',
+    source: {
+      kind: 'cli',
+      interactive: true,
+    },
+  });
+  await runner.postMessage('cli:compaction-session', {
+    text: longUserA,
+  });
+  await runner.waitForSessionIdle('cli:compaction-session');
+  await runner.postMessage('cli:compaction-session', {
+    text: longUserB,
+  });
+  await runner.waitForSessionIdle('cli:compaction-session');
+  await runner.postMessage('cli:compaction-session', {
+    text: 'gamma request',
+  });
+  await runner.waitForSessionIdle('cli:compaction-session');
+
+  assert.ok(
+    capturedMessages.some(
+      (message) =>
+        message.role === 'user' &&
+        JSON.stringify(message.content).includes('Context compaction summary'),
+    ),
+  );
+  assert.ok(
+    capturedMessages.some(
+      (message) =>
+        message.role === 'user' &&
+        JSON.stringify(message.content).includes('gamma request'),
+    ),
+  );
+});
+
+test('AgentRunner retains the assistant tool call when compaction keeps a trailing tool result', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: {
+      ANTHROPIC_API_KEY: 'test-anthropic-key',
+    },
+  });
+  await security.load();
+  await workspace.writeFile('files/fact.txt', '42');
+
+  let capturedMessages: Context['messages'] = [];
+  const runner = await AgentRunner.create({
+    workspace,
+    security,
+    contextCompactionMaxTokens: 120,
+    contextCompactionRecentMessageCount: 1,
+    contextCompactionSummaryMaxChars: 400,
+    streamFn: createSequentialStreamFn([
+      () => createTextResponseStream('alpha response '.repeat(60).trim()),
+      () =>
+        createToolCallResponseStream({
+          type: 'toolCall',
+          id: 'call-read-file',
+          name: 'read_file',
+          arguments: {
+            path: 'files/fact.txt',
+          },
+        }),
+      (context) => {
+        capturedMessages = context.messages;
+        return createTextResponseStream('final reply');
+      },
+    ]),
+  });
+
+  await runner.openSession({
+    sessionId: 'cli:compaction-tool-session',
+    source: {
+      kind: 'cli',
+      interactive: true,
+    },
+  });
+  await runner.postMessage('cli:compaction-tool-session', {
+    text: 'alpha '.repeat(60).trim(),
+  });
+  await runner.waitForSessionIdle('cli:compaction-tool-session');
+  await runner.postMessage('cli:compaction-tool-session', {
+    text: 'Read the fact file.',
+  });
+  await runner.waitForSessionIdle('cli:compaction-tool-session');
+
+  const retainedToolCall = capturedMessages.find(
+    (message) =>
+      message.role === 'assistant'
+      && message.content.some((item) => item.type === 'toolCall' && item.name === 'read_file'),
+  );
+  const retainedToolResult = capturedMessages.find(
+    (message) =>
+      message.role === 'toolResult' && message.toolName === 'read_file',
+  );
+
+  assert.ok(retainedToolCall);
+  assert.ok(retainedToolResult);
+  assert.ok(
+    capturedMessages.findIndex((message) => message === retainedToolCall)
+      < capturedMessages.findIndex((message) => message === retainedToolResult),
+  );
+});
+
 test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: {

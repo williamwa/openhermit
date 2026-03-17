@@ -65,8 +65,8 @@ The main architectural direction is now stable:
 - agent-facing named-memory tools:
   - `memory_get`
   - `memory_recall`
-  - `memory_update`
-- no formal compaction yet
+- `memory_update`
+- initial prompt-budget compaction for long sessions
 
 ### Tooling
 

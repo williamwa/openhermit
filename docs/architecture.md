@@ -244,6 +244,12 @@ It should:
 - preserve recent turns needed for immediate continuity
 - reduce prompt size before retrying a user-visible turn
 
+Current first pass:
+
+- applies before model calls when the runtime estimates the prompt is over budget
+- rewrites older history into one runtime-generated compact summary block
+- preserves recent raw turns verbatim
+
 Compaction should not be treated as a replacement for memory updates. Its primary purpose is runtime context hygiene, not durable memory generation.
 
 ### Ephemeral Containers
