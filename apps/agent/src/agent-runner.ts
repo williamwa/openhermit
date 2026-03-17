@@ -804,11 +804,11 @@ export class AgentRunner implements SessionRuntime {
       this.options.langfuse,
       this.options.streamFn,
       {
-        name: input.langfuseRequest?.name ?? 'openhermit.agent_turn',
+        name: input.langfuseRequest?.name ?? 'openhermit.llm_step',
         sessionId: input.contextSessionId,
         agentSessionId: input.agentSessionId,
         metadata: {
-          requestKind: 'agent-turn',
+          requestKind: 'llm-step',
           ...(input.langfuseRequest?.metadata ?? {}),
         },
       },
@@ -1149,7 +1149,6 @@ export class AgentRunner implements SessionRuntime {
         const ts = new Date().toISOString();
         session.updatedAt = ts;
         session.messageCount += 1;
-        session.completedTurnCount += 1;
         session.lastMessagePreview = assistantText;
         void this.persistSessionIndex(session);
 
@@ -1163,17 +1162,6 @@ export class AgentRunner implements SessionRuntime {
             usage: assistantMessage.usage,
             stopReason: assistantMessage.stopReason,
           });
-        });
-
-        void this.queueBackgroundTask(session, async () => {
-          const config = await this.options.workspace.readConfig();
-
-          if (
-            session.completedTurnCount - session.lastSummarizedTurnCount >=
-            this.getCheckpointTurnInterval(config)
-          ) {
-            await this.runSessionCheckpoint(session, 'turn_limit');
-          }
         });
         break;
       }
@@ -1213,18 +1201,28 @@ export class AgentRunner implements SessionRuntime {
         const ts = new Date().toISOString();
         const finalText = session.latestAssistantText;
         const lastUserMessageText = session.lastUserMessageText;
+        session.completedTurnCount += 1;
         session.updatedAt = ts;
         session.status = 'idle';
         void this.persistSessionIndex(session);
         this.scheduleIdleSummary(session);
-        if (lastUserMessageText) {
-          void this.queueBackgroundTask(session, async () => {
+        void this.queueBackgroundTask(session, async () => {
+          const config = await this.options.workspace.readConfig();
+
+          if (
+            session.completedTurnCount - session.lastSummarizedTurnCount >=
+            this.getCheckpointTurnInterval(config)
+          ) {
+            await this.runSessionCheckpoint(session, 'turn_limit');
+          }
+
+          if (lastUserMessageText) {
             await this.maybeGenerateSessionDescription(session, {
               userText: lastUserMessageText,
               ...(finalText ? { assistantText: finalText } : {}),
             });
-          });
-        }
+          }
+        });
 
         void (async () => {
           if (finalText) {

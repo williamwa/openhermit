@@ -17,6 +17,10 @@ import {
   loadEnvironmentFile,
   resolveAgentEnvPath,
 } from './langfuse.js';
+import {
+  createBeforeExitLangfuseHandler,
+  createSignalShutdownHandler,
+} from './process-lifecycle.js';
 
 const defaultPort = 3001;
 type NodeFetchCallback = Parameters<typeof createAdaptorServer>[0]['fetch'];
@@ -35,9 +39,15 @@ if (loadedEnvCount > 0) {
 const listen = async (
   fetch: NodeFetchCallback,
   preferredPort: number,
-): Promise<{ info: AddressInfo; usedFallback: boolean }> => {
-  const listenOnce = (port: number): Promise<AddressInfo> =>
-    new Promise<AddressInfo>((resolve, reject) => {
+): Promise<{
+  server: ReturnType<typeof createAdaptorServer>;
+  info: AddressInfo;
+  usedFallback: boolean;
+}> => {
+  const listenOnce = (
+    port: number,
+  ): Promise<{ server: ReturnType<typeof createAdaptorServer>; info: AddressInfo }> =>
+    new Promise<{ server: ReturnType<typeof createAdaptorServer>; info: AddressInfo }>((resolve, reject) => {
       const server = createAdaptorServer({ fetch });
 
       const cleanup = (): void => {
@@ -59,7 +69,7 @@ const listen = async (
           return;
         }
 
-        resolve(address);
+        resolve({ server, info: address });
       };
 
       server.once('error', onError);
@@ -68,8 +78,11 @@ const listen = async (
     });
 
   try {
+    const result = await listenOnce(preferredPort);
+
     return {
-      info: await listenOnce(preferredPort),
+      server: result.server,
+      info: result.info,
       usedFallback: false,
     };
   } catch (error) {
@@ -80,8 +93,11 @@ const listen = async (
       'code' in error &&
       error.code === 'EADDRINUSE'
     ) {
+      const fallbackResult = await listenOnce(0);
+
       return {
-        info: await listenOnce(0),
+        server: fallbackResult.server,
+        info: fallbackResult.info,
         usedFallback: true,
       };
     }
@@ -121,17 +137,9 @@ const langfuse = createLangfuseClientFromEnv({
   logger: logStartup,
 });
 
+const shutdownLangfuse = createLangfuseShutdownHandler(langfuse);
+
 if (langfuse) {
-  const shutdownLangfuse = createLangfuseShutdownHandler(langfuse);
-  process.on('SIGINT', () => {
-    void shutdownLangfuse();
-  });
-  process.on('SIGTERM', () => {
-    void shutdownLangfuse();
-  });
-  process.on('beforeExit', () => {
-    void shutdownLangfuse();
-  });
   logStartup('Langfuse tracing enabled for model requests');
 }
 
@@ -156,7 +164,16 @@ logStartup(
 
 const apiToken = randomBytes(24).toString('hex');
 const app = createAgentApp(runner, { apiToken });
-const { info, usedFallback } = await listen(app.fetch, preferredPort);
+const { server, info, usedFallback } = await listen(app.fetch, preferredPort);
+
+const shutdownHandler = createSignalShutdownHandler({
+  server,
+  shutdownLangfuse,
+  logger: logStartup,
+});
+process.on('SIGINT', shutdownHandler);
+process.on('SIGTERM', shutdownHandler);
+process.on('beforeExit', createBeforeExitLangfuseHandler(shutdownLangfuse));
 
 const runtimeState: RuntimeStateFile = {
   http_api: {

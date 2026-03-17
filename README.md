@@ -93,11 +93,15 @@ Optional: to emit Langfuse traces for model requests, add `LANGFUSE_PUBLIC_KEY`,
 npm run dev:agent
 ```
 
+`dev:agent` runs in watch mode and restarts automatically when agent source files change.
+
 3. In another terminal, start the minimal CLI:
 
 ```bash
 npm run chat:agent
 ```
+
+For CLI development with automatic restarts on source changes, use `npm run dev:cli`.
 
 CLI options:
 

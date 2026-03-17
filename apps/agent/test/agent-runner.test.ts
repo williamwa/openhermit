@@ -842,6 +842,68 @@ test('AgentRunner writes a checkpoint automatically every configured turn interv
   assert.equal(checkpointData?.reason, 'turn_limit');
 });
 
+test('AgentRunner counts one completed turn per agent run even with multiple assistant messages', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: {
+      ANTHROPIC_API_KEY: 'test-anthropic-key',
+    },
+  });
+  await security.load();
+  await workspace.writeFile('files/fact.txt', '42');
+
+  const runner = await AgentRunner.create({
+    workspace,
+    security,
+    streamFn: createSequentialStreamFn([
+      () =>
+        createToolCallResponseStream(
+          {
+            type: 'toolCall',
+            id: 'call-read-file',
+            name: 'read_file',
+            arguments: {
+              path: 'files/fact.txt',
+            },
+          },
+          { prefixText: 'I will inspect the fact file first.' },
+        ),
+      () => createTextResponseStream('The fact is 42.'),
+      () => createTextResponseStream('second run reply'),
+    ]),
+    checkpointTurnInterval: 2,
+    checkpointSummaryGenerator: async ({ history, reason }) =>
+      `${reason}: ${history.map((entry) => entry.content).join(' | ')}`,
+    sessionWorkingMemoryGenerator: async ({ checkpointSummary }) =>
+      `# Session Working Memory\n\n${checkpointSummary}`,
+  });
+
+  await runner.openSession({
+    sessionId: 'cli:run-turn-count',
+    source: { kind: 'cli', interactive: true },
+  });
+  await runner.postMessage('cli:run-turn-count', {
+    text: 'Read the fact file and explain it.',
+  });
+  await runner.waitForSessionIdle('cli:run-turn-count');
+
+  assert.equal(
+    (await runner.listEpisodicEntries('cli:run-turn-count')).length,
+    0,
+  );
+
+  await runner.postMessage('cli:run-turn-count', {
+    text: 'Say something else.',
+  });
+  await runner.waitForSessionIdle('cli:run-turn-count');
+
+  const episodicEntries = await runner.listEpisodicEntries('cli:run-turn-count');
+  const checkpointData = episodicEntries[0]?.data as Record<string, unknown> | undefined;
+
+  assert.equal(episodicEntries.length, 1);
+  assert.equal(checkpointData?.reason, 'turn_limit');
+  assert.equal(checkpointData?.turnCount, 2);
+});
+
 test('AgentRunner writes an idle summary after the configured timeout', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: {
@@ -1418,7 +1480,7 @@ test('AgentRunner stores an AI-generated session description when available', as
   assert.equal(sessions[0]?.description, 'Investigate flaky container mount retries');
 });
 
-test('AgentRunner emits Langfuse traces for model turns', async (t) => {
+test('AgentRunner emits Langfuse traces for LLM steps', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: {
       ANTHROPIC_API_KEY: 'test-anthropic-key',
@@ -1449,7 +1511,7 @@ test('AgentRunner emits Langfuse traces for model turns', async (t) => {
   await runner.waitForSessionIdle('cli:langfuse-session');
 
   assert.equal(langfuse.traces.length, 1);
-  assert.equal(langfuse.traces[0]?.body.name, 'openhermit.agent_turn');
+  assert.equal(langfuse.traces[0]?.body.name, 'openhermit.llm_step');
   assert.equal(langfuse.traces[0]?.body.sessionId, 'cli:langfuse-session');
   assert.equal(langfuse.traces[0]?.client.generations.length, 1);
   assert.equal(
@@ -1458,7 +1520,7 @@ test('AgentRunner emits Langfuse traces for model turns', async (t) => {
   );
   assert.equal(
     (langfuse.traces[0]?.client.generations[0]?.body.metadata as Record<string, unknown>)?.requestKind,
-    'agent-turn',
+    'llm-step',
   );
   assert.equal(
     ((langfuse.traces[0]?.client.generations[0]?.body.input as Record<string, unknown>)?.messages as Array<Record<string, unknown>>)[0]?.role,
@@ -1512,7 +1574,7 @@ test('AgentRunner uses a dedicated Langfuse trace name for internal checkpoints'
   await runner.waitForSessionIdle('cli:checkpoint-trace');
   await runner.checkpointSession('cli:checkpoint-trace', 'manual');
 
-  assert.equal(langfuse.traces[0]?.body.name, 'openhermit.agent_turn');
+  assert.equal(langfuse.traces[0]?.body.name, 'openhermit.llm_step');
   assert.equal(langfuse.traces[1]?.body.name, 'openhermit.session_checkpoint');
   assert.equal(
     (langfuse.traces[1]?.body.metadata as Record<string, unknown>)?.requestKind,

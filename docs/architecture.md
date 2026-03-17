@@ -233,6 +233,7 @@ Checkpointing exists to update memory:
 - possibly `now`
 
 Checkpoint turns are internal agent turns triggered by the runtime.
+The periodic turn interval counts completed agent runs, not intermediate assistant messages inside one run.
 
 ### Compaction
 
