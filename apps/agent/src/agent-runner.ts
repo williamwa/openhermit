@@ -1245,7 +1245,6 @@ export class AgentRunner implements SessionRuntime {
             ts,
             role: 'system',
             type: 'agent_end',
-            messageCount: event.messages.length,
           });
         });
         break;

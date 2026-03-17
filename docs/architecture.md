@@ -56,9 +56,6 @@ Examples:
 - `now`
 - `main`
 - structured named memories
-- approvals
-- bindings
-- schedules and schedule runs
 - container runtime inventory
 - runtime discovery metadata
 

@@ -2,25 +2,23 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-const CURRENT_SCHEMA_VERSION = 3;
+const CURRENT_SCHEMA_VERSION = 4;
+
+const legacyTableNames = [
+  'identity_inputs',
+  'identity_state',
+  'approvals',
+  'bindings',
+  'schedule_runs',
+  'schedules',
+] as const;
 
 const bootstrapStatements = [
   'PRAGMA journal_mode = WAL;',
   'PRAGMA foreign_keys = ON;',
-  `CREATE TABLE IF NOT EXISTS meta (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-  ) STRICT;`,
-  `CREATE TABLE IF NOT EXISTS identity_inputs (
-    name TEXT PRIMARY KEY,
-    content TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  ) STRICT;`,
-  `CREATE TABLE IF NOT EXISTS identity_state (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  ) STRICT;`,
+] as const;
+
+const migration1Statements = [
   `CREATE TABLE IF NOT EXISTS sessions (
     session_id TEXT PRIMARY KEY,
     source_kind TEXT NOT NULL,
@@ -85,40 +83,6 @@ const bootstrapStatements = [
   ) STRICT;`,
   `CREATE INDEX IF NOT EXISTS idx_memories_kind_key
     ON memories(memory_kind, memory_key);`,
-  `CREATE TABLE IF NOT EXISTS approvals (
-    approval_id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    tool_name TEXT NOT NULL,
-    status TEXT NOT NULL,
-    requested_at TEXT NOT NULL,
-    resolved_at TEXT,
-    payload_json TEXT NOT NULL,
-    FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
-  ) STRICT;`,
-  `CREATE TABLE IF NOT EXISTS bindings (
-    binding_key TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    source_kind TEXT NOT NULL,
-    source_platform TEXT,
-    updated_at TEXT NOT NULL
-  ) STRICT;`,
-  `CREATE TABLE IF NOT EXISTS schedules (
-    schedule_id TEXT PRIMARY KEY,
-    definition_json TEXT NOT NULL,
-    enabled INTEGER NOT NULL,
-    updated_at TEXT NOT NULL
-  ) STRICT;`,
-  `CREATE TABLE IF NOT EXISTS schedule_runs (
-    run_id TEXT PRIMARY KEY,
-    schedule_id TEXT NOT NULL,
-    status TEXT NOT NULL,
-    started_at TEXT NOT NULL,
-    finished_at TEXT,
-    output_json TEXT,
-    FOREIGN KEY(schedule_id) REFERENCES schedules(schedule_id) ON DELETE CASCADE
-  ) STRICT;`,
-  `CREATE INDEX IF NOT EXISTS idx_schedule_runs_schedule_started
-    ON schedule_runs(schedule_id, started_at DESC);`,
   `CREATE TABLE IF NOT EXISTS container_runtime_entries (
     container_name TEXT PRIMARY KEY,
     container_type TEXT NOT NULL,
@@ -129,6 +93,11 @@ const bootstrapStatements = [
     updated_at TEXT NOT NULL
   ) STRICT;`,
 ] as const;
+
+type Migration = {
+  version: number;
+  up: (database: DatabaseSync) => void;
+};
 
 export interface InternalStateDatabase {
   close(): void;
@@ -147,10 +116,7 @@ class SqliteInternalStateDatabase implements InternalStateDatabase {
   }
 
   getSchemaVersion(): number {
-    const row = this.database
-      .prepare(`SELECT value FROM meta WHERE key = 'schema_version'`)
-      .get() as { value?: string } | undefined;
-    return Number.parseInt(row?.value ?? '0', 10);
+    return readSchemaVersion(this.database);
   }
 }
 
@@ -161,6 +127,25 @@ const ensureMetaTable = (database: DatabaseSync): void => {
       value TEXT NOT NULL
     ) STRICT;`,
   );
+};
+
+const readSchemaVersion = (database: DatabaseSync): number => {
+  const row = database
+    .prepare(`SELECT value FROM meta WHERE key = 'schema_version'`)
+    .get() as { value?: string } | undefined;
+  const version = Number.parseInt(row?.value ?? '0', 10);
+
+  return Number.isFinite(version) ? version : 0;
+};
+
+const writeSchemaVersion = (database: DatabaseSync, version: number): void => {
+  database
+    .prepare(
+      `INSERT INTO meta(key, value)
+       VALUES ('schema_version', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    )
+    .run(String(version));
 };
 
 const ensureSessionColumns = (database: DatabaseSync): void => {
@@ -179,6 +164,61 @@ const ensureSessionColumns = (database: DatabaseSync): void => {
 
   if (!names.has('working_memory_updated_at')) {
     database.exec(`ALTER TABLE sessions ADD COLUMN working_memory_updated_at TEXT;`);
+  }
+};
+
+const dropLegacyTables = (database: DatabaseSync): void => {
+  for (const tableName of legacyTableNames) {
+    database.exec(`DROP TABLE IF EXISTS ${tableName};`);
+  }
+};
+
+const migrations: Migration[] = [
+  {
+    version: 1,
+    up: (database) => {
+      for (const statement of migration1Statements) {
+        database.exec(statement);
+      }
+    },
+  },
+  {
+    version: 2,
+    up: (database) => {
+      ensureSessionColumns(database);
+    },
+  },
+  {
+    // Keep the version boundary explicit so future schema changes stay append-only.
+    version: 3,
+    up: () => {},
+  },
+  {
+    version: 4,
+    up: (database) => {
+      dropLegacyTables(database);
+    },
+  },
+] as const;
+
+const runMigrations = (database: DatabaseSync): void => {
+  const currentVersion = readSchemaVersion(database);
+
+  for (const migration of migrations) {
+    if (migration.version <= currentVersion) {
+      continue;
+    }
+
+    database.exec('BEGIN');
+
+    try {
+      migration.up(database);
+      writeSchemaVersion(database, migration.version);
+      database.exec('COMMIT');
+    } catch (error) {
+      database.exec('ROLLBACK');
+      throw error;
+    }
   }
 };
 
@@ -202,15 +242,7 @@ export const openInternalStateDatabase = (
     }
 
     ensureMetaTable(database);
-    ensureSessionColumns(database);
-
-    database
-      .prepare(
-        `INSERT INTO meta(key, value)
-         VALUES ('schema_version', ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-      )
-      .run(String(CURRENT_SCHEMA_VERSION));
+    runMigrations(database);
 
     return database;
   } catch (error) {
@@ -218,3 +250,6 @@ export const openInternalStateDatabase = (
     throw error;
   }
 };
+
+export const getCurrentInternalStateSchemaVersion = (): number =>
+  CURRENT_SCHEMA_VERSION;
