@@ -1340,3 +1340,53 @@ test('AgentRunner emits Langfuse traces for model turns', async (t) => {
     'hello with trace',
   );
 });
+
+test('AgentRunner uses a dedicated Langfuse trace name for internal checkpoints', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: {
+      ANTHROPIC_API_KEY: 'test-anthropic-key',
+    },
+  });
+  await security.load();
+
+  const langfuse = new FakeLangfuseClient();
+  const runner = await AgentRunner.create({
+    workspace,
+    security,
+    langfuse,
+    streamFn: createSequentialStreamFn([
+      () => createTextResponseStream('first reply'),
+      () =>
+        createTextResponseStream(
+          JSON.stringify({
+            summary: 'checkpoint summary',
+            sessionWorkingMemory: '# Session Working Memory\ncheckpoint memory',
+          }),
+        ),
+    ]),
+  });
+
+  await runner.openSession({
+    sessionId: 'cli:checkpoint-trace',
+    source: {
+      kind: 'cli',
+      interactive: true,
+    },
+  });
+  await runner.postMessage('cli:checkpoint-trace', {
+    text: 'checkpoint this session',
+  });
+  await runner.waitForSessionIdle('cli:checkpoint-trace');
+  await runner.checkpointSession('cli:checkpoint-trace', 'manual');
+
+  assert.equal(langfuse.traces[0]?.body.name, 'openhermit.agent_turn');
+  assert.equal(langfuse.traces[1]?.body.name, 'openhermit.session_checkpoint');
+  assert.equal(
+    (langfuse.traces[1]?.body.metadata as Record<string, unknown>)?.requestKind,
+    'session-checkpoint',
+  );
+  assert.equal(
+    (langfuse.traces[1]?.body.metadata as Record<string, unknown>)?.checkpointReason,
+    'manual',
+  );
+});

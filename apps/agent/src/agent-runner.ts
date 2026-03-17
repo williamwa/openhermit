@@ -636,6 +636,10 @@ export class AgentRunner implements SessionRuntime {
     onToolStarted?: ToolStartedCallback;
     extraSystemPrompt?: string;
     tools?: ReturnType<typeof createBuiltInTools>;
+    langfuseRequest?: {
+      name: string;
+      metadata?: Record<string, unknown>;
+    };
   }): Promise<Agent> {
     const baseSystemPrompt = await buildSystemPrompt(
       input.config,
@@ -660,11 +664,12 @@ export class AgentRunner implements SessionRuntime {
       this.options.langfuse,
       this.options.streamFn,
       {
-        name: 'openhermit.agent_turn',
+        name: input.langfuseRequest?.name ?? 'openhermit.agent_turn',
         sessionId: input.contextSessionId,
         agentSessionId: input.agentSessionId,
         metadata: {
           requestKind: 'agent-turn',
+          ...(input.langfuseRequest?.metadata ?? {}),
         },
       },
     );
@@ -1311,6 +1316,13 @@ export class AgentRunner implements SessionRuntime {
       config: input.config,
       agentSessionId: `${input.sessionId}:checkpoint`,
       contextSessionId: input.sessionId,
+      langfuseRequest: {
+        name: 'openhermit.session_checkpoint',
+        metadata: {
+          requestKind: 'session-checkpoint',
+          checkpointReason: input.reason,
+        },
+      },
       extraSystemPrompt: [
         'Internal checkpoint turn:',
         '- This is an internal self-introspection turn, not a user-facing reply.',
