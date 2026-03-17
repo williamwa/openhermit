@@ -88,13 +88,32 @@ export class AgentLocalClient {
     return joinUrl(this.options.baseUrl, agentLocalRoutes.eventsUrl(sessionId));
   }
 
+  private buildFetchFailedError(path: string, error: unknown): OpenHermitError {
+    const message = error instanceof Error ? error.message : String(error);
+
+    return new OpenHermitError(
+      `Agent local API is unavailable at ${joinUrl(this.options.baseUrl, path)}. `
+      + `Make sure the agent is running and runtime.json is current. `
+      + `If you are developing locally, start it with \`npm run dev:agent\`. `
+      + `Underlying error: ${message}`,
+      'agent_api_error',
+      500,
+    );
+  }
+
   private async getJson<T>(path: string): Promise<T> {
-    const response = await this.fetchImpl(joinUrl(this.options.baseUrl, path), {
-      method: 'GET',
-      headers: {
-        authorization: `Bearer ${this.options.token}`,
-      },
-    });
+    let response: Response;
+
+    try {
+      response = await this.fetchImpl(joinUrl(this.options.baseUrl, path), {
+        method: 'GET',
+        headers: {
+          authorization: `Bearer ${this.options.token}`,
+        },
+      });
+    } catch (error) {
+      throw this.buildFetchFailedError(path, error);
+    }
 
     if (!response.ok) {
       const responseText = await response.text();
@@ -117,14 +136,20 @@ export class AgentLocalClient {
   }
 
   private async postJson<T>(path: string, body: unknown): Promise<T> {
-    const response = await this.fetchImpl(joinUrl(this.options.baseUrl, path), {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${this.options.token}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    });
+    let response: Response;
+
+    try {
+      response = await this.fetchImpl(joinUrl(this.options.baseUrl, path), {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${this.options.token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (error) {
+      throw this.buildFetchFailedError(path, error);
+    }
 
     if (!response.ok) {
       const responseText = await response.text();

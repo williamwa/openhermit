@@ -1,3 +1,5 @@
+import { rmSync } from 'node:fs';
+
 import type { ServerType } from '@hono/node-server';
 
 const closeServer = async (server: ServerType): Promise<void> =>
@@ -25,6 +27,7 @@ export const createBeforeExitLangfuseHandler = (
 export const createSignalShutdownHandler = (input: {
   server: ServerType;
   shutdownLangfuse?: () => Promise<void>;
+  cleanup?: () => Promise<void>;
   exit?: (code: number) => never | void;
   logger?: (message: string) => void;
 }) => {
@@ -56,7 +59,32 @@ export const createSignalShutdownHandler = (input: {
         );
       }
 
+      try {
+        await input.cleanup?.();
+      } catch (error) {
+        input.logger?.(
+          `graceful shutdown: cleanup failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+
       (input.exit ?? process.exit)(0);
     })();
   };
+};
+
+export const createExitRuntimeFileCleanupHandler = (
+  runtimeFilePath: string,
+  logger?: (message: string) => void,
+) => (): void => {
+  try {
+    rmSync(runtimeFilePath, { force: true });
+  } catch (error) {
+    logger?.(
+      `exit cleanup: failed to remove runtime metadata: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
 };

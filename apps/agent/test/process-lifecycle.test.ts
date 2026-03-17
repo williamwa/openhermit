@@ -1,9 +1,16 @@
 import assert from 'node:assert/strict';
+import { access, mkdtemp, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
 
-import { createBeforeExitLangfuseHandler, createSignalShutdownHandler } from '../src/process-lifecycle.js';
+import {
+  createBeforeExitLangfuseHandler,
+  createExitRuntimeFileCleanupHandler,
+  createSignalShutdownHandler,
+} from '../src/process-lifecycle.js';
 
-test('createSignalShutdownHandler flushes Langfuse, closes the server, and exits once', async () => {
+test('createSignalShutdownHandler flushes Langfuse, closes the server, cleans up, and exits once', async () => {
   const calls: string[] = [];
   let exitCode: number | undefined;
   let closeCount = 0;
@@ -20,6 +27,9 @@ test('createSignalShutdownHandler flushes Langfuse, closes the server, and exits
     shutdownLangfuse: async () => {
       calls.push('langfuse');
     },
+    cleanup: async () => {
+      calls.push('cleanup');
+    },
     exit: (code) => {
       exitCode = code;
       calls.push('exit');
@@ -30,7 +40,7 @@ test('createSignalShutdownHandler flushes Langfuse, closes the server, and exits
   handler();
   await new Promise((resolve) => setImmediate(resolve));
 
-  assert.deepEqual(calls, ['langfuse', 'close', 'exit']);
+  assert.deepEqual(calls, ['langfuse', 'close', 'cleanup', 'exit']);
   assert.equal(closeCount, 1);
   assert.equal(exitCode, 0);
 });
@@ -46,4 +56,17 @@ test('createBeforeExitLangfuseHandler flushes Langfuse without exiting', async (
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.equal(flushed, true);
+});
+
+test('createExitRuntimeFileCleanupHandler removes runtime metadata file', async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'openhermit-runtime-cleanup-'));
+  const runtimeFilePath = path.join(tempDir, 'runtime.json');
+  await writeFile(runtimeFilePath, '{}\n', 'utf8');
+
+  const cleanup = createExitRuntimeFileCleanupHandler(runtimeFilePath);
+  cleanup();
+
+  const exists = await access(runtimeFilePath).then(() => true).catch(() => false);
+
+  assert.equal(exists, false);
 });

@@ -19,8 +19,10 @@ import {
 } from './langfuse.js';
 import {
   createBeforeExitLangfuseHandler,
+  createExitRuntimeFileCleanupHandler,
   createSignalShutdownHandler,
 } from './process-lifecycle.js';
+import { assertRuntimeMetadataAbsent } from './runtime-metadata.js';
 
 const defaultPort = 3001;
 type NodeFetchCallback = Parameters<typeof createAdaptorServer>[0]['fetch'];
@@ -132,6 +134,7 @@ initializeInternalStateDatabase(security.stateFilePath).close();
 logStartup(`internal state: ${security.stateFilePath}`);
 logStartup(`runtime metadata: ${security.runtimeFilePath}`);
 logStartup(`autonomy: ${security.getAutonomyLevel()}`);
+await assertRuntimeMetadataAbsent(security.runtimeFilePath);
 
 const langfuse = createLangfuseClientFromEnv({
   logger: logStartup,
@@ -169,11 +172,15 @@ const { server, info, usedFallback } = await listen(app.fetch, preferredPort);
 const shutdownHandler = createSignalShutdownHandler({
   server,
   shutdownLangfuse,
+  cleanup: async () => {
+    await fs.rm(security.runtimeFilePath, { force: true });
+  },
   logger: logStartup,
 });
 process.on('SIGINT', shutdownHandler);
 process.on('SIGTERM', shutdownHandler);
 process.on('beforeExit', createBeforeExitLangfuseHandler(shutdownLangfuse));
+process.on('exit', createExitRuntimeFileCleanupHandler(security.runtimeFilePath, logStartup));
 
 const runtimeState: RuntimeStateFile = {
   http_api: {
