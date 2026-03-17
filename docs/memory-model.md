@@ -212,6 +212,11 @@ OpenHermit should manage memory in two main phases:
 - `self-introspection`
 - `long-term consolidation`
 
+Checkpointing should not be confused with compaction.
+
+- checkpointing updates memory
+- compaction keeps long session context within model limits
+
 ### Checkpoint Turn
 
 OpenHermit should treat a checkpoint as an internal agent turn.
@@ -253,6 +258,9 @@ Outputs of a checkpoint turn should include:
 - a new episodic checkpoint, if warranted
 - rewritten session-local working memory
 - optionally refreshed `now`
+
+Checkpointing should not be responsible for fixing oversized model context windows.
+That is the role of compaction.
 
 ### Long-Term Consolidation
 
@@ -392,6 +400,23 @@ The agent should generate:
 - promoted long-term memory content
 
 This keeps memory behavior predictable while still using the model for summarization quality.
+
+## Compaction
+
+Compaction is a runtime context-management mechanism, not a memory layer.
+
+Its purpose is:
+
+- keep long-running sessions usable
+- reduce context size when a session approaches model limits
+- preserve the most relevant recent turns while compressing older material
+
+Compaction should:
+
+- operate on session history
+- be triggered by context-window pressure rather than by normal memory cadence
+- cooperate with checkpoint outputs and working memory
+- not replace episodic checkpoints, `now`, or `main`
 
 ## Memory Tools
 

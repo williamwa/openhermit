@@ -146,6 +146,28 @@ Operational model:
 - checkpoint triggers are program-driven, but checkpoint content is produced by the agent itself
 - `memory.checkpoint_turn_interval` remains the trigger configuration for periodic checkpoint turns
 - long-term consolidation runs separately during idle / low-activity periods
+
+## ADR-010: Checkpointing and compaction are separate mechanisms
+
+**Decision**: Checkpointing and compaction must remain separate.
+
+**Checkpointing exists to update memory**:
+
+- episodic checkpoints
+- session-local working memory
+- `now`
+
+**Compaction exists to keep long-running sessions within model context limits**:
+
+- compress older session context
+- preserve recent continuity
+- support retry after near-overflow or overflow
+
+**Rationale**:
+
+- memory generation and context-window hygiene are related but not the same job
+- separating them keeps runtime behavior easier to reason about
+- compaction should not silently become the only memory mechanism
 - explicit user instructions such as "remember ..." may directly update long-term memory
 
 **Rationale**:

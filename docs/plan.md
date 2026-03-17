@@ -21,6 +21,7 @@ The main architectural direction is now stable:
 - `external state` stays in the workspace
 - `internal state` stays outside the workspace
 - checkpointing is agent-driven
+- compaction should become the next major runtime capability
 - scheduler will be extracted from heartbeat-specific logic
 
 ## Completed
@@ -65,6 +66,7 @@ The main architectural direction is now stable:
   - `memory_get`
   - `memory_recall`
   - `memory_update`
+- no formal compaction yet
 
 ### Tooling
 
@@ -110,7 +112,21 @@ The main architectural direction is now stable:
   - `main`
   - structured named memories
 
-## Phase 2 — Scheduler
+## Phase 2 — Runtime Compaction
+
+- add token-aware context budgeting for long sessions
+- detect when a session is approaching model context limits
+- introduce compaction artifacts that summarize older history while keeping recent turns
+- retry the user-visible turn after compaction when context overflow or near-overflow occurs
+- keep compaction distinct from checkpointing:
+  - checkpointing updates memory
+  - compaction keeps the runtime context window healthy
+- make compaction cooperate with:
+  - episodic checkpoints
+  - session-local working memory
+  - `now`
+
+## Phase 3 — Scheduler
 
 - replace heartbeat-centric scheduling with a general scheduler
 - define schedule schema
@@ -127,7 +143,7 @@ The main architectural direction is now stable:
   - concurrency
 - dispatch scheduled work into agents as ordinary runs
 
-## Phase 3 — Identity + Knowledge Maturity
+## Phase 4 — Identity + Knowledge Maturity
 
 - refine how user-authored knowledge is organized in the external workspace
 - improve the agent's use of:
@@ -137,13 +153,13 @@ The main architectural direction is now stable:
 - add explicit “remember this” behavior on top of named memories
 - connect normalized identity state to prompt construction
 
-## Phase 4 — Web + Channel Maturity
+## Phase 5 — Web + Channel Maturity
 
 - improve web UX on top of the existing client
 - add Telegram as the first real channel adapter
 - make adapter/session binding first-class across channels
 
-## Phase 5 — Gateway / Multi-Agent
+## Phase 6 — Gateway / Multi-Agent
 
 - multi-agent lifecycle management
 - unified `/agents/{id}/...` routing
@@ -153,10 +169,10 @@ The main architectural direction is now stable:
 ## Immediate Implementation Order
 
 1. split identity inputs from normalized internal identity state
-2. define the durable-memory vs user-knowledge boundary more tightly
-3. implement idle / sleep-time long-term consolidation
-4. design and implement the scheduler
-5. continue improving web and channel adapters
+2. design and implement runtime compaction
+3. define the durable-memory vs user-knowledge boundary more tightly
+4. implement idle / sleep-time long-term consolidation
+5. design and implement the scheduler
 
 ## Design Constraints
 

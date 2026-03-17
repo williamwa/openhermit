@@ -173,6 +173,8 @@ OpenHermit provides the surrounding runtime:
 - approval orchestration
 - session persistence
 - memory updates, including checkpoint turns and named-memory maintenance
+- future compaction for long-running sessions
+- optional Langfuse tracing around model requests when `apps/agent/.env` provides `LANGFUSE_*`
 - HTTP + SSE transport
 
 ## Session Model
@@ -185,6 +187,7 @@ Important rules:
 - sessions do not have a permanent `closed` state
 - any old session can be resumed later
 - adapter binding decides which session a user is currently talking to
+- long-running sessions will eventually need compaction in addition to checkpointing
 
 Current execution states:
 
@@ -219,6 +222,32 @@ Containers are split into two categories:
 
 - `ephemeral`
 - `service`
+
+## Checkpointing vs. Compaction
+
+OpenHermit should treat checkpointing and compaction as separate runtime mechanisms.
+
+### Checkpointing
+
+Checkpointing exists to update memory:
+
+- episodic checkpoints
+- session-local working memory
+- possibly `now`
+
+Checkpoint turns are internal agent turns triggered by the runtime.
+
+### Compaction
+
+Compaction exists to keep long-running sessions inside model context limits.
+
+It should:
+
+- summarize or compress older conversational state
+- preserve recent turns needed for immediate continuity
+- reduce prompt size before retrying a user-visible turn
+
+Compaction should not be treated as a replacement for memory updates. Its primary purpose is runtime context hygiene, not durable memory generation.
 
 ### Ephemeral Containers
 
