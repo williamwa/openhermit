@@ -38,11 +38,12 @@ OpenHermit separates:
 Current internal-state files include:
 
 - `state.sqlite`
-- `runtime.json`
+- `runtime.json` while the agent is running
 - `security.json`
 - `secrets.json`
 
 `state.sqlite` now stores sessions, session history, named memories, and container runtime inventory.
+It also uses lightweight versioned migrations for incremental schema changes.
 
 ## Repository Structure
 
@@ -101,7 +102,7 @@ npm run dev:agent
 npm run chat:agent
 ```
 
-For CLI development with automatic restarts on source changes, use `npm run dev:cli`.
+`chat:agent` and `dev:cli` both start the interactive CLI directly. The CLI is intentionally not run under watch mode because file-watch wrappers interfere with terminal input handling.
 
 CLI options:
 
@@ -115,6 +116,12 @@ npm run chat:agent -- --resume
 The CLI discovers the running agent via:
 
 - `~/.openhermit/{agent-id}/runtime.json`
+
+That `runtime.json` is now treated as live runtime metadata:
+
+- normal agent shutdown removes it
+- agent startup refuses to continue if the file already exists
+- if startup finds a stale file, it reports that explicitly instead of silently overwriting it
 
 4. Or start the local web client:
 

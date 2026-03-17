@@ -102,7 +102,7 @@ Internal state lives under:
 ~/.openhermit/{agent-id}/
 ├── security.json
 ├── secrets.json
-├── runtime.json
+├── runtime.json   # only while the agent is running
 └── state.sqlite
 ```
 
@@ -110,8 +110,8 @@ Current responsibilities:
 
 - `security.json`: autonomy and approval policy
 - `secrets.json`: provider and integration secrets
-- `runtime.json`: local discovery metadata for the agent-local API
-- `state.sqlite`: sessions, messages, memories, container runtime inventory, and other runtime-owned records
+- `runtime.json`: live local discovery metadata for the agent-local API
+- `state.sqlite`: sessions, messages, memories, container runtime inventory, and other runtime-owned records managed through lightweight versioned migrations
 
 ## Runtime Discovery
 
@@ -136,6 +136,12 @@ This file is used by:
 - CLI
 - local web launcher
 - future bridges and adapters
+
+Lifecycle rules:
+
+- it exists only while the agent is actively running
+- normal shutdown removes it
+- startup refuses to overwrite an existing file and instead reports whether another agent is still responding or the file looks stale
 
 ## Agent Runtime
 

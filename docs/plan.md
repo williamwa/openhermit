@@ -10,6 +10,7 @@ OpenHermit already has a working single-agent runtime with:
 - per-agent internal state in `~/.openhermit/{agent-id}/`
 - `state.sqlite` as the primary internal-state store
 - `runtime.json` for local API discovery
+- startup / shutdown protection around `runtime.json`
 - agent-local HTTP + SSE API
 - CLI client
 - local web client
@@ -44,6 +45,7 @@ The main architectural direction is now stable:
 
 - per-agent `state.sqlite`
 - per-agent `runtime.json`
+- lightweight versioned migrations inside the agent runtime
 - sessions and session logs migrated out of workspace files
 - episodic checkpoints migrated out of workspace files
 - session-local working memory migrated into `sessions`
@@ -114,10 +116,10 @@ The main architectural direction is now stable:
 
 ## Phase 2 — Runtime Compaction
 
-- add token-aware context budgeting for long sessions
-- detect when a session is approaching model context limits
-- introduce compaction artifacts that summarize older history while keeping recent turns
-- retry the user-visible turn after compaction when context overflow or near-overflow occurs
+- refine token-aware context budgeting for long sessions
+- improve the current compaction artifact and retention policy
+- decide when compaction should proactively happen versus only when near budget
+- evaluate whether user-visible retry is still needed beyond the current first pass
 - keep compaction distinct from checkpointing:
   - checkpointing updates memory
   - compaction keeps the runtime context window healthy
@@ -169,7 +171,7 @@ The main architectural direction is now stable:
 ## Immediate Implementation Order
 
 1. split identity inputs from normalized internal identity state
-2. design and implement runtime compaction
+2. refine runtime compaction beyond the current first pass
 3. define the durable-memory vs user-knowledge boundary more tightly
 4. implement idle / sleep-time long-term consolidation
 5. design and implement the scheduler

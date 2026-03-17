@@ -40,6 +40,10 @@ Examples:
 
 Runs are temporary. Sessions are durable.
 
+For checkpoint interval accounting, one completed run counts as one completed turn.
+That turn boundary is the runtime-level execution window from `agent_start` to `agent_end`,
+even if the run contains multiple internal assistant messages, tool calls, or LLM steps.
+
 Runtime execution states:
 
 - `idle`
