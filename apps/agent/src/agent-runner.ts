@@ -1,5 +1,4 @@
 import { Agent, type AgentEvent, type AgentMessage } from '@mariozechner/pi-agent-core';
-import { complete } from '@mariozechner/pi-ai';
 import type { DatabaseSync } from 'node:sqlite';
 import type { SessionHistoryMessage, SessionListQuery, SessionMessage, SessionSpec, SessionSummary } from '@openhermit/protocol';
 import { NotFoundError, ValidationError, getErrorMessage } from '@openhermit/shared';
@@ -36,6 +35,10 @@ import {
   createFallbackDescription,
   normalizeGeneratedDescription,
 } from './session-utils.js';
+import {
+  completeWithLangfuseTrace,
+  createLangfuseTracedStreamFn,
+} from './langfuse.js';
 import { type SessionDescriptor, SessionEventBroker, type SessionRuntime } from './runtime.js';
 import {
   type ApprovalCallback,
@@ -653,6 +656,18 @@ export class AgentRunner implements SessionRuntime {
         ...(input.onToolRequested ? { onToolRequested: input.onToolRequested } : {}),
         ...(input.onToolStarted ? { onToolStarted: input.onToolStarted } : {}),
       });
+    const streamFn = createLangfuseTracedStreamFn(
+      this.options.langfuse,
+      this.options.streamFn,
+      {
+        name: 'openhermit.agent_turn',
+        sessionId: input.contextSessionId,
+        agentSessionId: input.agentSessionId,
+        metadata: {
+          requestKind: 'agent-turn',
+        },
+      },
+    );
 
     return new Agent({
       initialState: {
@@ -662,7 +677,7 @@ export class AgentRunner implements SessionRuntime {
         thinkingLevel: 'off',
       },
       sessionId: input.agentSessionId,
-      ...(this.options.streamFn ? { streamFn: this.options.streamFn } : {}),
+      ...(streamFn ? { streamFn } : {}),
       getApiKey: (provider) => this.resolveApiKey(provider),
       transformContext: (messages, signal) =>
         this.transformContext(input.contextSessionId, messages, signal),
@@ -1040,6 +1055,7 @@ export class AgentRunner implements SessionRuntime {
 
     const config = await this.options.workspace.readConfig();
     const description = await this.generateSessionDescription({
+      sessionId: session.spec.sessionId,
       ...input,
       config,
     });
@@ -1054,6 +1070,7 @@ export class AgentRunner implements SessionRuntime {
   }
 
   private async generateSessionDescription(input: {
+    sessionId: string;
     userText: string;
     assistantText?: string;
     config: AgentConfig;
@@ -1074,7 +1091,8 @@ export class AgentRunner implements SessionRuntime {
       return undefined;
     }
 
-    const response = await complete(
+    const response = await completeWithLangfuseTrace(
+      this.options.langfuse,
       resolveModel(input.config),
       {
         systemPrompt: [
@@ -1102,6 +1120,14 @@ export class AgentRunner implements SessionRuntime {
         ],
       },
       { apiKey },
+      {
+        name: 'openhermit.session_description',
+        sessionId: input.sessionId,
+        agentSessionId: input.sessionId,
+        metadata: {
+          requestKind: 'session-description',
+        },
+      },
     );
 
     return normalizeGeneratedDescription(extractAssistantText(response));

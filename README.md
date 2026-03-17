@@ -84,6 +84,8 @@ openhermit/
 }
 ```
 
+Optional: to emit Langfuse traces for model requests, add `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and optionally `LANGFUSE_BASE_URL` to [`apps/agent/.env`](apps/agent/.env). The agent entrypoint loads that file automatically on startup.
+
 2. Start the agent:
 
 ```bash

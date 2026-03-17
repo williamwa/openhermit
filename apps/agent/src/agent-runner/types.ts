@@ -2,6 +2,7 @@ import type { Agent, StreamFn } from '@mariozechner/pi-agent-core';
 import type { SessionStatus } from '@openhermit/protocol';
 
 import type { AgentConfig } from '../core/index.js';
+import type { LangfuseClientLike } from '../langfuse.js';
 import type { SessionDescriptor } from '../runtime.js';
 import type { ApprovalGate } from './approval-gate.js';
 
@@ -31,8 +32,10 @@ export interface AgentRunnerOptions {
   security: import('../core/index.js').AgentSecurity;
   containerManager?: import('../core/index.js').DockerContainerManager;
   streamFn?: StreamFn;
+  langfuse?: LangfuseClientLike;
   sessionDescriptionGenerator?: (
     input: {
+      sessionId: string;
       userText: string;
       assistantText?: string;
       config: AgentConfig;

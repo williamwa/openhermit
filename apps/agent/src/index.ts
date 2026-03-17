@@ -11,6 +11,12 @@ import { AgentRunner } from './agent-runner.js';
 import { createAgentApp } from './app.js';
 import { AgentSecurity, AgentWorkspace } from './core/index.js';
 import { initializeInternalStateDatabase } from './internal-state/sqlite.js';
+import {
+  createLangfuseClientFromEnv,
+  createLangfuseShutdownHandler,
+  loadEnvironmentFile,
+  resolveAgentEnvPath,
+} from './langfuse.js';
 
 const defaultPort = 3001;
 type NodeFetchCallback = Parameters<typeof createAdaptorServer>[0]['fetch'];
@@ -18,6 +24,13 @@ type NodeFetchCallback = Parameters<typeof createAdaptorServer>[0]['fetch'];
 const logStartup = (message: string): void => {
   console.log(`[openhermit-agent] ${message}`);
 };
+
+const agentEnvPath = resolveAgentEnvPath();
+const loadedEnvCount = await loadEnvironmentFile(agentEnvPath);
+
+if (loadedEnvCount > 0) {
+  logStartup(`loaded ${loadedEnvCount} environment variable(s) from ${agentEnvPath}`);
+}
 
 const listen = async (
   fetch: NodeFetchCallback,
@@ -104,9 +117,28 @@ logStartup(`internal state: ${security.stateFilePath}`);
 logStartup(`runtime metadata: ${security.runtimeFilePath}`);
 logStartup(`autonomy: ${security.getAutonomyLevel()}`);
 
+const langfuse = createLangfuseClientFromEnv({
+  logger: logStartup,
+});
+
+if (langfuse) {
+  const shutdownLangfuse = createLangfuseShutdownHandler(langfuse);
+  process.on('SIGINT', () => {
+    void shutdownLangfuse();
+  });
+  process.on('SIGTERM', () => {
+    void shutdownLangfuse();
+  });
+  process.on('beforeExit', () => {
+    void shutdownLangfuse();
+  });
+  logStartup('Langfuse tracing enabled for model requests');
+}
+
 const runner = await AgentRunner.create({
   workspace,
   security,
+  ...(langfuse ? { langfuse } : {}),
 });
 
 const rawPort = process.env.PORT;

@@ -11,6 +11,7 @@ import {
 } from '@mariozechner/pi-ai';
 
 import { AgentRunner } from '../src/agent-runner.js';
+import type { LangfuseClientLike } from '../src/langfuse.js';
 import { openInternalStateDatabase } from '../src/internal-state/sqlite.js';
 import { SessionLogWriter } from '../src/session-logs.js';
 import { createSecurityFixture } from './helpers.js';
@@ -150,6 +151,50 @@ const readSessionLog = async (
   sessionId: string,
 ): Promise<Array<Record<string, unknown>>> =>
   (await runner.listSessionLogEntries(sessionId)) as Array<Record<string, unknown>>;
+
+class FakeLangfuseGeneration {
+  readonly ended: Array<Record<string, unknown>> = [];
+
+  end(body: Record<string, unknown>) {
+    this.ended.push(body);
+    return this;
+  }
+}
+
+class FakeLangfuseTrace {
+  readonly generations: Array<{
+    body: Record<string, unknown>;
+    client: FakeLangfuseGeneration;
+  }> = [];
+
+  readonly updates: Array<Record<string, unknown>> = [];
+
+  generation(body: Record<string, unknown>) {
+    const client = new FakeLangfuseGeneration();
+    this.generations.push({ body, client });
+    return client;
+  }
+
+  update(body: Record<string, unknown>) {
+    this.updates.push(body);
+    return this;
+  }
+}
+
+class FakeLangfuseClient implements LangfuseClientLike {
+  readonly traces: Array<{
+    body: Record<string, unknown>;
+    client: FakeLangfuseTrace;
+  }> = [];
+
+  async flushAsync(): Promise<void> {}
+
+  trace(body: Record<string, unknown>) {
+    const client = new FakeLangfuseTrace();
+    this.traces.push({ body, client });
+    return client;
+  }
+}
 
 test('AgentRunner publishes SSE text events and writes minimal logs', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
@@ -1238,4 +1283,60 @@ test('AgentRunner stores an AI-generated session description when available', as
 
   const sessions = await runner.listSessions({ kind: 'cli' });
   assert.equal(sessions[0]?.description, 'Investigate flaky container mount retries');
+});
+
+test('AgentRunner emits Langfuse traces for model turns', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: {
+      ANTHROPIC_API_KEY: 'test-anthropic-key',
+    },
+  });
+  await security.load();
+
+  const langfuse = new FakeLangfuseClient();
+  const runner = await AgentRunner.create({
+    workspace,
+    security,
+    langfuse,
+    streamFn: createSequentialStreamFn([
+      () => createTextResponseStream('hello with trace'),
+    ]),
+  });
+
+  await runner.openSession({
+    sessionId: 'cli:langfuse-session',
+    source: {
+      kind: 'cli',
+      interactive: true,
+    },
+  });
+  await runner.postMessage('cli:langfuse-session', {
+    text: 'trace this request',
+  });
+  await runner.waitForSessionIdle('cli:langfuse-session');
+
+  assert.equal(langfuse.traces.length, 1);
+  assert.equal(langfuse.traces[0]?.body.name, 'openhermit.agent_turn');
+  assert.equal(langfuse.traces[0]?.body.sessionId, 'cli:langfuse-session');
+  assert.equal(langfuse.traces[0]?.client.generations.length, 1);
+  assert.equal(
+    langfuse.traces[0]?.client.generations[0]?.body.model,
+    'claude-opus-4-5',
+  );
+  assert.equal(
+    (langfuse.traces[0]?.client.generations[0]?.body.metadata as Record<string, unknown>)?.requestKind,
+    'agent-turn',
+  );
+  assert.equal(
+    ((langfuse.traces[0]?.client.generations[0]?.body.input as Record<string, unknown>)?.messages as Array<Record<string, unknown>>)[0]?.role,
+    'user',
+  );
+  assert.equal(
+    ((langfuse.traces[0]?.client.generations[0]?.client.ended[0]?.output as Record<string, unknown>)?.model),
+    'claude-opus-4-5',
+  );
+  assert.equal(
+    (((langfuse.traces[0]?.client.generations[0]?.client.ended[0]?.output as Record<string, unknown>)?.content as Array<Record<string, unknown>>)[0]?.text),
+    'hello with trace',
+  );
 });
