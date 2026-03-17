@@ -2,6 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
+import { pathToFileURL } from 'node:url';
+import { stderr } from 'node:process';
 
 import { createAdaptorServer } from '@hono/node-server';
 
@@ -30,13 +32,6 @@ type NodeFetchCallback = Parameters<typeof createAdaptorServer>[0]['fetch'];
 const logStartup = (message: string): void => {
   console.log(`[openhermit-agent] ${message}`);
 };
-
-const agentEnvPath = resolveAgentEnvPath();
-const loadedEnvCount = await loadEnvironmentFile(agentEnvPath);
-
-if (loadedEnvCount > 0) {
-  logStartup(`loaded ${loadedEnvCount} environment variable(s) from ${agentEnvPath}`);
-}
 
 const listen = async (
   fetch: NodeFetchCallback,
@@ -108,97 +103,113 @@ const listen = async (
   }
 };
 
-const agentId = process.env.OPENHERMIT_AGENT_ID ?? 'agent-dev';
-const workspaceRoot =
-  process.env.OPENHERMIT_WORKSPACE_ROOT ??
-  path.join(process.cwd(), '.openhermit-dev', agentId);
-const agentName =
-  process.env.OPENHERMIT_AGENT_NAME ?? 'OpenHermit Dev Agent';
+export const main = async (): Promise<void> => {
+  const agentEnvPath = resolveAgentEnvPath();
+  const loadedEnvCount = await loadEnvironmentFile(agentEnvPath);
 
-const workspace = new AgentWorkspace(workspaceRoot);
-logStartup(`booting agent ${agentId}`);
-logStartup(`workspace root: ${workspaceRoot}`);
-await workspace.init({
-  agentId,
-  name: agentName,
-});
-const config = await workspace.readConfig();
+  if (loadedEnvCount > 0) {
+    logStartup(`loaded ${loadedEnvCount} environment variable(s) from ${agentEnvPath}`);
+  }
 
-const security = new AgentSecurity({
-  agentId,
-  workspace,
-});
-await security.init();
-await security.load();
-initializeInternalStateDatabase(security.stateFilePath).close();
-logStartup(`internal state: ${security.stateFilePath}`);
-logStartup(`runtime metadata: ${security.runtimeFilePath}`);
-logStartup(`autonomy: ${security.getAutonomyLevel()}`);
-await assertRuntimeMetadataAbsent(security.runtimeFilePath);
+  const agentId = process.env.OPENHERMIT_AGENT_ID ?? 'agent-dev';
+  const workspaceRoot =
+    process.env.OPENHERMIT_WORKSPACE_ROOT ??
+    path.join(process.cwd(), '.openhermit-dev', agentId);
+  const agentName =
+    process.env.OPENHERMIT_AGENT_NAME ?? 'OpenHermit Dev Agent';
 
-const langfuse = createLangfuseClientFromEnv({
-  logger: logStartup,
-});
+  const workspace = new AgentWorkspace(workspaceRoot);
+  logStartup(`booting agent ${agentId}`);
+  logStartup(`workspace root: ${workspaceRoot}`);
+  await workspace.init({
+    agentId,
+    name: agentName,
+  });
+  const config = await workspace.readConfig();
 
-const shutdownLangfuse = createLangfuseShutdownHandler(langfuse);
+  const security = new AgentSecurity({
+    agentId,
+    workspace,
+  });
+  await security.init();
+  await security.load();
+  initializeInternalStateDatabase(security.stateFilePath).close();
+  logStartup(`internal state: ${security.stateFilePath}`);
+  logStartup(`runtime metadata: ${security.runtimeFilePath}`);
+  logStartup(`autonomy: ${security.getAutonomyLevel()}`);
+  await assertRuntimeMetadataAbsent(security.runtimeFilePath);
 
-if (langfuse) {
-  logStartup('Langfuse tracing enabled for model requests');
-}
+  const langfuse = createLangfuseClientFromEnv({
+    logger: logStartup,
+  });
 
-const runner = await AgentRunner.create({
-  workspace,
-  security,
-  ...(langfuse ? { langfuse } : {}),
-});
+  const shutdownLangfuse = createLangfuseShutdownHandler(langfuse);
 
-const rawPort = process.env.PORT;
-const preferredPort = rawPort
-  ? Number.parseInt(rawPort, 10)
-  : config.http_api.preferred_port || defaultPort;
+  if (langfuse) {
+    logStartup('Langfuse tracing enabled for model requests');
+  }
 
-if (Number.isNaN(preferredPort)) {
-  throw new Error(`Invalid PORT value: ${rawPort}`);
-}
+  const runner = await AgentRunner.create({
+    workspace,
+    security,
+    ...(langfuse ? { langfuse } : {}),
+  });
 
-logStartup(
-  `preferred port: ${preferredPort}${rawPort ? ' (from PORT env)' : ' (from config/default)'}`,
-);
+  const rawPort = process.env.PORT;
+  const preferredPort = rawPort
+    ? Number.parseInt(rawPort, 10)
+    : config.http_api.preferred_port || defaultPort;
 
-const apiToken = randomBytes(24).toString('hex');
-const app = createAgentApp(runner, { apiToken });
-const { server, info, usedFallback } = await listen(app.fetch, preferredPort);
+  if (Number.isNaN(preferredPort)) {
+    throw new Error(`Invalid PORT value: ${rawPort}`);
+  }
 
-const shutdownHandler = createSignalShutdownHandler({
-  server,
-  shutdownLangfuse,
-  cleanup: async () => {
-    await fs.rm(security.runtimeFilePath, { force: true });
-  },
-  logger: logStartup,
-});
-process.on('SIGINT', shutdownHandler);
-process.on('SIGTERM', shutdownHandler);
-process.on('beforeExit', createBeforeExitLangfuseHandler(shutdownLangfuse));
-process.on('exit', createExitRuntimeFileCleanupHandler(security.runtimeFilePath, logStartup));
+  logStartup(
+    `preferred port: ${preferredPort}${rawPort ? ' (from PORT env)' : ' (from config/default)'}`,
+  );
 
-const runtimeState: RuntimeStateFile = {
-  http_api: {
-    port: info.port,
-    token: apiToken,
-  },
-  updated_at: new Date().toISOString(),
+  const apiToken = randomBytes(24).toString('hex');
+  const app = createAgentApp(runner, { apiToken });
+  const { server, info, usedFallback } = await listen(app.fetch, preferredPort);
+
+  const shutdownHandler = createSignalShutdownHandler({
+    server,
+    shutdownLangfuse,
+    cleanup: async () => {
+      await fs.rm(security.runtimeFilePath, { force: true });
+    },
+    logger: logStartup,
+  });
+  process.on('SIGINT', shutdownHandler);
+  process.on('SIGTERM', shutdownHandler);
+  process.on('beforeExit', createBeforeExitLangfuseHandler(shutdownLangfuse));
+  process.on('exit', createExitRuntimeFileCleanupHandler(security.runtimeFilePath, logStartup));
+
+  const runtimeState: RuntimeStateFile = {
+    http_api: {
+      port: info.port,
+      token: apiToken,
+    },
+    updated_at: new Date().toISOString(),
+  };
+  await fs.writeFile(
+    security.runtimeFilePath,
+    `${JSON.stringify(runtimeState, null, 2)}\n`,
+    'utf8',
+  );
+
+  logStartup(
+    `listening on http://localhost:${info.port}${
+      usedFallback ? `; preferred port ${preferredPort} was unavailable` : ''
+    }`,
+  );
+  logStartup(`agent name: ${agentName}`);
+  logStartup(`token written to runtime.json`);
 };
-await fs.writeFile(
-  security.runtimeFilePath,
-  `${JSON.stringify(runtimeState, null, 2)}\n`,
-  'utf8',
-);
 
-logStartup(
-  `listening on http://localhost:${info.port}${
-    usedFallback ? `; preferred port ${preferredPort} was unavailable` : ''
-  }`,
-);
-logStartup(`agent name: ${agentName}`);
-logStartup(`token written to runtime.json`);
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await main().catch((error) => {
+    stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  });
+}
