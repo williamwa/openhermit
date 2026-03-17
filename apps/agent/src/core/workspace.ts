@@ -59,16 +59,9 @@ Use this file for workspace-specific instructions, preferences, and collaboratio
 `,
 } as const;
 
-const OTHER_SCAFFOLD_FILES = {
-  'hooks/hooks.json': '{}\n',
-} as const;
-
 const SCAFFOLD_DIRECTORIES = [
   'identity',
   'containers',
-  'files',
-  'hooks',
-  'logs',
 ] as const;
 
 const isPathOutsideRoot = (relativePath: string): boolean =>
@@ -221,10 +214,6 @@ export class AgentWorkspace {
         relativePath,
         replaceTemplateTokens(template, { name: options.name }),
       );
-    }
-
-    for (const [relativePath, content] of Object.entries(OTHER_SCAFFOLD_FILES)) {
-      await this.ensureFile(relativePath, content);
     }
 
     return this.readConfig();

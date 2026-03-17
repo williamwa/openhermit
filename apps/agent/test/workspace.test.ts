@@ -23,6 +23,10 @@ test('AgentWorkspace init scaffolds config and identity files', async (t) => {
   assert.doesNotMatch(agentsInstructions, /Container tool rules:/);
   assert.ok(rootEntries.some((entry) => entry.path === 'config.json'));
   assert.ok(rootEntries.some((entry) => entry.path === 'identity'));
+  assert.ok(rootEntries.some((entry) => entry.path === 'containers'));
+  assert.ok(rootEntries.every((entry) => entry.path !== 'files'));
+  assert.ok(rootEntries.every((entry) => entry.path !== 'hooks'));
+  assert.ok(rootEntries.every((entry) => entry.path !== 'logs'));
   assert.ok(rootEntries.every((entry) => entry.path !== 'memory'));
   assert.ok(rootEntries.every((entry) => entry.path !== 'sessions'));
   assert.ok(rootEntries.every((entry) => entry.path !== 'runtime'));
@@ -67,6 +71,7 @@ test('AgentWorkspace rejects lexical path escapes', async (t) => {
 test('AgentWorkspace rejects symlink escapes for new files', async (t) => {
   const { root, workspace } = await createWorkspaceFixture(t);
   const outsideDir = await createTempDir(t, 'openhermit-outside-');
+  await fs.mkdir(path.join(root, 'files'), { recursive: true });
   const linkPath = path.join(root, 'files', 'outside-link');
 
   await fs.symlink(outsideDir, linkPath);

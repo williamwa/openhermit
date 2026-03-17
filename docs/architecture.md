@@ -83,19 +83,16 @@ workspace/
 │   ├── SOUL.md
 │   ├── USER.md
 │   └── AGENTS.md
-├── files/
-├── containers/
+└── containers/
 │   └── {container-name}/
 │       └── data/
-├── hooks/
-│   └── hooks.json
-└── logs/
 ```
 
 Notes:
 
+- the default scaffold is intentionally minimal: `config.json`, `identity/`, and `containers/`
 - `identity/` currently remains workspace-authored input
-- `files/` is the main area the agent reads, writes, and searches
+- additional directories such as `files/` may be created later by user work or agent actions
 - `containers/{name}/data/` is external state because it contains mounted task data
 - container runtime inventory is internal state and now lives in `state.sqlite`
 - the workspace no longer defaults to storing session, memory, or runtime discovery state
