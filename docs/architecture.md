@@ -89,7 +89,7 @@ Notes:
 
 - the default scaffold is intentionally minimal: `.openhermit/` and `containers/`
 - `workspace/.openhermit/config.json` is the workspace-owned external config surface for agent-manageable integrations and channels
-- `workspace/.openhermit/*.md` is workspace-authored, user-editable, and the canonical source for agent identity inputs
+- `workspace/.openhermit/*.md` is workspace-authored, user-editable, agent-editable, and the canonical source for agent identity inputs
 - any future internal identity representation should be treated as derived cache or normalized view, not the source of truth
 - additional directories such as `files/` may be created later by user work or agent actions
 - `containers/{name}/data/` is external state because it contains mounted task data

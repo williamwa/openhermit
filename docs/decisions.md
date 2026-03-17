@@ -62,7 +62,7 @@ Examples:
 
 ## ADR-004: Identity markdown stays canonical in the workspace
 
-**Decision**: `workspace/.openhermit/*.md` remains workspace-authored, user-editable, and canonical.
+**Decision**: `workspace/.openhermit/*.md` remains workspace-authored, user-editable, agent-editable, and canonical.
 
 If OpenHermit later needs normalized identity structures for prompt construction or caching, those should be treated as derived internal views rather than as the source of truth.
 
