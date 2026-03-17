@@ -277,7 +277,7 @@ export class AgentRunner implements SessionRuntime {
     };
     const createdAt = persisted?.createdAt ?? now;
 
-    const config = await this.options.workspace.readConfig();
+    const config = await this.options.security.readConfig();
     const approvalGate = new ApprovalGate();
     const approvalCallback = effectiveSpec.source.interactive
       ? this.makeApprovalCallback(effectiveSpec.sessionId, approvalGate)
@@ -503,7 +503,7 @@ export class AgentRunner implements SessionRuntime {
         return false;
       }
 
-      const config = await this.options.workspace.readConfig();
+      const config = await this.options.security.readConfig();
       const previousWorkingMemory = await this.logWriter.getSessionWorkingMemory(
         session.spec.sessionId,
       );
@@ -832,7 +832,7 @@ export class AgentRunner implements SessionRuntime {
 
   private async refreshAgentConfiguration(session: RunnerSession): Promise<void> {
     await this.options.security.load();
-    const config = await this.options.workspace.readConfig();
+    const config = await this.options.security.readConfig();
     this.ensureProviderApiKey(config.model.provider);
 
     const approvalCallback = session.spec.source.interactive
@@ -906,7 +906,7 @@ export class AgentRunner implements SessionRuntime {
       });
     }
 
-    const config = await this.options.workspace.readConfig();
+    const config = await this.options.security.readConfig();
     return this.compactContextIfNeeded(sessionId, config, contextBlocks, messages);
   }
 
@@ -1207,7 +1207,7 @@ export class AgentRunner implements SessionRuntime {
         void this.persistSessionIndex(session);
         this.scheduleIdleSummary(session);
         void this.queueBackgroundTask(session, async () => {
-          const config = await this.options.workspace.readConfig();
+          const config = await this.options.security.readConfig();
 
           if (
             session.completedTurnCount - session.lastSummarizedTurnCount >=
@@ -1353,7 +1353,7 @@ export class AgentRunner implements SessionRuntime {
       return;
     }
 
-    const config = await this.options.workspace.readConfig();
+    const config = await this.options.security.readConfig();
     const description = await this.generateSessionDescription({
       sessionId: session.spec.sessionId,
       ...input,

@@ -244,6 +244,7 @@ Checkpoint triggers should include:
 - `memory.checkpoint_turn_interval`
 
 The config name `memory.checkpoint_turn_interval` can stay as-is.  
+It currently lives in `~/.openhermit/{agent-id}/config.json`.  
 Its meaning is: after every N completed agent runs, run one checkpoint turn.
 One run is counted from `agent_start` to `agent_end`, even if it contains multiple internal LLM steps or intermediate assistant messages.
 

@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 
-import type { AgentConfig, AgentSecurity, AgentWorkspace } from '../core/index.js';
+import type { AgentRuntimeConfig, AgentSecurity, AgentWorkspace } from '../core/index.js';
 
 const CONTAINER_TOOL_GUIDANCE = [
   'Container tool rules:',
@@ -40,7 +40,7 @@ const loadRuntimePromptTemplate = async (): Promise<string> => {
 };
 
 export const buildSystemPrompt = async (
-  config: AgentConfig,
+  config: AgentRuntimeConfig,
   workspace: AgentWorkspace,
   security: AgentSecurity,
 ): Promise<string> => {

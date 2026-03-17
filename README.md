@@ -37,13 +37,16 @@ OpenHermit separates:
 
 Current internal-state files include:
 
+- `config.json`
 - `state.sqlite`
 - `runtime.json` while the agent is running
 - `security.json`
 - `secrets.json`
 
-`state.sqlite` now stores sessions, session history, named memories, and container runtime inventory.
-It also uses lightweight versioned migrations for incremental schema changes.
+The workspace now keeps agent-managed external inputs under `workspace/.openhermit/`, including identity markdown and workspace-level integration config.
+Runtime-owned settings such as model selection and checkpoint cadence live in `~/.openhermit/{agent-id}/config.json`.
+
+`state.sqlite` now stores sessions, session history, named memories, and container runtime inventory. It also uses lightweight versioned migrations for incremental schema changes.
 
 ## Repository Structure
 

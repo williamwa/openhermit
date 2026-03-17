@@ -8,6 +8,7 @@ OpenHermit already has a working single-agent runtime with:
 
 - host-based agent execution
 - per-agent internal state in `~/.openhermit/{agent-id}/`
+- per-agent internal runtime config in `~/.openhermit/{agent-id}/config.json`
 - `state.sqlite` as the primary internal-state store
 - `runtime.json` for local API discovery
 - startup / shutdown protection around `runtime.json`
@@ -52,11 +53,12 @@ The main architectural direction is now stable:
 - named memories migrated into `memories`
 - container runtime inventory migrated into `state.sqlite`
 - workspace scaffold no longer creates `memory/`, `sessions/`, or `runtime/`
+- workspace scaffold now keeps agent-managed external config and identity files under `workspace/.openhermit/`
 
 ### Memory Foundations
 
 - checkpoint-based episodic memory
-- configurable `memory.checkpoint_turn_interval`
+- configurable `memory.checkpoint_turn_interval` in internal runtime config
 - checkpoint endpoint
 - agent-driven internal checkpoint turns
 - session-local working memory
@@ -84,9 +86,9 @@ The main architectural direction is now stable:
 
 ### 1.1 Identity Split
 
-- treat `identity/*.md` as user-authored identity inputs
-- define normalized internal identity state
-- stop treating workspace identity files as canonical runtime state
+- keep `workspace/.openhermit/*.md` as workspace-authored, editable, canonical identity inputs
+- decide whether a normalized internal identity cache is still useful as a derived view
+- ensure prompt construction treats workspace identity files as the source of truth
 
 ### 1.2 Durable Memory Refinement
 
@@ -148,12 +150,13 @@ The main architectural direction is now stable:
 ## Phase 4 — Identity + Knowledge Maturity
 
 - refine how user-authored knowledge is organized in the external workspace
+- improve how `workspace/.openhermit/*.md` is loaded, composed, and validated without moving canonical ownership into internal state
 - improve the agent's use of:
   - `memory_recall`
   - `memory_get`
   - `memory_update`
 - add explicit “remember this” behavior on top of named memories
-- connect normalized identity state to prompt construction
+- connect any future normalized identity cache to prompt construction as a derived layer, not as canonical storage
 
 ## Phase 5 — Web + Channel Maturity
 
@@ -170,7 +173,7 @@ The main architectural direction is now stable:
 
 ## Immediate Implementation Order
 
-1. split identity inputs from normalized internal identity state
+1. tighten the identity loading model while keeping `workspace/.openhermit/*.md` canonical in the workspace
 2. refine runtime compaction beyond the current first pass
 3. define the durable-memory vs user-knowledge boundary more tightly
 4. implement idle / sleep-time long-term consolidation

@@ -125,7 +125,6 @@ export const main = async (): Promise<void> => {
     agentId,
     name: agentName,
   });
-  const config = await workspace.readConfig();
 
   const security = new AgentSecurity({
     agentId,
@@ -133,8 +132,10 @@ export const main = async (): Promise<void> => {
   });
   await security.init();
   await security.load();
+  const config = await security.readConfig();
   initializeInternalStateDatabase(security.stateFilePath).close();
   logStartup(`internal state: ${security.stateFilePath}`);
+  logStartup(`internal config: ${security.configFilePath}`);
   logStartup(`runtime metadata: ${security.runtimeFilePath}`);
   logStartup(`autonomy: ${security.getAutonomyLevel()}`);
   await assertRuntimeMetadataAbsent(security.runtimeFilePath);

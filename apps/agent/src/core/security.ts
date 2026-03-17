@@ -8,7 +8,9 @@ import { NotFoundError, ValidationError } from '@openhermit/shared';
 import type { ResolvePathOptions } from './workspace.js';
 import { AgentWorkspace } from './workspace.js';
 import {
+  DEFAULT_WORKSPACE_IDENTITY_FILES,
   DEFAULT_SECURITY_POLICY,
+  type AgentRuntimeConfig,
   type AutonomyLevel,
   type SecretsMap,
   type SecurityPolicy,
@@ -19,6 +21,23 @@ export interface AgentSecurityOptions {
   workspace: AgentWorkspace;
   openHermitHome?: string;
 }
+
+const DEFAULT_RUNTIME_CONFIG: AgentRuntimeConfig = {
+  model: {
+    provider: 'anthropic',
+    model: 'claude-opus-4-5',
+    max_tokens: 8192,
+  },
+  identity: {
+    files: [...DEFAULT_WORKSPACE_IDENTITY_FILES],
+  },
+  http_api: {
+    preferred_port: 3000,
+  },
+  memory: {
+    checkpoint_turn_interval: 50,
+  },
+};
 
 const ensureJsonFile = async (
   filePath: string,
@@ -53,6 +72,8 @@ export class AgentSecurity {
 
   readonly secretsFilePath: string;
 
+  readonly configFilePath: string;
+
   readonly stateFilePath: string;
 
   readonly runtimeFilePath: string;
@@ -66,6 +87,7 @@ export class AgentSecurity {
     this.rootDir = path.join(baseDir, options.agentId);
     this.securityFilePath = path.join(this.rootDir, 'security.json');
     this.secretsFilePath = path.join(this.rootDir, 'secrets.json');
+    this.configFilePath = path.join(this.rootDir, internalStateFiles.config);
     this.stateFilePath = path.join(this.rootDir, internalStateFiles.sqlite);
     this.runtimeFilePath = path.join(this.rootDir, internalStateFiles.runtime);
   }
@@ -74,6 +96,7 @@ export class AgentSecurity {
     await fs.mkdir(this.rootDir, { recursive: true });
     await ensureJsonFile(this.securityFilePath, DEFAULT_SECURITY_POLICY);
     await ensureJsonFile(this.secretsFilePath, {});
+    await ensureJsonFile(this.configFilePath, DEFAULT_RUNTIME_CONFIG);
   }
 
   async load(): Promise<void> {
@@ -153,5 +176,18 @@ export class AgentSecurity {
 
   listSecretNames(): string[] {
     return Object.keys(this.secrets).sort();
+  }
+
+  async readConfig(): Promise<AgentRuntimeConfig> {
+    const content = await fs.readFile(this.configFilePath, 'utf8');
+    return parseJsonFile<AgentRuntimeConfig>(content, this.configFilePath);
+  }
+
+  async writeConfig(config: AgentRuntimeConfig): Promise<void> {
+    await fs.writeFile(
+      this.configFilePath,
+      `${JSON.stringify(config, null, 2)}\n`,
+      'utf8',
+    );
   }
 }

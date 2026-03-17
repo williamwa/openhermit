@@ -11,19 +11,19 @@ test('AgentWorkspace init scaffolds config and identity files', async (t) => {
   const { workspace } = await createWorkspaceFixture(t);
 
   const config = await workspace.readConfig();
-  const identity = await workspace.readFile('identity/IDENTITY.md');
-  const agentsInstructions = await workspace.readFile('identity/AGENTS.md');
+  const identity = await workspace.readFile('.openhermit/IDENTITY.md');
+  const agentsInstructions = await workspace.readFile('.openhermit/AGENTS.md');
   const rootEntries = await workspace.listFiles('.');
+  const openHermitEntries = await workspace.listFiles('.openhermit');
 
-  assert.equal(config.agent_id, 'agent-test');
-  assert.equal(config.name, 'Test Agent');
-  assert.equal(config.memory.checkpoint_turn_interval, 50);
+  assert.equal(config.channels.telegram_bridge.enabled, false);
   assert.match(identity, /Name: Test Agent/);
   assert.match(agentsInstructions, /workspace-specific instructions, preferences, and collaboration rules/);
   assert.doesNotMatch(agentsInstructions, /Container tool rules:/);
-  assert.ok(rootEntries.some((entry) => entry.path === 'config.json'));
-  assert.ok(rootEntries.some((entry) => entry.path === 'identity'));
+  assert.ok(rootEntries.some((entry) => entry.path === '.openhermit'));
   assert.ok(rootEntries.some((entry) => entry.path === 'containers'));
+  assert.ok(openHermitEntries.some((entry) => entry.path === '.openhermit/config.json'));
+  assert.ok(openHermitEntries.some((entry) => entry.path === '.openhermit/IDENTITY.md'));
   assert.ok(rootEntries.every((entry) => entry.path !== 'files'));
   assert.ok(rootEntries.every((entry) => entry.path !== 'hooks'));
   assert.ok(rootEntries.every((entry) => entry.path !== 'logs'));
@@ -85,7 +85,7 @@ test('AgentWorkspace rejects symlink escapes for new files', async (t) => {
 test('AgentWorkspace surfaces config.json parse errors with the file path', async (t) => {
   const { workspace } = await createWorkspaceFixture(t);
 
-  await workspace.writeFile('config.json', '{\n  "agent_id": "agent-test",\n  ]\n');
+  await workspace.writeFile('.openhermit/config.json', '{\n  "channels": {\n  ]\n');
 
   await assert.rejects(
     () => workspace.readConfig(),

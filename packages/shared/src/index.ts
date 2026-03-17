@@ -37,6 +37,7 @@ export class UnauthorizedError extends OpenHermitError {
 }
 
 export const internalStateFiles = {
+  config: 'config.json',
   sqlite: 'state.sqlite',
   runtime: 'runtime.json',
 } as const;

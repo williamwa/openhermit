@@ -30,6 +30,7 @@
 
 **Current internal location**:
 
+- `~/.openhermit/{agent-id}/config.json`
 - `~/.openhermit/{agent-id}/state.sqlite`
 - `~/.openhermit/{agent-id}/runtime.json`
 - `~/.openhermit/{agent-id}/security.json`
@@ -59,7 +60,20 @@ Examples:
 - clearer mental model
 - better fit for future multi-agent and scheduler work
 
-## ADR-004: Per-agent SQLite internal store
+## ADR-004: Identity markdown stays canonical in the workspace
+
+**Decision**: `workspace/.openhermit/*.md` remains workspace-authored, user-editable, and canonical.
+
+If OpenHermit later needs normalized identity structures for prompt construction or caching, those should be treated as derived internal views rather than as the source of truth.
+
+**Rationale**:
+
+- users may need to inspect and edit identity files directly
+- the agent may need to update them through normal workspace operations
+- canonical identity inputs fit the external-state model better than hidden runtime-owned storage
+- derived internal caches remain possible without taking ownership away from the workspace
+
+## ADR-005: Per-agent SQLite internal store
 
 **Decision**: Internal state is stored in one SQLite database per agent:
 
@@ -72,7 +86,7 @@ Examples:
 - simplifies per-agent migration
 - leaves room for future gateway-level aggregation without forcing a single global DB today
 
-## ADR-005: Runtime discovery uses runtime.json
+## ADR-006: Runtime discovery uses runtime.json
 
 **Decision**: Agent-local discovery metadata is stored in:
 
@@ -90,7 +104,7 @@ Current contents include:
 - easier to grow discovery metadata later
 - keeps runtime discovery out of the workspace
 
-## ADR-006: Sessions are durable threads
+## ADR-007: Sessions are durable threads
 
 **Decision**: Sessions are durable threads identified by `sessionId`. They do not have a permanent `closed` state.
 
@@ -100,7 +114,7 @@ Current contents include:
 - adapters should switch bindings, not close threads
 - summarization should not depend on irreversible session closure
 
-## ADR-007: Adapter binding is not agent-core state
+## ADR-008: Adapter binding is not agent-core state
 
 **Decision**: The agent core only knows `sessionId`. Adapter binding decides which session a user/channel is currently using.
 
@@ -110,7 +124,7 @@ Current contents include:
 - supports CLI, web, and IM channels uniformly
 - keeps `/new` and resume semantics at the adapter level
 
-## ADR-008: Episodic memory is checkpoint-based
+## ADR-009: Episodic memory is checkpoint-based
 
 **Decision**: Episodic memory stores checkpoint summaries, not a raw mirror of session events.
 
@@ -124,7 +138,7 @@ Current storage:
 - keeps episodic memory retrieval-oriented
 - provides a clean bridge from transcript to higher-level memory
 
-## ADR-009: Program drives memory lifecycle
+## ADR-010: Program drives memory lifecycle
 
 **Decision**: Memory lifecycle is program-driven, while summary content is agent-generated.
 
@@ -144,10 +158,10 @@ Agent responsibilities:
 Operational model:
 
 - checkpoint triggers are program-driven, but checkpoint content is produced by the agent itself
-- `memory.checkpoint_turn_interval` remains the trigger configuration for periodic checkpoint turns
+- `memory.checkpoint_turn_interval` remains the trigger configuration for periodic checkpoint turns in the internal runtime config
 - long-term consolidation runs separately during idle / low-activity periods
 
-## ADR-010: Checkpointing and compaction are separate mechanisms
+## ADR-011: Checkpointing and compaction are separate mechanisms
 
 **Decision**: Checkpointing and compaction must remain separate.
 
@@ -176,7 +190,7 @@ Operational model:
 - auditable behavior
 - high-quality summarization without giving orchestration control to the model
 
-## ADR-010: Container runtime state is internal, mounted data is external
+## ADR-012: Container runtime state is internal, mounted data is external
 
 **Decision**:
 
@@ -188,7 +202,7 @@ Operational model:
 - runtime lifecycle is orchestration data
 - mounted files are task data the agent works on directly
 
-## ADR-011: Scheduler is program-level orchestration
+## ADR-013: Scheduler is program-level orchestration
 
 **Decision**: Scheduling should be a general program-level subsystem, not heartbeat-specific logic inside the agent runtime.
 
@@ -198,7 +212,7 @@ Operational model:
 - scheduling should support cron, interval, one-shot, event, and dependency triggers
 - the agent should execute runs, not own the scheduling model
 
-## ADR-012: Agent-local API remains the execution contract
+## ADR-014: Agent-local API remains the execution contract
 
 **Decision**: The per-agent runtime exposes an agent-local HTTP + SSE API:
 

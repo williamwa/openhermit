@@ -62,18 +62,24 @@ export interface ChannelsConfig {
   telegram_bridge: TelegramBridgeConfig;
 }
 
-export interface AgentConfig {
-  agent_id: string;
-  name: string;
-  created: string;
+export const DEFAULT_WORKSPACE_IDENTITY_FILES = [
+  '.openhermit/IDENTITY.md',
+  '.openhermit/SOUL.md',
+  '.openhermit/USER.md',
+  '.openhermit/AGENTS.md',
+] as const;
+
+export interface AgentRuntimeConfig {
   model: AgentModelConfig;
   identity: AgentIdentityConfig;
-  container_defaults: ContainerDefaultsConfig;
-  hooks: Partial<Record<HookPoint, string[]>>;
-  heartbeat: HeartbeatConfig;
-  schedules: SchedulesConfig;
   http_api: HttpApiConfig;
   memory: MemoryConfig;
+}
+
+export type AgentConfig = AgentRuntimeConfig;
+
+export interface WorkspaceConfig {
+  plugins?: string[];
   channels: ChannelsConfig;
 }
 

@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { NotFoundError, ValidationError } from '@openhermit/shared';
 
-import type { AgentConfig } from './types.js';
+import type { WorkspaceConfig } from './types.js';
 
 export interface WorkspaceInitOptions {
   agentId: string;
@@ -22,45 +22,31 @@ export interface WorkspaceListEntry {
   type: 'file' | 'directory' | 'symlink' | 'other';
 }
 
-const DEFAULT_MODEL = {
-  provider: 'anthropic',
-  model: 'claude-opus-4-5',
-  max_tokens: 8192,
-} as const;
-
-const DEFAULT_HOOKS = {
-  beforeToolCall: ['log'],
-  afterToolCall: ['log'],
-  onSessionStart: ['log'],
-  onSessionEnd: ['log'],
-  onScheduleTrigger: ['log'],
-};
-
 const IDENTITY_FILES = {
-  'identity/IDENTITY.md': `# IDENTITY
+  '.openhermit/IDENTITY.md': `# IDENTITY
 
 Name: {name}
 Role: A pragmatic autonomous coding agent.
 `,
-  'identity/SOUL.md': `# SOUL
+  '.openhermit/SOUL.md': `# SOUL
 
 Values:
 - clarity
 - rigor
 - pragmatic execution
 `,
-  'identity/USER.md': `# USER
+  '.openhermit/USER.md': `# USER
 
 Describe the human this agent is helping.
 `,
-  'identity/AGENTS.md': `# AGENTS
+  '.openhermit/AGENTS.md': `# AGENTS
 
 Use this file for workspace-specific instructions, preferences, and collaboration rules.
 `,
 } as const;
 
 const SCAFFOLD_DIRECTORIES = [
-  'identity',
+  '.openhermit',
   'containers',
 ] as const;
 
@@ -133,55 +119,7 @@ const parseJsonFile = <T>(content: string, filePath: string): T => {
   }
 };
 
-export const createDefaultAgentConfig = ({
-  agentId,
-  name,
-  createdAt = new Date().toISOString(),
-}: WorkspaceInitOptions): AgentConfig => ({
-  agent_id: agentId,
-  name,
-  created: createdAt,
-  model: { ...DEFAULT_MODEL },
-  identity: {
-    files: [
-      'identity/IDENTITY.md',
-      'identity/SOUL.md',
-      'identity/USER.md',
-      'identity/AGENTS.md',
-    ],
-  },
-  container_defaults: {
-    memory_limit: '512m',
-    cpu_shares: 512,
-    network: 'bridge',
-  },
-  hooks: {
-    beforeToolCall: [...DEFAULT_HOOKS.beforeToolCall],
-    afterToolCall: [...DEFAULT_HOOKS.afterToolCall],
-    onSessionStart: [...DEFAULT_HOOKS.onSessionStart],
-    onSessionEnd: [...DEFAULT_HOOKS.onSessionEnd],
-    onScheduleTrigger: [...DEFAULT_HOOKS.onScheduleTrigger],
-  },
-  heartbeat: {
-    enabled: true,
-    interval_minutes: 60,
-    max_iterations: 10,
-    tools_allowed: [
-      'read_file',
-      'write_file',
-      'list_files',
-      'container_status',
-    ],
-  },
-  schedules: {
-    jobs: [],
-  },
-  http_api: {
-    preferred_port: 3000,
-  },
-  memory: {
-    checkpoint_turn_interval: 50,
-  },
+export const createDefaultWorkspaceConfig = (): WorkspaceConfig => ({
   channels: {
     telegram_bridge: {
       enabled: false,
@@ -193,15 +131,15 @@ export const createDefaultAgentConfig = ({
 export class AgentWorkspace {
   constructor(public readonly root: string) {}
 
-  async init(options: WorkspaceInitOptions): Promise<AgentConfig> {
+  async init(options: WorkspaceInitOptions): Promise<WorkspaceConfig> {
     await fs.mkdir(this.root, { recursive: true });
 
     for (const relativeDir of SCAFFOLD_DIRECTORIES) {
       await fs.mkdir(path.join(this.root, relativeDir), { recursive: true });
     }
 
-    const config = createDefaultAgentConfig(options);
-    const configPath = path.join(this.root, 'config.json');
+    const config = createDefaultWorkspaceConfig();
+    const configPath = path.join(this.root, '.openhermit', 'config.json');
 
     try {
       await fs.access(configPath);
@@ -219,18 +157,18 @@ export class AgentWorkspace {
     return this.readConfig();
   }
 
-  async readConfig(): Promise<AgentConfig> {
-    const configPath = await this.resolve('config.json', {
+  async readConfig(): Promise<WorkspaceConfig> {
+    const configPath = await this.resolve('.openhermit/config.json', {
       mustExist: true,
       kind: 'file',
     });
     const content = await fs.readFile(configPath, 'utf8');
 
-    return parseJsonFile<AgentConfig>(content, configPath);
+    return parseJsonFile<WorkspaceConfig>(content, configPath);
   }
 
-  async writeConfig(config: AgentConfig): Promise<void> {
-    await this.writeFile('config.json', `${JSON.stringify(config, null, 2)}\n`);
+  async writeConfig(config: WorkspaceConfig): Promise<void> {
+    await this.writeFile('.openhermit/config.json', `${JSON.stringify(config, null, 2)}\n`);
   }
 
   async resolve(

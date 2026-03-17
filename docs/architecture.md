@@ -74,8 +74,8 @@ Typical structure:
 
 ```text
 workspace/
-├── config.json
-├── identity/
+├── .openhermit/
+│   ├── config.json
 │   ├── IDENTITY.md
 │   ├── SOUL.md
 │   ├── USER.md
@@ -87,8 +87,10 @@ workspace/
 
 Notes:
 
-- the default scaffold is intentionally minimal: `config.json`, `identity/`, and `containers/`
-- `identity/` currently remains workspace-authored input
+- the default scaffold is intentionally minimal: `.openhermit/` and `containers/`
+- `workspace/.openhermit/config.json` is the workspace-owned external config surface for agent-manageable integrations and channels
+- `workspace/.openhermit/*.md` is workspace-authored, user-editable, and the canonical source for agent identity inputs
+- any future internal identity representation should be treated as derived cache or normalized view, not the source of truth
 - additional directories such as `files/` may be created later by user work or agent actions
 - `containers/{name}/data/` is external state because it contains mounted task data
 - container runtime inventory is internal state and now lives in `state.sqlite`
@@ -100,6 +102,7 @@ Internal state lives under:
 
 ```text
 ~/.openhermit/{agent-id}/
+├── config.json
 ├── security.json
 ├── secrets.json
 ├── runtime.json   # only while the agent is running
@@ -108,6 +111,7 @@ Internal state lives under:
 
 Current responsibilities:
 
+- `config.json`: runtime-owned configuration such as model selection, identity file list, checkpoint cadence, and preferred local API port
 - `security.json`: autonomy and approval policy
 - `secrets.json`: provider and integration secrets
 - `runtime.json`: live local discovery metadata for the agent-local API
