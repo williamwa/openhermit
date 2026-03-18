@@ -21,9 +21,7 @@ Stay within the workspace boundaries and use tools for file, network, and contai
 
 Autonomy level: {autonomyLevel}
 
-## Container Tool Rules
-
-{containerToolGuidance}
+{containerToolRulesSection}
 
 ## Identity Context
 

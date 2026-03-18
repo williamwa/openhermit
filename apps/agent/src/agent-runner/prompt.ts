@@ -1,4 +1,5 @@
 import { promises as fs } from 'node:fs';
+import type { AgentTool } from '@mariozechner/pi-agent-core';
 
 import type { AgentRuntimeConfig, AgentSecurity, AgentWorkspace } from '../core/index.js';
 
@@ -12,6 +13,14 @@ const CONTAINER_TOOL_GUIDANCE = [
   '- If a service expects files in a specific location, set mount_target explicitly, for example /usr/share/nginx/html for nginx static content.',
   '- If a container tool fails, inspect the tool result details and correct the mount or in-container path before retrying.',
 ].join('\n');
+
+const CONTAINER_TOOL_NAMES = new Set([
+  'container_run',
+  'container_status',
+  'container_start',
+  'container_stop',
+  'container_exec',
+]);
 
 const RUNTIME_PROMPT_TEMPLATE_CANDIDATES = [
   new URL('../prompts/runtime-system.md', import.meta.url),
@@ -43,6 +52,7 @@ export const buildSystemPrompt = async (
   config: AgentRuntimeConfig,
   workspace: AgentWorkspace,
   security: AgentSecurity,
+  tools: AgentTool<any>[],
 ): Promise<string> => {
   const identityFiles = await Promise.all(
     config.identity.files.map(async (relativePath) => ({
@@ -58,10 +68,13 @@ export const buildSystemPrompt = async (
     .join('\n\n');
   const secretNames = security.listSecretNames();
   const promptTemplate = await loadRuntimePromptTemplate();
+  const containerToolRulesSection = tools.some((tool) => CONTAINER_TOOL_NAMES.has(tool.name))
+    ? `## Container Tool Rules\n\n${CONTAINER_TOOL_GUIDANCE}`
+    : '';
 
   return replacePromptTokens(promptTemplate, {
     autonomyLevel: security.getAutonomyLevel(),
-    containerToolGuidance: CONTAINER_TOOL_GUIDANCE,
+    containerToolRulesSection,
     identitySections,
     secretReference: secretNames.length > 0
       ? `Available secret names for tool calls: ${secretNames.join(', ')}. Secret values are never shown in the prompt.`

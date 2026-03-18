@@ -781,14 +781,6 @@ export class AgentRunner implements SessionRuntime {
       metadata?: Record<string, unknown>;
     };
   }): Promise<Agent> {
-    const baseSystemPrompt = await buildSystemPrompt(
-      input.config,
-      this.options.workspace,
-      this.options.security,
-    );
-    const systemPrompt = input.extraSystemPrompt
-      ? `${baseSystemPrompt}\n\n${input.extraSystemPrompt}`.trim()
-      : baseSystemPrompt;
     const tools =
       input.tools
       ?? createBuiltInTools({
@@ -800,6 +792,15 @@ export class AgentRunner implements SessionRuntime {
         ...(input.onToolRequested ? { onToolRequested: input.onToolRequested } : {}),
         ...(input.onToolStarted ? { onToolStarted: input.onToolStarted } : {}),
       });
+    const baseSystemPrompt = await buildSystemPrompt(
+      input.config,
+      this.options.workspace,
+      this.options.security,
+      tools,
+    );
+    const systemPrompt = input.extraSystemPrompt
+      ? `${baseSystemPrompt}\n\n${input.extraSystemPrompt}`.trim()
+      : baseSystemPrompt;
     const streamFn = createLangfuseTracedStreamFn(
       this.options.langfuse,
       this.options.streamFn,
