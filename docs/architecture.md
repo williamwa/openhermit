@@ -78,7 +78,6 @@ workspace/
 │   ├── config.json
 │   ├── IDENTITY.md
 │   ├── SOUL.md
-│   ├── USER.md
 │   └── AGENTS.md
 └── containers/
 │   └── {container-name}/

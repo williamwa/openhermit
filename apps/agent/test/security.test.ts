@@ -93,7 +93,6 @@ test('AgentSecurity scaffolds and reads the default runtime config', async (t) =
   assert.deepEqual(config.identity.files, [
     '.openhermit/IDENTITY.md',
     '.openhermit/SOUL.md',
-    '.openhermit/USER.md',
     '.openhermit/AGENTS.md',
   ]);
 });

@@ -65,7 +65,6 @@ export interface ChannelsConfig {
 export const DEFAULT_WORKSPACE_IDENTITY_FILES = [
   '.openhermit/IDENTITY.md',
   '.openhermit/SOUL.md',
-  '.openhermit/USER.md',
   '.openhermit/AGENTS.md',
 ] as const;
 

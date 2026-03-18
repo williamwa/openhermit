@@ -35,10 +35,6 @@ Values:
 - rigor
 - pragmatic execution
 `,
-  '.openhermit/USER.md': `# USER
-
-Describe the human this agent is helping.
-`,
   '.openhermit/AGENTS.md': `# AGENTS
 
 Use this file for workspace-specific instructions, preferences, and collaboration rules.
