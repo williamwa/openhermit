@@ -5,6 +5,7 @@ import { test } from 'node:test';
 
 import { NotFoundError, ValidationError } from '@openhermit/shared';
 
+import { AgentWorkspace } from '../src/core/index.js';
 import { createWorkspaceFixture, createTempDir } from './helpers.js';
 
 test('AgentWorkspace init scaffolds config and identity files', async (t) => {
@@ -30,6 +31,19 @@ test('AgentWorkspace init scaffolds config and identity files', async (t) => {
   assert.ok(rootEntries.every((entry) => entry.path !== 'memory'));
   assert.ok(rootEntries.every((entry) => entry.path !== 'sessions'));
   assert.ok(rootEntries.every((entry) => entry.path !== 'runtime'));
+});
+
+test('AgentWorkspace init can scaffold a custom default identity name', async (t) => {
+  const root = await createTempDir(t, 'openhermit-workspace-custom-name-');
+  const workspace = new AgentWorkspace(root);
+
+  await workspace.init({
+    agentId: 'agent-custom',
+    name: 'Zero',
+  });
+
+  const identity = await workspace.readFile('.openhermit/IDENTITY.md');
+  assert.match(identity, /Name: Zero/);
 });
 
 test('AgentWorkspace supports write, read, list, and delete', async (t) => {
