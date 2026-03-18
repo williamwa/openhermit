@@ -99,7 +99,7 @@ npm run dev:agent -- --agent-id main
 ```
 
 `dev:agent` runs in watch mode and restarts automatically when agent source files change.
-It also accepts `--agent-id`, `--workspace`, `--name`, and `--port`.
+It also accepts `--agent-id` and `--port`.
 
 3. In another terminal, start the minimal CLI:
 

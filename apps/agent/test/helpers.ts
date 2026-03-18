@@ -35,7 +35,6 @@ export const createWorkspaceFixture = async (
 
   await workspace.init({
     agentId: 'agent-test',
-    name: 'Test Agent',
     createdAt: '2026-03-08T00:00:00.000Z',
   });
 

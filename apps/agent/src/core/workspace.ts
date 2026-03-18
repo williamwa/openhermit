@@ -7,7 +7,6 @@ import type { WorkspaceConfig } from './types.js';
 
 export interface WorkspaceInitOptions {
   agentId: string;
-  name: string;
   createdAt?: string;
 }
 
@@ -25,7 +24,7 @@ export interface WorkspaceListEntry {
 const IDENTITY_FILES = {
   '.openhermit/IDENTITY.md': `# IDENTITY
 
-Name: {name}
+Name: OpenHermit Agent
 Role: A pragmatic autonomous coding agent.
 `,
   '.openhermit/SOUL.md': `# SOUL
@@ -150,7 +149,7 @@ export class AgentWorkspace {
     for (const [relativePath, template] of Object.entries(IDENTITY_FILES)) {
       await this.ensureFile(
         relativePath,
-        replaceTemplateTokens(template, { name: options.name }),
+        replaceTemplateTokens(template, { agentId: options.agentId }),
       );
     }
 

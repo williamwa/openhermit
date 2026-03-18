@@ -17,7 +17,7 @@ test('AgentWorkspace init scaffolds config and identity files', async (t) => {
   const openHermitEntries = await workspace.listFiles('.openhermit');
 
   assert.equal(config.channels.telegram_bridge.enabled, false);
-  assert.match(identity, /Name: Test Agent/);
+  assert.match(identity, /Name: OpenHermit Agent/);
   assert.match(agentsInstructions, /workspace-specific instructions, preferences, and collaboration rules/);
   assert.doesNotMatch(agentsInstructions, /Container tool rules:/);
   assert.ok(rootEntries.some((entry) => entry.path === '.openhermit'));

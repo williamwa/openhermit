@@ -137,17 +137,14 @@ export const main = async (): Promise<void> => {
   const agentId = cliOptions.agentId;
   const configuredWorkspaceRoot = await readConfiguredWorkspaceRoot(agentId);
   const workspaceRoot =
-    cliOptions.workspaceRoot
-    ?? configuredWorkspaceRoot
+    configuredWorkspaceRoot
     ?? path.join(process.cwd(), '.openhermit-dev', agentId);
-  const agentName = cliOptions.agentName ?? 'OpenHermit Dev Agent';
 
   const workspace = new AgentWorkspace(workspaceRoot);
   logStartup(`booting agent ${agentId}`);
   logStartup(`workspace root: ${workspaceRoot}`);
   await workspace.init({
     agentId,
-    name: agentName,
   });
 
   const security = new AgentSecurity({
@@ -244,7 +241,6 @@ export const main = async (): Promise<void> => {
       usedFallback ? `; preferred port ${preferredPort} was unavailable` : ''
     }`,
   );
-  logStartup(`agent name: ${agentName}`);
   logStartup(`token written to runtime.json`);
 };
 
