@@ -67,6 +67,7 @@ openhermit/
     ├── architecture.md
     ├── participant-model.md   # Draft participant / role model
     ├── sandbox-model.md       # Draft sandbox model directions
+    ├── storage-model.md       # Draft storage abstraction model
     ├── plan.md
     ├── memory-model.md
     ├── session-model.md
@@ -78,6 +79,7 @@ openhermit/
 - Architecture: [docs/architecture.md](docs/architecture.md)
 - Participant model draft: [docs/participant-model.md](docs/participant-model.md)
 - Sandbox model draft: [docs/sandbox-model.md](docs/sandbox-model.md)
+- Storage model draft: [docs/storage-model.md](docs/storage-model.md)
 - Plan: [docs/plan.md](docs/plan.md)
 - Memory model: [docs/memory-model.md](docs/memory-model.md)
 - Session model: [docs/session-model.md](docs/session-model.md)

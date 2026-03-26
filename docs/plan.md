@@ -26,6 +26,12 @@ The main architectural direction is now stable:
 - compaction should become the next major runtime capability
 - scheduler will be extracted from heartbeat-specific logic
 
+There are also several active design drafts that are intentionally not yet implemented as architecture commitments:
+
+- participant / role model
+- sandbox model
+- storage abstraction model
+
 ## Completed
 
 ### Agent Runtime
@@ -81,6 +87,37 @@ The main architectural direction is now stable:
 - configurable container `mount_target`
 
 ## Remaining Major Work
+
+## Draft Design Tracks
+
+These tracks are being explored in documentation but are not yet committed implementation directions.
+
+### Participant Model Draft
+
+- separate:
+  - connection role
+  - participant identity
+  - relationship / access
+  - session routing
+- define the minimum participant context needed before pair and channel work lands
+- keep participant-scoped memory separate from agent identity files
+
+### Sandbox Model Draft
+
+- distinguish three sandbox shapes:
+  - `ephemeral`
+  - `service`
+  - `daily`
+- evaluate whether a future `daily sandbox` should host ordinary agent work while the main runtime remains on the host
+- continue exploring NixOS as a candidate substrate for the `daily sandbox`, especially for restart recovery and generation-style environment management
+
+### Storage Model Draft
+
+- keep agent-facing document access compatible with file-like operations
+- explore a `DocumentStore` abstraction for external state
+- keep internal runtime state on domain-specific stores rather than flattening everything into document APIs
+- evaluate whether selective virtual document views over internal state are useful later
+- keep both local filesystem-friendly and cloud/database-backed deployment shapes viable
 
 ## Phase 1 — Finish Internal/External State Separation
 
@@ -176,8 +213,12 @@ The main architectural direction is now stable:
 1. tighten the identity loading model while keeping `workspace/.openhermit/*.md` canonical in the workspace
 2. refine runtime compaction beyond the current first pass
 3. define the durable-memory vs user-knowledge boundary more tightly
-4. implement idle / sleep-time long-term consolidation
-5. design and implement the scheduler
+4. continue design work on:
+   - participant model
+   - sandbox model
+   - storage abstraction
+5. implement idle / sleep-time long-term consolidation
+6. design and implement the scheduler
 
 ## Design Constraints
 
