@@ -250,46 +250,6 @@ test('withApproval distinguishes timeout from explicit rejection', async (t) => 
   assert.deepEqual(startedCalls, []);
 });
 
-test('file_search finds literal matches across workspace files', async (t) => {
-  const { workspace, security } = await createSecurityFixture(t, {
-    secrets: { ANTHROPIC_API_KEY: 'key' },
-  });
-  await security.load();
-
-  await workspace.writeFile(
-    'files/notes.txt',
-    ['hello world', 'alpha hello beta', 'goodbye'].join('\n'),
-  );
-  await workspace.writeFile(
-    'memory/notes/preferences.md',
-    ['preferred language: TypeScript', 'say hello politely'].join('\n'),
-  );
-
-  const containerManager = new DockerContainerManager(workspace, {
-    runner: new FakeDockerRunner([]),
-  });
-  const tools = createBuiltInTools({ workspace, security, containerManager });
-  const tool = findTool(tools, 'file_search');
-
-  const result = await tool.execute('call-search-1', {
-    pattern: 'hello',
-  });
-
-  const text = getFirstText(result);
-  assert.match(text, /Found 3 matches in 2 file\(s\)/);
-  assert.match(text, /files\/notes.txt:1:1 hello world/);
-  assert.match(text, /memory\/notes\/preferences.md:2:5 say hello politely/);
-
-  const details = result.details as Record<string, unknown>;
-  assert.equal(details.pattern, 'hello');
-  assert.equal(details.path, '.');
-  assert.ok(Number(details.scannedFiles) >= 2);
-  assert.equal(details.matchedFiles, 2);
-  assert.equal(details.totalMatches, 3);
-  assert.equal(details.returnedMatches, 3);
-  assert.equal(details.truncated, false);
-});
-
 test('memory_update stores named memory, memory_recall finds it, and memory_get returns full content', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: { ANTHROPIC_API_KEY: 'key' },
@@ -304,7 +264,6 @@ test('memory_update stores named memory, memory_recall finds it, and memory_get 
     stateFilePath: security.stateFilePath,
   });
   const tools = createBuiltInTools({
-    workspace,
     security,
     containerManager,
     memoryStore,
@@ -363,7 +322,6 @@ test('memory_recall supports key_prefix filtering and memory_update can write no
     stateFilePath: security.stateFilePath,
   });
   const tools = createBuiltInTools({
-    workspace,
     security,
     containerManager,
     memoryStore,
@@ -408,7 +366,6 @@ test('memory_get rejects unknown keys', async (t) => {
     stateFilePath: security.stateFilePath,
   });
   const tools = createBuiltInTools({
-    workspace,
     security,
     containerManager,
     memoryStore,
@@ -445,7 +402,6 @@ test('memory_update is blocked in readonly mode', async (t) => {
     stateFilePath: security.stateFilePath,
   });
   const tools = createBuiltInTools({
-    workspace,
     security,
     containerManager,
     memoryStore,
@@ -462,152 +418,6 @@ test('memory_update is blocked in readonly mode', async (t) => {
   );
 });
 
-test('file_search supports path scoping and glob filters', async (t) => {
-  const { workspace, security } = await createSecurityFixture(t, {
-    secrets: { ANTHROPIC_API_KEY: 'key' },
-  });
-  await security.load();
-
-  await workspace.writeFile('files/app.ts', 'const greeting = "hello";\n');
-  await workspace.writeFile('files/app.md', 'hello from markdown\n');
-  await workspace.writeFile('memory/notes/topic.md', 'hello from notes\n');
-
-  const containerManager = new DockerContainerManager(workspace, {
-    runner: new FakeDockerRunner([]),
-  });
-  const tools = createBuiltInTools({ workspace, security, containerManager });
-  const tool = findTool(tools, 'file_search');
-
-  const result = await tool.execute('call-search-2', {
-    pattern: 'hello',
-    path: 'files',
-    glob: 'files/**/*.md',
-  });
-
-  const text = getFirstText(result);
-  assert.match(text, /Found 1 matches in 1 file\(s\)/);
-  assert.match(text, /files\/app.md:1:1 hello from markdown/);
-  assert.doesNotMatch(text, /app\.ts/);
-
-  const details = result.details as Record<string, unknown>;
-  assert.equal(details.path, 'files');
-  assert.equal(details.glob, 'files/**/*.md');
-  assert.equal(details.matchedFiles, 1);
-  assert.equal(details.totalMatches, 1);
-});
-
-test('file_search rejects an empty pattern', async (t) => {
-  const { workspace, security } = await createSecurityFixture(t, {
-    secrets: { ANTHROPIC_API_KEY: 'key' },
-  });
-  await security.load();
-
-  const containerManager = new DockerContainerManager(workspace, {
-    runner: new FakeDockerRunner([]),
-  });
-  const tools = createBuiltInTools({ workspace, security, containerManager });
-  const tool = findTool(tools, 'file_search');
-
-  await assert.rejects(
-    () => tool.execute('call-search-3', { pattern: '' }),
-    ValidationError,
-  );
-});
-
-test('file_search rejects search paths that escape the workspace root', async (t) => {
-  const { workspace, security } = await createSecurityFixture(t, {
-    secrets: { ANTHROPIC_API_KEY: 'key' },
-  });
-  await security.load();
-
-  const containerManager = new DockerContainerManager(workspace, {
-    runner: new FakeDockerRunner([]),
-  });
-  const tools = createBuiltInTools({ workspace, security, containerManager });
-  const tool = findTool(tools, 'file_search');
-
-  await assert.rejects(
-    () =>
-      tool.execute('call-search-escape', {
-        pattern: 'hello',
-        path: '../outside',
-      }),
-    ValidationError,
-  );
-});
-
-test('file_search skips symlinked paths that point outside the workspace', async (t) => {
-  const { workspace, security } = await createSecurityFixture(t, {
-    secrets: { ANTHROPIC_API_KEY: 'key' },
-  });
-  await security.load();
-
-  const outsideDir = await createTempDir(t, 'openhermit-search-outside-');
-  const outsideFile = path.join(outsideDir, 'secret.txt');
-  await fs.writeFile(outsideFile, 'outside secret needle\n', 'utf8');
-
-  await workspace.writeFile('files/inside.txt', 'inside needle\n');
-  await fs.symlink(outsideFile, path.join(workspace.root, 'files', 'outside-link.txt'));
-
-  const containerManager = new DockerContainerManager(workspace, {
-    runner: new FakeDockerRunner([]),
-  });
-  const tools = createBuiltInTools({ workspace, security, containerManager });
-  const tool = findTool(tools, 'file_search');
-
-  const result = await tool.execute('call-search-symlink', {
-    pattern: 'needle',
-    path: 'files',
-  });
-
-  const text = getFirstText(result);
-  assert.match(text, /files\/inside.txt:1:8 inside needle/);
-  assert.doesNotMatch(text, /outside-link\.txt/);
-  assert.doesNotMatch(text, /outside secret needle/);
-
-  const details = result.details as Record<string, unknown>;
-  assert.equal(details.scannedFiles, 1);
-  assert.equal(details.matchedFiles, 1);
-  assert.equal(details.totalMatches, 1);
-});
-
-test('file_search truncates large result sets and skips oversized files', async (t) => {
-  const { workspace, security } = await createSecurityFixture(t, {
-    secrets: { ANTHROPIC_API_KEY: 'key' },
-  });
-  await security.load();
-
-  await workspace.writeFile(
-    'files/many.txt',
-    Array.from({ length: 120 }, () => 'needle').join('\n'),
-  );
-  await workspace.writeFile(
-    'files/too-large.txt',
-    'x'.repeat(1_000_001),
-  );
-
-  const containerManager = new DockerContainerManager(workspace, {
-    runner: new FakeDockerRunner([]),
-  });
-  const tools = createBuiltInTools({ workspace, security, containerManager });
-  const tool = findTool(tools, 'file_search');
-
-  const result = await tool.execute('call-search-4', {
-    pattern: 'needle',
-    path: 'files',
-  });
-
-  const text = getFirstText(result);
-  assert.match(text, /Results truncated to the first 100 matches/);
-  assert.match(text, /Skipped 1 large file\(s\): files\/too-large.txt/);
-
-  const details = result.details as Record<string, unknown>;
-  assert.equal(details.totalMatches, 120);
-  assert.equal(details.returnedMatches, 100);
-  assert.equal(details.truncated, true);
-  assert.deepEqual(details.skippedLargeFiles, ['files/too-large.txt']);
-});
-
 test('web_fetch returns status headers and body for a successful GET', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: { ANTHROPIC_API_KEY: 'key' },
@@ -617,7 +427,7 @@ test('web_fetch returns status headers and body for a successful GET', async (t)
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
   });
-  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager });
   const tool = findTool(tools, 'web_fetch');
 
   await withMockFetch(
@@ -661,7 +471,6 @@ test('web_fetch is still wrapped by approval callbacks in createBuiltInTools', a
     runner: new FakeDockerRunner([]),
   });
   const tools = createBuiltInTools({
-    workspace,
     security,
     containerManager,
     approvalCallback: async (toolName, toolCallId, args) => {
@@ -705,7 +514,7 @@ test('web_fetch truncates large responses at max_bytes', async (t) => {
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
   });
-  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager });
   const tool = findTool(tools, 'web_fetch');
 
   await withMockFetch(makeFetchMock(200, bigBody), async () => {
@@ -733,7 +542,7 @@ test('web_fetch caps max_bytes at the hard 200 KB limit', async (t) => {
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
   });
-  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager });
   const tool = findTool(tools, 'web_fetch');
 
   await withMockFetch(makeFetchMock(200, 'small body'), async () => {
@@ -758,7 +567,7 @@ test('web_fetch rejects non-http/https URLs', async (t) => {
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
   });
-  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager });
   const tool = findTool(tools, 'web_fetch');
 
   await assert.rejects(
@@ -780,7 +589,7 @@ test('web_fetch rejects malformed URLs', async (t) => {
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
   });
-  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager });
   const tool = findTool(tools, 'web_fetch');
 
   await assert.rejects(() =>
@@ -797,7 +606,7 @@ test('web_fetch rejects non-positive max_bytes', async (t) => {
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
   });
-  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager });
   const tool = findTool(tools, 'web_fetch');
 
   await assert.rejects(
@@ -820,7 +629,7 @@ test('web_fetch surfaces network errors as thrown exceptions', async (t) => {
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
   });
-  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager });
   const tool = findTool(tools, 'web_fetch');
 
   await withMockFetch(makeFetchError('ECONNREFUSED'), async () => {
@@ -848,7 +657,7 @@ test('web_fetch returns non-200 status without throwing', async (t) => {
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
   });
-  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager });
   const tool = findTool(tools, 'web_fetch');
 
   await withMockFetch(makeFetchMock(404, 'Not Found'), async () => {
@@ -872,7 +681,7 @@ test('web_fetch output markdown extracts main content as Markdown', async (t) =>
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
   });
-  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager });
   const tool = findTool(tools, 'web_fetch');
 
   const html = `
@@ -926,7 +735,6 @@ test('instruction_update stores an entry and instruction_read retrieves it', asy
   const containerManager = new DockerContainerManager(workspace, { runner: docker });
   const scope = { agentId: 'agent-test' };
   const tools = createBuiltInTools({
-    workspace,
     security,
     containerManager,
     instructionStore: stateStore.instructions,
@@ -968,7 +776,6 @@ test('instruction_read returns empty message when no entries exist', async (t) =
   const docker = new FakeDockerRunner([]);
   const containerManager = new DockerContainerManager(workspace, { runner: docker });
   const tools = createBuiltInTools({
-    workspace,
     security,
     containerManager,
     instructionStore: stateStore.instructions,
@@ -994,7 +801,6 @@ test('instruction_update is blocked in readonly mode', async (t) => {
   const docker = new FakeDockerRunner([]);
   const containerManager = new DockerContainerManager(workspace, { runner: docker });
   const tools = createBuiltInTools({
-    workspace,
     security,
     containerManager,
     instructionStore: stateStore.instructions,
@@ -1019,7 +825,7 @@ test('container_start launches a service container and returns entry details', a
   const fakeContainerId = 'abc123def456';
   const docker = new FakeDockerRunner([okResult({ stdout: `${fakeContainerId}\n` })]);
   const containerManager = new DockerContainerManager(workspace, { runner: docker });
-  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager });
   const tool = findTool(tools, 'container_start');
 
   const result = await tool.execute('call-1', {
@@ -1058,7 +864,7 @@ test('container_start resolves env_secrets and merges with plain env', async (t)
 
   const docker = new FakeDockerRunner([okResult({ stdout: 'cid\n' })]);
   const containerManager = new DockerContainerManager(workspace, { runner: docker });
-  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager });
   const tool = findTool(tools, 'container_start');
 
   await tool.execute('call-2', {
@@ -1086,7 +892,7 @@ test('container_start is blocked in readonly mode', async (t) => {
 
   const docker = new FakeDockerRunner([]);
   const containerManager = new DockerContainerManager(workspace, { runner: docker });
-  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager });
   const tool = findTool(tools, 'container_start');
 
   await assert.rejects(
@@ -1108,7 +914,7 @@ test('container_stop stops a running service and updates the registry', async (t
     okResult(),
   ]);
   const containerManager = new DockerContainerManager(workspace, { runner: docker });
-  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager });
 
   await findTool(tools, 'container_start').execute('call-start', {
     name: 'svc-to-stop',
@@ -1137,7 +943,7 @@ test('container_stop is blocked in readonly mode', async (t) => {
 
   const docker = new FakeDockerRunner([]);
   const containerManager = new DockerContainerManager(workspace, { runner: docker });
-  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager });
 
   await assert.rejects(
     () => findTool(tools, 'container_stop').execute('call-4', { name: 'anything' }),
@@ -1158,7 +964,7 @@ test('container_exec runs a command and returns stdout stderr exitCode', async (
     okResult({ stdout: 'hello from container\n', stderr: '', exitCode: 0, durationMs: 12 }),
   ]);
   const containerManager = new DockerContainerManager(workspace, { runner: docker });
-  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager });
 
   await registerService(containerManager, 'my-service', 'alpine:3.20');
 
@@ -1188,7 +994,7 @@ test('container_exec surfaces non-zero exit code without throwing', async (t) =>
     okResult({ stdout: '', stderr: 'command not found: psql', exitCode: 127, durationMs: 3 }),
   ]);
   const containerManager = new DockerContainerManager(workspace, { runner: docker });
-  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager });
 
   await registerService(containerManager, 'pg', 'postgres:16');
 
@@ -1220,7 +1026,7 @@ test('container_exec parses structured output between sentinel markers', async (
     okResult({ stdout: structuredStdout, exitCode: 0, durationMs: 8 }),
   ]);
   const containerManager = new DockerContainerManager(workspace, { runner: docker });
-  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager });
 
   await registerService(containerManager, 'pg', 'postgres:16');
 
@@ -1243,7 +1049,7 @@ test('container_exec is blocked in readonly mode', async (t) => {
 
   const docker = new FakeDockerRunner([]);
   const containerManager = new DockerContainerManager(workspace, { runner: docker });
-  const tools = createBuiltInTools({ workspace, security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager });
 
   await assert.rejects(
     () =>

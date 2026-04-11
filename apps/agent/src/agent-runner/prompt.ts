@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 import type { InstructionStore, StoreScope } from '@openhermit/store';
 
-import type { AgentRuntimeConfig, AgentSecurity, AgentWorkspace } from '../core/index.js';
+import type { AgentRuntimeConfig, AgentSecurity } from '../core/index.js';
 
 const CONTAINER_TOOL_GUIDANCE = [
   'Container tool rules:',
@@ -56,7 +56,6 @@ export interface InstructionSource {
 
 export const buildSystemPrompt = async (
   config: AgentRuntimeConfig,
-  workspace: AgentWorkspace,
   security: AgentSecurity,
   tools: AgentTool<any>[],
   instructionSource?: InstructionSource,
@@ -69,18 +68,7 @@ export const buildSystemPrompt = async (
       .map((entry) => `${entry.key}:\n${entry.content.trim() || '(empty)'}`)
       .join('\n\n');
   } else {
-    const identityFiles = await Promise.all(
-      config.identity.files.map(async (relativePath) => ({
-        relativePath,
-        content: await workspace.readFile(relativePath).catch(() => ''),
-      })),
-    );
-    instructionSections = identityFiles
-      .map(
-        ({ relativePath, content }) =>
-          `File: ${relativePath}\n${content.trim() || '(empty)'}`,
-      )
-      .join('\n\n');
+    instructionSections = '(no instructions configured)';
   }
   const secretNames = security.listSecretNames();
   const promptTemplate = await loadRuntimePromptTemplate();

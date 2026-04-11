@@ -7,7 +7,6 @@ import type { WorkspaceConfig } from './types.js';
 
 export interface WorkspaceInitOptions {
   agentId: string;
-  name?: string;
   createdAt?: string;
 }
 
@@ -22,25 +21,6 @@ export interface WorkspaceListEntry {
   type: 'file' | 'directory' | 'symlink' | 'other';
 }
 
-const IDENTITY_FILES = {
-  '.openhermit/IDENTITY.md': `# IDENTITY
-
-Name: {name}
-Role: A pragmatic autonomous coding agent.
-`,
-  '.openhermit/SOUL.md': `# SOUL
-
-Values:
-- clarity
-- rigor
-- pragmatic execution
-`,
-  '.openhermit/AGENTS.md': `# AGENTS
-
-Use this file for workspace-specific instructions, preferences, and collaboration rules.
-`,
-} as const;
-
 const SCAFFOLD_DIRECTORIES = [
   '.openhermit',
   'containers',
@@ -50,15 +30,6 @@ const isPathOutsideRoot = (relativePath: string): boolean =>
   relativePath === '..' ||
   relativePath.startsWith(`..${path.sep}`) ||
   path.isAbsolute(relativePath);
-
-const replaceTemplateTokens = (
-  template: string,
-  values: Record<string, string>,
-): string =>
-  Object.entries(values).reduce(
-    (content, [key, value]) => content.replaceAll(`{${key}}`, value),
-    template,
-  );
 
 const ensureWithinRoot = (root: string, candidate: string): void => {
   const relativePath = path.relative(root, candidate);
@@ -141,16 +112,6 @@ export class AgentWorkspace {
       await fs.access(configPath);
     } catch {
       await this.writeConfig(config);
-    }
-
-    for (const [relativePath, template] of Object.entries(IDENTITY_FILES)) {
-      await this.ensureFile(
-        relativePath,
-        replaceTemplateTokens(template, {
-          agentId: options.agentId,
-          name: options.name ?? 'OpenHermit Agent',
-        }),
-      );
     }
 
     return this.readConfig();

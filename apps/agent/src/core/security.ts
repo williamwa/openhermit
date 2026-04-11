@@ -8,7 +8,6 @@ import { NotFoundError, ValidationError } from '@openhermit/shared';
 import type { ResolvePathOptions } from './workspace.js';
 import { AgentWorkspace } from './workspace.js';
 import {
-  DEFAULT_WORKSPACE_IDENTITY_FILES,
   DEFAULT_SECURITY_POLICY,
   type AgentRuntimeConfig,
   type AutonomyLevel,
@@ -28,9 +27,6 @@ const DEFAULT_RUNTIME_CONFIG: AgentRuntimeConfig = {
     provider: 'anthropic',
     model: 'claude-opus-4-5',
     max_tokens: 8192,
-  },
-  identity: {
-    files: [...DEFAULT_WORKSPACE_IDENTITY_FILES],
   },
   http_api: {
     preferred_port: 3000,

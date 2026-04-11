@@ -1,8 +1,6 @@
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 
 import { createContainerExecTool, createContainerRunTool, createContainerStartTool, createContainerStatusTool, createContainerStopTool, summarizeContainerEntry, summarizeContainerList } from './tools/container.js';
-import { createFileSearchTool } from './tools/file-search.js';
-import { createDeleteFileTool, createListFilesTool, createReadFileTool, createWriteFileTool } from './tools/filesystem.js';
 import { createMemoryGetTool, createMemoryRecallTool, createMemoryUpdateTool } from './tools/memory.js';
 import { withApproval } from './tools/approval.js';
 import type {
@@ -36,11 +34,6 @@ export const createBuiltInTools = (
   const { security, approvalCallback, onToolRequested, onToolStarted } = context;
 
   const tools = [
-    createReadFileTool(context),
-    createWriteFileTool(context),
-    createListFilesTool(context),
-    createFileSearchTool(context),
-    createDeleteFileTool(context),
     ...(context.memoryStore
       ? [
           createMemoryGetTool(context),

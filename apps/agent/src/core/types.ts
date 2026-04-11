@@ -16,10 +16,6 @@ export interface AgentModelConfig {
   max_tokens: number;
 }
 
-export interface AgentIdentityConfig {
-  files: string[];
-}
-
 export interface ContainerDefaultsConfig {
   memory_limit: string;
   cpu_shares: number;
@@ -62,12 +58,6 @@ export interface ChannelsConfig {
   telegram_bridge: TelegramBridgeConfig;
 }
 
-export const DEFAULT_WORKSPACE_IDENTITY_FILES = [
-  '.openhermit/IDENTITY.md',
-  '.openhermit/SOUL.md',
-  '.openhermit/AGENTS.md',
-] as const;
-
 export type WorkspaceContainerStartPolicy = 'session' | 'ondemand';
 export type WorkspaceContainerStopPolicy = 'session' | 'idle';
 
@@ -87,7 +77,6 @@ export interface WorkspaceContainerConfig {
 export interface AgentRuntimeConfig {
   workspace_root: string;
   model: AgentModelConfig;
-  identity: AgentIdentityConfig;
   http_api: HttpApiConfig;
   memory: MemoryConfig;
   workspace_container?: WorkspaceContainerConfig;
@@ -170,5 +159,5 @@ export interface ContainerListEntry extends ContainerRegistryEntry {
 
 export const DEFAULT_SECURITY_POLICY: SecurityPolicy = {
   autonomy_level: 'supervised',
-  require_approval_for: ['container_start', 'delete_file'],
+  require_approval_for: ['container_start'],
 };

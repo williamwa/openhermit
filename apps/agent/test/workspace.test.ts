@@ -8,23 +8,17 @@ import { NotFoundError, ValidationError } from '@openhermit/shared';
 import { AgentWorkspace } from '../src/core/index.js';
 import { createWorkspaceFixture, createTempDir } from './helpers.js';
 
-test('AgentWorkspace init scaffolds config and identity files', async (t) => {
+test('AgentWorkspace init scaffolds config and directories', async (t) => {
   const { workspace } = await createWorkspaceFixture(t);
 
   const config = await workspace.readConfig();
-  const identity = await workspace.readFile('.openhermit/IDENTITY.md');
-  const agentsInstructions = await workspace.readFile('.openhermit/AGENTS.md');
   const rootEntries = await workspace.listFiles('.');
   const openHermitEntries = await workspace.listFiles('.openhermit');
 
   assert.equal(config.channels.telegram_bridge.enabled, false);
-  assert.match(identity, /Name: OpenHermit Agent/);
-  assert.match(agentsInstructions, /workspace-specific instructions, preferences, and collaboration rules/);
-  assert.doesNotMatch(agentsInstructions, /Container tool rules:/);
   assert.ok(rootEntries.some((entry) => entry.path === '.openhermit'));
   assert.ok(rootEntries.some((entry) => entry.path === 'containers'));
   assert.ok(openHermitEntries.some((entry) => entry.path === '.openhermit/config.json'));
-  assert.ok(openHermitEntries.some((entry) => entry.path === '.openhermit/IDENTITY.md'));
   assert.ok(rootEntries.every((entry) => entry.path !== 'files'));
   assert.ok(rootEntries.every((entry) => entry.path !== 'hooks'));
   assert.ok(rootEntries.every((entry) => entry.path !== 'logs'));
@@ -33,18 +27,6 @@ test('AgentWorkspace init scaffolds config and identity files', async (t) => {
   assert.ok(rootEntries.every((entry) => entry.path !== 'runtime'));
 });
 
-test('AgentWorkspace init can scaffold a custom default identity name', async (t) => {
-  const root = await createTempDir(t, 'openhermit-workspace-custom-name-');
-  const workspace = new AgentWorkspace(root);
-
-  await workspace.init({
-    agentId: 'agent-custom',
-    name: 'Zero',
-  });
-
-  const identity = await workspace.readFile('.openhermit/IDENTITY.md');
-  assert.match(identity, /Name: Zero/);
-});
 
 test('AgentWorkspace supports write, read, list, and delete', async (t) => {
   const { workspace } = await createWorkspaceFixture(t);

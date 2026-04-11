@@ -6,12 +6,11 @@ import { buildSystemPrompt } from '../src/agent-runner/prompt.js';
 import { createSecurityFixture } from './helpers.js';
 
 test('buildSystemPrompt includes container guidance only when container tools are available', async (t) => {
-  const { workspace, security } = await createSecurityFixture(t);
+  const { security } = await createSecurityFixture(t);
   await security.load();
   const config = await security.readConfig();
 
   const defaultTools = createBuiltInTools({
-    workspace,
     security,
     containerManager: {
       runEphemeral: async () => {
@@ -32,13 +31,11 @@ test('buildSystemPrompt includes container guidance only when container tools ar
 
   const withContainerGuidance = await buildSystemPrompt(
     config,
-    workspace,
     security,
     defaultTools,
   );
   const withoutContainerGuidance = await buildSystemPrompt(
     config,
-    workspace,
     security,
     [],
   );

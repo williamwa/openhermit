@@ -12,8 +12,8 @@ test('AgentSecurity loads the default policy and approval list', async (t) => {
   await security.load();
 
   assert.equal(security.getAutonomyLevel(), 'supervised');
-  assert.equal(security.requiresApproval('delete_file'), true);
-  assert.equal(security.requiresApproval('read_file'), false);
+  assert.equal(security.requiresApproval('container_start'), true);
+  assert.equal(security.requiresApproval('workspace_exec'), false);
   assert.deepEqual(security.listSecretNames(), []);
 });
 
@@ -90,9 +90,4 @@ test('AgentSecurity scaffolds and reads the default runtime config', async (t) =
   assert.equal(config.workspace_root, root);
   assert.equal(config.model.provider, 'anthropic');
   assert.equal(config.http_api.preferred_port, 3000);
-  assert.deepEqual(config.identity.files, [
-    '.openhermit/IDENTITY.md',
-    '.openhermit/SOUL.md',
-    '.openhermit/AGENTS.md',
-  ]);
 });

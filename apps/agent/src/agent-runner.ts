@@ -835,7 +835,6 @@ export class AgentRunner implements SessionRuntime {
     const tools =
       input.tools
       ?? createBuiltInTools({
-        workspace: this.options.workspace,
         security: this.options.security,
         containerManager: this.containerManager,
         memoryStore: this.store.memories,
@@ -852,7 +851,6 @@ export class AgentRunner implements SessionRuntime {
       });
     const baseSystemPrompt = await buildSystemPrompt(
       input.config,
-      this.options.workspace,
       this.options.security,
       tools,
       {
