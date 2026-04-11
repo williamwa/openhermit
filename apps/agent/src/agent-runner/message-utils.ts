@@ -11,11 +11,25 @@ export const isAssistantMessage = (
   'role' in message &&
   message.role === 'assistant';
 
-export const extractAssistantText = (message: AssistantMessage): string =>
-  message.content
+export const extractAssistantText = (message: AssistantMessage): string => {
+  const textParts = message.content
     .filter((content): content is Extract<typeof content, { type: 'text' }> => content.type === 'text')
     .map((content) => content.text.trim())
-    .join('\n\n');
+    .filter((text) => text.length > 0);
+
+  if (textParts.length > 0) {
+    return textParts.join('\n\n');
+  }
+
+  // Fallback: some models return only thinking blocks with no text content.
+  const thinkingParts = message.content
+    .filter((content): content is Extract<typeof content, { type: 'thinking' }> =>
+      content.type === 'thinking' && 'thinking' in content && typeof (content as any).thinking === 'string')
+    .map((content) => (content as any).thinking.trim())
+    .filter((text: string) => text.length > 0);
+
+  return thinkingParts.join('\n\n');
+};
 
 export const hasMeaningfulAssistantText = (text: string): boolean =>
   text.trim().length > 0;
