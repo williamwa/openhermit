@@ -19,18 +19,18 @@ type WorkspaceExecArgs = Static<typeof WorkspaceExecParams>;
 export const createWorkspaceExecTool = (
   context: ToolContext,
 ): AgentTool<typeof WorkspaceExecParams> => ({
-  name: 'workspace_exec',
-  label: 'Workspace Exec',
+  name: 'exec',
+  label: 'Exec',
   description:
-    'Execute a shell command inside the persistent workspace container. The workspace root is mounted at /workspace. Use this for build tools, language runtimes, or any command that should run in an isolated Linux environment with access to workspace files.',
+    'Execute a shell command. The workspace is at /workspace. Use this for all file operations (read, write, search, delete), build tools, language runtimes, tests, and any other shell task.',
   parameters: WorkspaceExecParams,
   execute: async (_toolCallId, args: WorkspaceExecArgs) => {
-    ensureAutonomyAllows(context.security, 'workspace_exec');
+    ensureAutonomyAllows(context.security, 'exec');
 
     if (!context.agentId || !context.workspaceContainerConfig) {
       return {
         content: asTextContent(
-          'workspace_exec is unavailable: no workspace container configured for this agent.',
+          'exec is unavailable: no workspace container configured for this agent.',
         ),
         details: {},
       };
@@ -41,7 +41,7 @@ export const createWorkspaceExecTool = (
       context.workspaceContainerConfig,
     );
 
-    context.onWorkspaceExec?.();
+    context.onExec?.();
 
     const result = await context.containerManager.execInWorkspace(
       context.agentId,

@@ -19,6 +19,16 @@ const approvalCacheKey = (toolName: string, args: unknown): string | undefined =
     return `${toolName}::${(args as Record<string, unknown>).name}`;
   }
 
+  if (
+    toolName === 'exec' &&
+    args !== null &&
+    typeof args === 'object' &&
+    'command' in args &&
+    typeof (args as Record<string, unknown>).command === 'string'
+  ) {
+    return `${toolName}::${(args as Record<string, unknown>).command}`;
+  }
+
   return undefined;
 };
 

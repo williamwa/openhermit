@@ -11,7 +11,7 @@ const READONLY_BLOCKED_TOOLS = new Set([
   'container_start',
   'container_stop',
   'container_exec',
-  'workspace_exec',
+  'exec',
   'instruction_update',
 ]);
 
@@ -43,7 +43,7 @@ export interface ToolContext {
   storeScope?: StoreScope;
   agentId?: string;
   workspaceContainerConfig?: WorkspaceContainerConfig;
-  onWorkspaceExec?: () => void;
+  onExec?: () => void;
   approvalCallback?: ApprovalCallback;
   approvedCache?: Set<string>;
   onToolRequested?: ToolRequestedCallback;

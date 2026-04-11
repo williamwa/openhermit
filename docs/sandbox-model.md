@@ -11,7 +11,7 @@ It is not yet the implemented source of truth.
 OpenHermit currently implements:
 
 - all agent work runs inside containers — no direct host execution
-- the **workspace container** is the primary execution environment (workspace mounted at `/workspace`, used via `workspace_exec`)
+- the **workspace container** is the primary execution environment (workspace mounted at `/workspace`, used via `exec`)
 - **service containers** run long-lived daemons (databases, web servers)
 - **ephemeral containers** handle one-off isolated tasks
 - the orchestration process manages containers and persists internal state
@@ -84,7 +84,7 @@ Purpose:
 
 Characteristics:
 
-- created on demand when `workspace_exec` is first called
+- created on demand when `exec` is first called
 - workspace root mounted at `/workspace`
 - persists across agent restarts (restarted if stopped)
 - default image configurable per agent

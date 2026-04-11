@@ -298,11 +298,10 @@ test('AgentRunner injects runtime mission and container guidance into the system
   assert.match(capturedSystemPrompt, /Your specific identity, role, style, and priorities are defined by the instruction entries below/);
   assert.match(capturedSystemPrompt, /use the `instruction_update` tool to persist the change/);
   assert.match(capturedSystemPrompt, /Built-in tools are execution primitives, not product goals/);
-  assert.match(capturedSystemPrompt, /## Execution Environments/);
-  assert.match(capturedSystemPrompt, /Workspace Container.*workspace_exec/);
-  assert.match(capturedSystemPrompt, /Service Containers.*container_start/);
+  assert.match(capturedSystemPrompt, /## Execution/);
+  assert.match(capturedSystemPrompt, /Use `exec` to run any shell command/);
+  assert.match(capturedSystemPrompt, /Service Containers/);
   assert.match(capturedSystemPrompt, /Ephemeral Containers.*container_run/);
-  assert.match(capturedSystemPrompt, /Default to `workspace_exec`/);
   assert.match(capturedSystemPrompt, /Mounting files into service containers/);
   assert.match(capturedSystemPrompt, /containers\/<name>\/data/);
 });

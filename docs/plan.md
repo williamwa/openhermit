@@ -6,7 +6,7 @@ This document tracks the current implementation status and the next major work i
 
 OpenHermit already has a working single-agent runtime with:
 
-- container-native agent execution (workspace, service, and ephemeral containers)
+- container-native agent execution (`exec`, service containers, ephemeral containers)
 - per-agent internal state in `~/.openhermit/{agent-id}/`
 - per-agent internal runtime config in `~/.openhermit/{agent-id}/config.json`
 - `state.sqlite` as the primary internal-state store
@@ -16,7 +16,7 @@ OpenHermit already has a working single-agent runtime with:
 - CLI client
 - local web client
 - approval gate
-- workspace execution, web, memory, instruction, and container tools
+- exec, web, memory, instruction, and container tools
 
 The main architectural direction is now stable:
 
@@ -80,7 +80,7 @@ There are also several active design drafts that are intentionally not yet imple
 
 ### Tooling
 
-- `workspace_exec` (command execution in workspace container)
+- `exec` (shell command execution)
 - `web_fetch`
 - container tools (`container_start`, `container_stop`, `container_exec`, `container_run`, `container_status`)
 - configurable container `mount_target`

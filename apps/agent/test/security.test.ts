@@ -13,7 +13,7 @@ test('AgentSecurity loads the default policy and approval list', async (t) => {
 
   assert.equal(security.getAutonomyLevel(), 'supervised');
   assert.equal(security.requiresApproval('container_start'), true);
-  assert.equal(security.requiresApproval('workspace_exec'), false);
+  assert.equal(security.requiresApproval('exec'), false);
   assert.deepEqual(security.listSecretNames(), []);
 });
 

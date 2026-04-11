@@ -234,7 +234,7 @@ The agent process is identical in both modes. Gateway is purely additive — it 
 
 **Goal**: Each agent gets a persistent container with workspace mounted.
 
-> **Status**: Implemented. `workspace_exec` tool exists, workspace container type exists in `ContainerType`.
+> **Status**: Implemented. `exec` tool exists, workspace container type exists in `ContainerType`.
 
 ### 3.1 Container Type Extension
 
@@ -259,7 +259,7 @@ async getWorkspaceContainer(agentId: string): Promise<ContainerRegistryEntry | u
 
 Container name: `{agentId}-workspace`. Mounts workspace root at `/workspace`. Idempotent — creates if missing, starts if stopped, returns if running.
 
-### 3.3 New Tool: `workspace_exec`
+### 3.3 New Tool: `exec`
 
 ```ts
 createWorkspaceExecTool(context): AgentTool
@@ -270,12 +270,12 @@ createWorkspaceExecTool(context): AgentTool
 
 ### 3.4 File Access
 
-File tools have been removed. All file operations are performed via `workspace_exec` inside the workspace container, which has the workspace mounted at `/workspace`.
+File tools have been removed. All file operations are performed via `exec` inside the workspace container, which has the workspace mounted at `/workspace`.
 
 ### Key files:
 - Modify: `apps/agent/src/core/types.ts`, `apps/agent/src/core/container-manager.ts`
 - New: `apps/agent/src/tools/workspace-exec.ts`
-- Modify: `apps/agent/src/tools.ts` (add workspace_exec to built-in tools)
+- Modify: `apps/agent/src/tools.ts` (add exec to built-in tools)
 - Modify: `apps/agent/src/agent-runner.ts` (call ensureWorkspaceContainer on session open)
 
 ---
@@ -419,8 +419,8 @@ After Phase 2:
 
 After Phase 3:
 - Agent creates workspace container on startup
-- `workspace_exec` tool works
-- File operations work via `workspace_exec` inside the workspace container
+- `exec` tool works
+- File operations work via `exec` inside the workspace container
 - Files are visible inside workspace container
 
 After Phase 4:

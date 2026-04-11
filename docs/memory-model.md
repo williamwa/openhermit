@@ -162,7 +162,7 @@ Storage:
 
 Access:
 
-- `workspace_exec` (shell commands inside the workspace container)
+- `exec` (shell commands inside the workspace container)
 
 ## Memory Lifecycle
 

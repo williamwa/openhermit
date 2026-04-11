@@ -848,7 +848,7 @@ export class AgentRunner implements SessionRuntime {
         ...(input.config.workspace_container ? {
           agentId: this.scope.agentId,
           workspaceContainerConfig: input.config.workspace_container,
-          onWorkspaceExec: () => this.resetWorkspaceIdleTimer(input.config.workspace_container!),
+          onExec: () => this.resetWorkspaceIdleTimer(input.config.workspace_container!),
         } : {}),
         ...(input.approvalCallback ? { approvalCallback: input.approvalCallback } : {}),
         ...(input.approvedCache ? { approvedCache: input.approvedCache } : {}),

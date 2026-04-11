@@ -226,7 +226,7 @@ Containers are split into three categories:
 
 - `ephemeral` — one-shot execution, auto-removed
 - `service` — long-running daemons (databases, web servers)
-- `workspace` — persistent container with workspace mounted at `/workspace`, used for `workspace_exec`
+- `workspace` — persistent container with workspace mounted at `/workspace`, used for `exec`
 
 ## Checkpointing vs. Compaction
 
