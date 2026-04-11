@@ -123,6 +123,7 @@ const writeSchemaVersion = (database: DatabaseSync, version: number): void => {
 
 export const bootstrapDatabase = (database: DatabaseSync): void => {
   database.exec('PRAGMA journal_mode = WAL;');
+  database.exec('PRAGMA busy_timeout = 5000;');
   database.exec('PRAGMA foreign_keys = ON;');
 
   ensureMetaTable(database);
