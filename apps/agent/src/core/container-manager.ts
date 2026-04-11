@@ -344,13 +344,27 @@ export class DockerContainerManager {
 
     const existing = await this.registry.findByName(name);
 
-    // Remove any existing container so it is recreated with the latest config.
-    if (existing && (existing.status === 'running' || existing.status === 'stopped')) {
-      await this.docker.run(['stop', name]).catch(() => {});
-      await this.docker.run(['rm', '-f', name]);
-      await this.registry.updateByName(name, (current) => ({
+    if (existing && existing.status === 'running') {
+      throw new ValidationError(
+        `Service container "${args.name}" is already running. Use container_stop to stop it, or container_exec to run commands inside it.`,
+      );
+    }
+
+    // Restart a stopped container.
+    if (existing && existing.status === 'stopped') {
+      const result = await this.docker.run(['start', name]);
+
+      if (result.exitCode !== 0) {
+        throw new OpenHermitError(
+          `Failed to restart service container: ${result.stderr || result.stdout}`,
+          'docker_run_failed',
+          500,
+        );
+      }
+
+      return this.registry.updateByName(name, (current) => ({
         ...current,
-        status: 'removed',
+        status: 'running',
       }));
     }
 
