@@ -1,4 +1,4 @@
-import { promises as fs, type Dirent } from 'node:fs';
+import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import { NotFoundError, ValidationError } from '@openhermit/shared';
@@ -13,12 +13,6 @@ export interface WorkspaceInitOptions {
 export interface ResolvePathOptions {
   mustExist?: boolean;
   kind?: 'file' | 'directory' | 'any';
-}
-
-export interface WorkspaceListEntry {
-  name: string;
-  path: string;
-  type: 'file' | 'directory' | 'symlink' | 'other';
 }
 
 const SCAFFOLD_DIRECTORIES = [
@@ -57,22 +51,6 @@ const findNearestExistingAncestor = async (
       current = path.dirname(current);
     }
   }
-};
-
-const fileTypeFromDirent = (entry: Dirent): WorkspaceListEntry['type'] => {
-  if (entry.isFile()) {
-    return 'file';
-  }
-
-  if (entry.isDirectory()) {
-    return 'directory';
-  }
-
-  if (entry.isSymbolicLink()) {
-    return 'symlink';
-  }
-
-  return 'other';
 };
 
 const parseJsonFile = <T>(content: string, filePath: string): T => {
@@ -192,25 +170,6 @@ export class AgentWorkspace {
     return resolvedPath;
   }
 
-  async ensureDir(relativePath: string): Promise<string> {
-    const target = await this.resolve(relativePath);
-    await fs.mkdir(target, { recursive: true });
-    return target;
-  }
-
-  async ensureFile(relativePath: string, content: string): Promise<string> {
-    const target = await this.resolve(relativePath);
-
-    try {
-      await fs.access(target);
-      return target;
-    } catch {
-      await fs.mkdir(path.dirname(target), { recursive: true });
-      await fs.writeFile(target, content, 'utf8');
-      return target;
-    }
-  }
-
   async readFile(relativePath: string): Promise<string> {
     const target = await this.resolve(relativePath, {
       mustExist: true,
@@ -225,27 +184,6 @@ export class AgentWorkspace {
     await fs.writeFile(target, content, 'utf8');
   }
 
-  async deleteFile(relativePath: string): Promise<void> {
-    const target = await this.resolve(relativePath, {
-      mustExist: true,
-      kind: 'file',
-    });
-    await fs.unlink(target);
-  }
-
-  async listFiles(relativePath = '.'): Promise<WorkspaceListEntry[]> {
-    const target = await this.resolve(relativePath, {
-      mustExist: true,
-      kind: 'directory',
-    });
-    const entries = await fs.readdir(target, { withFileTypes: true });
-
-    return entries.map((entry) => ({
-      name: entry.name,
-      path: path.posix.join(relativePath === '.' ? '' : relativePath, entry.name),
-      type: fileTypeFromDirent(entry),
-    }));
-  }
 
   toRelativePath(targetPath: string): string {
     const relativePath = path.relative(this.root, targetPath);
