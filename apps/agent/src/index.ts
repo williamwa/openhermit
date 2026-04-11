@@ -14,7 +14,7 @@ import { AgentRunner } from './agent-runner.js';
 import { parseAgentCliArgs } from './args.js';
 import { createAgentApp } from './app.js';
 import { AgentSecurity, AgentWorkspace } from './core/index.js';
-import { initializeInternalStateDatabase } from './internal-state/sqlite.js';
+import { SqliteInternalStateStore } from '@openhermit/store';
 import {
   createLangfuseClientFromEnv,
   createLangfuseShutdownHandler,
@@ -164,7 +164,7 @@ export const main = async (): Promise<void> => {
   if (config !== initialConfig) {
     await security.writeConfig(config);
   }
-  initializeInternalStateDatabase(security.stateFilePath).close();
+  SqliteInternalStateStore.open(security.stateFilePath).close();
   logStartup(`internal state: ${security.stateFilePath}`);
   logStartup(`internal config: ${security.configFilePath}`);
   logStartup(`runtime metadata: ${security.runtimeFilePath}`);

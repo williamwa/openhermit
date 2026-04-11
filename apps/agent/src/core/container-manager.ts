@@ -2,9 +2,14 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import type { DatabaseSync } from 'node:sqlite';
 
 import { OpenHermitError, NotFoundError, ValidationError } from '@openhermit/shared';
+import {
+  type ContainerStore,
+  type StoreScope,
+  SqliteInternalStateStore,
+  standaloneScope,
+} from '@openhermit/store';
 
 import type {
   ContainerListEntry,
@@ -16,7 +21,6 @@ import type {
   ServiceContainerArgs,
 } from './types.js';
 import { AgentWorkspace } from './workspace.js';
-import { openInternalStateDatabase } from '../internal-state/sqlite.js';
 
 const OUTPUT_START = '---OPENHERMIT_OUTPUT_START---';
 const OUTPUT_END = '---OPENHERMIT_OUTPUT_END---';
@@ -165,147 +169,38 @@ class DockerCliRunner implements DockerRunner {
 export interface DockerContainerManagerOptions {
   runner?: DockerRunner;
   stateFilePath?: string;
+  containerStore?: ContainerStore;
+  storeScope?: StoreScope;
 }
 
-export class ContainerRegistryStore {
-  constructor(private readonly database: DatabaseSync) {}
-
-  private serializeMetadata(entry: ContainerRegistryEntry): string {
-    return JSON.stringify({
-      id: entry.id,
-      ...(entry.command !== undefined ? { command: entry.command } : {}),
-      ...(entry.ports !== undefined ? { ports: entry.ports } : {}),
-      ...(entry.mount !== undefined ? { mount: entry.mount } : {}),
-      ...(entry.mount_target !== undefined ? { mount_target: entry.mount_target } : {}),
-      ...(entry.network !== undefined ? { network: entry.network } : {}),
-      ...(entry.runtime_container_id !== undefined
-        ? { runtime_container_id: entry.runtime_container_id }
-        : {}),
-      ...(entry.exit_code !== undefined ? { exit_code: entry.exit_code } : {}),
-      created: entry.created,
-      ...(entry.removed !== undefined ? { removed: entry.removed } : {}),
-    });
-  }
-
-  private mapRow(
-    row: {
-      container_name: string;
-      container_type: string;
-      image: string;
-      status: string;
-      description: string | null;
-      metadata_json: string;
-    },
-  ): ContainerRegistryEntry {
-    const metadata = JSON.parse(row.metadata_json || '{}') as Record<string, unknown>;
-
-    return {
-      id:
-        typeof metadata.id === 'string'
-          ? metadata.id
-          : row.container_name,
-      name: row.container_name,
-      image: row.image,
-      type: row.container_type as ContainerType,
-      status: row.status as ContainerStatus,
-      ...(row.description ? { description: row.description } : {}),
-      ...(typeof metadata.command === 'string' ? { command: metadata.command } : {}),
-      ...(metadata.ports && typeof metadata.ports === 'object'
-        ? { ports: metadata.ports as Record<string, number> }
-        : {}),
-      ...(typeof metadata.mount === 'string' ? { mount: metadata.mount } : {}),
-      ...(typeof metadata.mount_target === 'string'
-        ? { mount_target: metadata.mount_target }
-        : {}),
-      ...(typeof metadata.network === 'string' ? { network: metadata.network } : {}),
-      ...(typeof metadata.runtime_container_id === 'string'
-        ? { runtime_container_id: metadata.runtime_container_id }
-        : {}),
-      ...(typeof metadata.exit_code === 'number' ? { exit_code: metadata.exit_code } : {}),
-      created:
-        typeof metadata.created === 'string'
-          ? metadata.created
-          : new Date().toISOString(),
-      ...(typeof metadata.removed === 'string' ? { removed: metadata.removed } : {}),
-    };
-  }
+/**
+ * Scope-bound container registry that delegates to a `ContainerStore` with
+ * a fixed `StoreScope`.  Provides the same call signatures as the old
+ * `ContainerRegistryStore` so internal callers don't need to pass scope.
+ */
+class ScopedContainerRegistry {
+  constructor(
+    private readonly store: ContainerStore,
+    private readonly scope: StoreScope,
+  ) {}
 
   async readAll(): Promise<ContainerRegistryEntry[]> {
-    const rows = this.database
-      .prepare(
-        `SELECT container_name, container_type, image, status, description, metadata_json
-         FROM container_runtime_entries
-         ORDER BY json_extract(metadata_json, '$.created') ASC, container_name ASC`,
-      )
-      .all() as Array<{
-      container_name: string;
-      container_type: string;
-      image: string;
-      status: string;
-      description: string | null;
-      metadata_json: string;
-    }>;
-
-    return rows.map((row) => this.mapRow(row));
+    return this.store.readAll(this.scope);
   }
 
   async findByName(name: string): Promise<ContainerRegistryEntry | undefined> {
-    const entries = await this.readAll();
-    return entries.find((entry) => entry.name === name);
+    return this.store.findByName(this.scope, name);
   }
 
   async upsert(entry: ContainerRegistryEntry): Promise<void> {
-    this.database
-      .prepare(
-        `INSERT INTO container_runtime_entries(
-          container_name,
-          container_type,
-          image,
-          status,
-          description,
-          metadata_json,
-          updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(container_name) DO UPDATE SET
-          container_type = excluded.container_type,
-          image = excluded.image,
-          status = excluded.status,
-          description = excluded.description,
-          metadata_json = excluded.metadata_json,
-          updated_at = excluded.updated_at`,
-      )
-      .run(
-        entry.name,
-        entry.type,
-        entry.image,
-        entry.status,
-        entry.description ?? null,
-        this.serializeMetadata(entry),
-        new Date().toISOString(),
-      );
+    return this.store.upsert(this.scope, entry);
   }
 
   async updateByName(
     name: string,
     update: (entry: ContainerRegistryEntry) => ContainerRegistryEntry,
   ): Promise<ContainerRegistryEntry> {
-    const entries = await this.readAll();
-    const index = entries.findIndex((entry) => entry.name === name);
-
-    if (index === -1) {
-      throw new NotFoundError(`Container not found in registry: ${name}`);
-    }
-
-    const currentEntry = entries[index];
-
-    if (!currentEntry) {
-      throw new NotFoundError(`Container not found in registry: ${name}`);
-    }
-
-    const updated = update(currentEntry);
-    await this.upsert(updated);
-    return updated;
+    return this.store.updateByName(this.scope, name, update);
   }
 }
 
@@ -318,20 +213,30 @@ interface LiveDockerContainer {
 
 export class DockerContainerManager {
   private readonly docker: DockerRunner;
-  private readonly database: DatabaseSync;
 
-  readonly registry: ContainerRegistryStore;
+  readonly registry: ScopedContainerRegistry;
 
   constructor(
     private readonly workspace: AgentWorkspace,
     options: DockerContainerManagerOptions = {},
   ) {
     this.docker = options.runner ?? new DockerCliRunner();
-    this.database = openInternalStateDatabase(
-      options.stateFilePath
-      ?? path.join(workspace.root, '.openhermit-internal', 'state.sqlite'),
-    );
-    this.registry = new ContainerRegistryStore(this.database);
+
+    if (options.containerStore) {
+      this.registry = new ScopedContainerRegistry(
+        options.containerStore,
+        options.storeScope ?? standaloneScope,
+      );
+    } else {
+      const store = SqliteInternalStateStore.open(
+        options.stateFilePath
+        ?? path.join(workspace.root, '.openhermit-internal', 'state.sqlite'),
+      );
+      this.registry = new ScopedContainerRegistry(
+        store.containers,
+        standaloneScope,
+      );
+    }
   }
 
   private async requireRegisteredService(
