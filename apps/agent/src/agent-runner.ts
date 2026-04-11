@@ -275,6 +275,16 @@ export class AgentRunner implements SessionRuntime {
     const createdAt = persisted?.createdAt ?? now;
 
     const config = await this.options.security.readConfig();
+
+    if (config.workspace_container) {
+      const agentId = this.scope.agentId;
+      await this.containerManager.ensureWorkspaceContainer(
+        agentId,
+        config.workspace_container,
+      );
+      this.logRuntime(`workspace container ensured for agent ${agentId}`);
+    }
+
     const approvalGate = new ApprovalGate();
     const approvalCallback = effectiveSpec.source.interactive
       ? this.makeApprovalCallback(effectiveSpec.sessionId, approvalGate)
@@ -786,6 +796,7 @@ export class AgentRunner implements SessionRuntime {
         containerManager: this.containerManager,
         memoryStore: this.store.memories,
         storeScope: this.scope,
+        ...(input.config.workspace_container ? { agentId: this.scope.agentId } : {}),
         ...(input.approvalCallback ? { approvalCallback: input.approvalCallback } : {}),
         ...(input.onToolRequested ? { onToolRequested: input.onToolRequested } : {}),
         ...(input.onToolStarted ? { onToolStarted: input.onToolStarted } : {}),

@@ -13,6 +13,7 @@ import type {
   ToolStartedCallback,
 } from './tools/shared.js';
 import { createWebFetchTool } from './tools/web-fetch.js';
+import { createWorkspaceExecTool } from './tools/workspace-exec.js';
 
 export type {
   ApprovalCallback,
@@ -52,6 +53,7 @@ export const createBuiltInTools = (
     createContainerStartTool(context),
     createContainerStopTool(context),
     createContainerExecTool(context),
+    ...(context.agentId ? [createWorkspaceExecTool(context)] : []),
   ];
 
   return tools.map((tool) =>

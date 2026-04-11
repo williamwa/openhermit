@@ -11,6 +11,7 @@ const READONLY_BLOCKED_TOOLS = new Set([
   'container_start',
   'container_stop',
   'container_exec',
+  'workspace_exec',
 ]);
 
 export type ApprovalDecision = 'approved' | 'rejected' | 'timed_out' | 'cancelled';
@@ -39,6 +40,7 @@ export interface ToolContext {
   containerManager: DockerContainerManager;
   memoryStore?: MemoryStore;
   storeScope?: StoreScope;
+  agentId?: string;
   approvalCallback?: ApprovalCallback;
   onToolRequested?: ToolRequestedCallback;
   onToolStarted?: ToolStartedCallback;

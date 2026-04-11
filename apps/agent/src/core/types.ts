@@ -68,12 +68,19 @@ export const DEFAULT_WORKSPACE_IDENTITY_FILES = [
   '.openhermit/AGENTS.md',
 ] as const;
 
+export interface WorkspaceContainerConfig {
+  image: string;
+  memory_limit?: string;
+  cpu_shares?: number;
+}
+
 export interface AgentRuntimeConfig {
   workspace_root: string;
   model: AgentModelConfig;
   identity: AgentIdentityConfig;
   http_api: HttpApiConfig;
   memory: MemoryConfig;
+  workspace_container?: WorkspaceContainerConfig;
 }
 
 export type AgentConfig = AgentRuntimeConfig;
@@ -90,7 +97,7 @@ export interface SecurityPolicy {
 
 export type SecretsMap = Record<string, string>;
 
-export type ContainerType = 'ephemeral' | 'service';
+export type ContainerType = 'ephemeral' | 'service' | 'workspace';
 
 export type ContainerStatus =
   | 'created'

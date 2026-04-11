@@ -19,6 +19,7 @@ import type {
   ContainerType,
   EphemeralContainerArgs,
   ServiceContainerArgs,
+  WorkspaceContainerConfig,
 } from './types.js';
 import { AgentWorkspace } from './workspace.js';
 
@@ -501,5 +502,124 @@ export class DockerContainerManager {
         image: container.Image ?? '',
         statusText: container.Status ?? '',
       }));
+  }
+
+  private workspaceContainerName(agentId: string): string {
+    return `${agentId}-workspace`;
+  }
+
+  async getWorkspaceContainer(
+    agentId: string,
+  ): Promise<ContainerRegistryEntry | undefined> {
+    return this.registry.findByName(this.workspaceContainerName(agentId));
+  }
+
+  /**
+   * Ensure a persistent workspace container exists for the given agent.
+   * Idempotent: creates if missing, starts if stopped, returns if running.
+   */
+  async ensureWorkspaceContainer(
+    agentId: string,
+    config: WorkspaceContainerConfig,
+  ): Promise<ContainerRegistryEntry> {
+    const name = this.workspaceContainerName(agentId);
+    const mountTarget = '/workspace';
+
+    const existing = await this.registry.findByName(name);
+
+    if (existing) {
+      // Check live status
+      const liveContainers = await this.listLiveContainers().catch(() => []);
+      const live = liveContainers.find((c) => c.names === name);
+      const liveStatus = live ? deriveContainerStatus(live.statusText) : undefined;
+
+      if (liveStatus === 'running') {
+        return this.registry.updateByName(name, (current) => ({
+          ...current,
+          status: 'running',
+          runtime_container_id: live!.id,
+        }));
+      }
+
+      // Container exists but is not running — remove stale container and recreate
+      if (liveStatus) {
+        await this.docker.run(['rm', '-f', name]);
+      }
+    }
+
+    // Create the workspace container
+    const workspaceRoot = this.workspace.root;
+    const dockerArgs = [
+      'run',
+      '-d',
+      '--name',
+      name,
+      '-v',
+      `${workspaceRoot}:${mountTarget}`,
+      '-w',
+      mountTarget,
+    ];
+
+    if (config.memory_limit) {
+      dockerArgs.push('--memory', config.memory_limit);
+    }
+
+    if (config.cpu_shares) {
+      dockerArgs.push('--cpu-shares', String(config.cpu_shares));
+    }
+
+    // Keep container alive with a long-running process
+    dockerArgs.push(config.image, 'sleep', 'infinity');
+
+    const result = await this.docker.run(dockerArgs);
+
+    if (result.exitCode !== 0) {
+      throw new OpenHermitError(
+        `Failed to start workspace container: ${result.stderr || result.stdout}`,
+        'docker_run_failed',
+        500,
+      );
+    }
+
+    const runtimeContainerId = result.stdout.trim();
+    const entry: ContainerRegistryEntry = {
+      id: existing?.id ?? randomUUID(),
+      name,
+      image: config.image,
+      type: 'workspace',
+      status: 'running',
+      description: `Persistent workspace container for agent ${agentId}`,
+      mount: '.',
+      mount_target: mountTarget,
+      ...(runtimeContainerId ? { runtime_container_id: runtimeContainerId } : {}),
+      created: existing?.created ?? new Date().toISOString(),
+    };
+
+    await this.registry.upsert(entry);
+    return entry;
+  }
+
+  async execInWorkspace(
+    agentId: string,
+    command: string,
+  ): Promise<ContainerProcessResult> {
+    const name = this.workspaceContainerName(agentId);
+    const entry = await this.registry.findByName(name);
+
+    if (!entry || entry.type !== 'workspace') {
+      throw new NotFoundError(`Workspace container not found: ${name}`);
+    }
+
+    if (entry.status !== 'running') {
+      throw new ValidationError(`Workspace container is not running: ${name}`);
+    }
+
+    const result = await this.docker.run(['exec', name, 'sh', '-lc', command]);
+    const parsedOutput = parseStructuredOutput(result.stdout);
+
+    return {
+      ...result,
+      ...(parsedOutput !== undefined ? { parsedOutput } : {}),
+    };
   }
 }

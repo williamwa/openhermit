@@ -60,7 +60,7 @@ export interface LongTermMemoryInput {
   kind?: string;
 }
 
-export type ContainerType = 'ephemeral' | 'service';
+export type ContainerType = 'ephemeral' | 'service' | 'workspace';
 
 export type ContainerStatus =
   | 'created'
