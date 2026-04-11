@@ -298,12 +298,13 @@ test('AgentRunner injects runtime mission and container guidance into the system
   assert.match(capturedSystemPrompt, /Your specific identity, role, style, and priorities are defined by the instruction entries below/);
   assert.match(capturedSystemPrompt, /use the `instruction_update` tool to persist the change/);
   assert.match(capturedSystemPrompt, /Built-in tools are execution primitives, not product goals/);
-  assert.match(capturedSystemPrompt, /Containers provide isolated execution environments/);
+  assert.match(capturedSystemPrompt, /## Execution Environments/);
+  assert.match(capturedSystemPrompt, /Workspace Container.*workspace_exec/);
+  assert.match(capturedSystemPrompt, /Service Containers.*container_start/);
+  assert.match(capturedSystemPrompt, /Ephemeral Containers.*container_run/);
+  assert.match(capturedSystemPrompt, /Default to `workspace_exec`/);
   assert.match(capturedSystemPrompt, /Container tool rules:/);
   assert.match(capturedSystemPrompt, /containers\/<name>\/data/);
-  assert.match(capturedSystemPrompt, /Files under files\/ or the workspace root are not mounted automatically/);
-  assert.match(capturedSystemPrompt, /You may choose the in-container mount target/);
-  assert.match(capturedSystemPrompt, /Defaults are \/workspace for ephemeral runs and \/data for service containers/);
 });
 
 test('AgentRunner injects session-local working memory before now and main memory', async (t) => {
