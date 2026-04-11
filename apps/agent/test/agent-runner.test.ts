@@ -303,7 +303,7 @@ test('AgentRunner injects runtime mission and container guidance into the system
   assert.match(capturedSystemPrompt, /Service Containers.*container_start/);
   assert.match(capturedSystemPrompt, /Ephemeral Containers.*container_run/);
   assert.match(capturedSystemPrompt, /Default to `workspace_exec`/);
-  assert.match(capturedSystemPrompt, /Container tool rules:/);
+  assert.match(capturedSystemPrompt, /Mounting files into service containers/);
   assert.match(capturedSystemPrompt, /containers\/<name>\/data/);
 });
 
@@ -503,7 +503,10 @@ test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
     },
   });
   await security.load();
-  await workspace.writeFile('files/fact.txt', '42');
+
+  const store = SqliteInternalStateStore.open(security.stateFilePath);
+  t.after(() => store.close());
+  await store.memories.add(testScope, { id: 'fact', content: 'The answer is 42.' });
 
   const runner = await AgentRunner.create({
     workspace,
@@ -512,10 +515,10 @@ test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
       () =>
         createToolCallResponseStream({
           type: 'toolCall',
-          id: 'call-read-file',
-          name: 'read_file',
+          id: 'call-memory-get',
+          name: 'memory_get',
           arguments: {
-            path: 'files/fact.txt',
+            id: 'fact',
           },
         }),
       () => createTextResponseStream('The fact is 42.'),
@@ -530,7 +533,7 @@ test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
     },
   });
   await runner.postMessage('cli:tool-session', {
-    text: 'Read the fact file.',
+    text: 'What is the fact?',
   });
   await runner.waitForSessionIdle('cli:tool-session');
 
@@ -540,25 +543,25 @@ test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
     backlog.some(
       (entry) =>
         entry.event.type === 'tool_requested' &&
-        entry.event.tool === 'read_file' &&
+        entry.event.tool === 'memory_get' &&
         'args' in entry.event &&
-        JSON.stringify(entry.event.args) === JSON.stringify({ path: 'files/fact.txt' }),
+        JSON.stringify(entry.event.args) === JSON.stringify({ id: 'fact' }),
       ),
   );
   assert.ok(
     backlog.some(
       (entry) =>
         entry.event.type === 'tool_started' &&
-        entry.event.tool === 'read_file' &&
+        entry.event.tool === 'memory_get' &&
         'args' in entry.event &&
-        JSON.stringify(entry.event.args) === JSON.stringify({ path: 'files/fact.txt' }),
+        JSON.stringify(entry.event.args) === JSON.stringify({ id: 'fact' }),
       ),
   );
   assert.ok(
     backlog.some(
       (entry) =>
         entry.event.type === 'tool_result' &&
-        entry.event.tool === 'read_file' &&
+        entry.event.tool === 'memory_get' &&
         entry.event.isError === false &&
         typeof entry.event.text === 'string' &&
         entry.event.text.includes('42'),
@@ -579,7 +582,7 @@ test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
       (entry) =>
         entry.role === 'tool_call' &&
         entry.type === 'tool_requested' &&
-        entry.name === 'read_file',
+        entry.name === 'memory_get',
     ),
   );
   assert.ok(
@@ -587,7 +590,7 @@ test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
       (entry) =>
         entry.role === 'tool_call' &&
         entry.type === 'tool_started' &&
-        entry.name === 'read_file',
+        entry.name === 'memory_get',
     ),
   );
   assert.ok(
