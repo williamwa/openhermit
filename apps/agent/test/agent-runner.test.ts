@@ -12,7 +12,9 @@ import {
 
 import { AgentRunner } from '../src/agent-runner.js';
 import type { LangfuseClientLike } from '../src/langfuse.js';
-import { SqliteInternalStateStore, standaloneScope } from '@openhermit/store';
+import { SqliteInternalStateStore, type StoreScope } from '@openhermit/store';
+
+const testScope: StoreScope = { agentId: 'agent-test' };
 import { createSecurityFixture } from './helpers.js';
 
 const zeroUsage: Usage = {
@@ -334,19 +336,19 @@ test('AgentRunner injects session-local working memory before now and main memor
   const store = SqliteInternalStateStore.open(security.stateFilePath);
   t.after(() => store.close());
   await store.messages.setSessionWorkingMemory(
-    standaloneScope,
+    testScope,
     'cli:working-context',
     '# Session Working Memory\nsession local context\n',
     '2026-03-13T00:00:00.000Z',
   );
   await store.memories.setMemory(
-    standaloneScope,
+    testScope,
     'now',
     '# Now Memory\ncurrent active work\n',
     '2026-03-13T00:00:00.000Z',
   );
   await store.memories.setMemory(
-    standaloneScope,
+    testScope,
     'main',
     '# Main Memory\nstable user preference\n',
     '2026-03-13T00:00:00.000Z',
@@ -743,7 +745,7 @@ test('AgentRunner writes episodic checkpoints on explicit checkpoint requests an
   const store = SqliteInternalStateStore.open(security.stateFilePath);
   t.after(() => store.close());
   const workingMemory = await store.messages.getSessionWorkingMemory(
-    standaloneScope,
+    testScope,
     'cli:checkpoint-session',
   );
   assert.ok(workingMemory);
@@ -796,7 +798,7 @@ test('AgentRunner uses an internal checkpoint turn by default instead of an exte
   const store = SqliteInternalStateStore.open(security.stateFilePath);
   t.after(() => store.close());
   const workingMemory = await store.messages.getSessionWorkingMemory(
-    standaloneScope,
+    testScope,
     'cli:internal-checkpoint-session',
   );
 

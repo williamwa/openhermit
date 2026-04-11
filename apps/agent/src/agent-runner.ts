@@ -5,7 +5,6 @@ import {
   type InternalStateStore,
   type StoreScope,
   SqliteInternalStateStore,
-  standaloneScope,
 } from '@openhermit/store';
 
 import {
@@ -213,7 +212,7 @@ export class AgentRunner implements SessionRuntime {
   private constructor(private readonly options: AgentRunnerOptions) {
     this.store = options.store
       ?? SqliteInternalStateStore.open(options.security.stateFilePath);
-    this.scope = standaloneScope;
+    this.scope = { agentId: options.security.agentId };
     this.containerManager =
       options.containerManager
       ?? new DockerContainerManager(options.workspace, {

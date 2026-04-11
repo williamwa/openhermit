@@ -79,7 +79,10 @@ export class AgentSecurity {
 
   readonly runtimeFilePath: string;
 
+  readonly agentId: string;
+
   constructor(private readonly options: AgentSecurityOptions) {
+    this.agentId = options.agentId;
     const baseDir =
       options.openHermitHome ??
       process.env.OPENHERMIT_HOME ??
