@@ -1,47 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { createBuiltInTools } from '../src/tools.js';
 import { buildSystemPrompt } from '../src/agent-runner/prompt.js';
 import { createSecurityFixture } from './helpers.js';
 
-test('buildSystemPrompt includes container guidance only when container tools are available', async (t) => {
+test('buildSystemPrompt includes container mounting guidance and autonomy level', async (t) => {
   const { security } = await createSecurityFixture(t);
   await security.load();
   const config = await security.readConfig();
 
-  const defaultTools = createBuiltInTools({
-    security,
-    containerManager: {
-      runEphemeral: async () => {
-        throw new Error('not used');
-      },
-      startService: async () => {
-        throw new Error('not used');
-      },
-      stopService: async () => {
-        throw new Error('not used');
-      },
-      execInService: async () => {
-        throw new Error('not used');
-      },
-      listAll: async () => [],
-    } as any,
-  });
+  const prompt = await buildSystemPrompt(config, security);
 
-  const withContainerGuidance = await buildSystemPrompt(
-    config,
-    security,
-    defaultTools,
-  );
-  const withoutContainerGuidance = await buildSystemPrompt(
-    config,
-    security,
-    [],
-  );
-
-  assert.match(withContainerGuidance, /## Container Tool Rules/);
-  assert.match(withContainerGuidance, /Container tool rules:/);
-  assert.doesNotMatch(withoutContainerGuidance, /## Container Tool Rules/);
-  assert.doesNotMatch(withoutContainerGuidance, /Container tool rules:/);
+  assert.match(prompt, /Mounting files into service containers/);
+  assert.match(prompt, /mount_target/);
+  assert.match(prompt, /Autonomy level: supervised/);
 });

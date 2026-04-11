@@ -852,7 +852,6 @@ export class AgentRunner implements SessionRuntime {
     const baseSystemPrompt = await buildSystemPrompt(
       input.config,
       this.options.security,
-      tools,
       {
         instructionStore: this.store.instructions,
         storeScope: this.scope,

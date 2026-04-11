@@ -1,27 +1,7 @@
 import { promises as fs } from 'node:fs';
-import type { AgentTool } from '@mariozechner/pi-agent-core';
 import type { InstructionStore, StoreScope } from '@openhermit/store';
 
 import type { AgentRuntimeConfig, AgentSecurity } from '../core/index.js';
-
-const CONTAINER_TOOL_GUIDANCE = [
-  'Container tool rules:',
-  '- Container tools do not see the whole workspace. They only see the mounted subdirectory.',
-  '- Valid mounts must stay under containers/<name>/data.',
-  '- Files under files/ or the workspace root are not mounted automatically.',
-  '- Before running code in a container, write or copy the needed files into the chosen mount directory first.',
-  '- You may choose the in-container mount target. Defaults are /workspace for ephemeral runs and /data for service containers.',
-  '- If a service expects files in a specific location, set mount_target explicitly, for example /usr/share/nginx/html for nginx static content.',
-  '- If a container tool fails, inspect the tool result details and correct the mount or in-container path before retrying.',
-].join('\n');
-
-const CONTAINER_TOOL_NAMES = new Set([
-  'container_run',
-  'container_status',
-  'container_start',
-  'container_stop',
-  'container_exec',
-]);
 
 const RUNTIME_PROMPT_TEMPLATE_CANDIDATES = [
   new URL('../prompts/runtime-system.md', import.meta.url),
@@ -57,7 +37,6 @@ export interface InstructionSource {
 export const buildSystemPrompt = async (
   config: AgentRuntimeConfig,
   security: AgentSecurity,
-  tools: AgentTool<any>[],
   instructionSource?: InstructionSource,
 ): Promise<string> => {
   let instructionSections: string;
@@ -72,13 +51,8 @@ export const buildSystemPrompt = async (
   }
   const secretNames = security.listSecretNames();
   const promptTemplate = await loadRuntimePromptTemplate();
-  const containerToolRulesSection = tools.some((tool) => CONTAINER_TOOL_NAMES.has(tool.name))
-    ? `## Container Tool Rules\n\n${CONTAINER_TOOL_GUIDANCE}`
-    : '';
-
   return replacePromptTokens(promptTemplate, {
     autonomyLevel: security.getAutonomyLevel(),
-    containerToolRulesSection,
     instructionSections,
     secretReference: secretNames.length > 0
       ? `Available secret names for tool calls: ${secretNames.join(', ')}. Secret values are never shown in the prompt.`
