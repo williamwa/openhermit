@@ -295,8 +295,8 @@ test('AgentRunner injects runtime mission and container guidance into the system
 
   assert.match(capturedSystemPrompt, /You are a pragmatic AI agent operating inside a dedicated workspace/);
   assert.match(capturedSystemPrompt, /Your primary job is to help the user accomplish real tasks safely and effectively/);
-  assert.match(capturedSystemPrompt, /Your specific identity, role, style, and priorities are defined by the workspace identity context/);
-  assert.match(capturedSystemPrompt, /If the user wants to change your name, role, style, or other identity instructions, update the relevant files under `workspace\/\.openhermit\/`/);
+  assert.match(capturedSystemPrompt, /Your specific identity, role, style, and priorities are defined by the instruction entries below/);
+  assert.match(capturedSystemPrompt, /use the `instruction_update` tool to persist the change/);
   assert.match(capturedSystemPrompt, /Built-in tools are execution primitives, not product goals/);
   assert.match(capturedSystemPrompt, /Do not frame yourself as a container-management assistant/);
   assert.match(capturedSystemPrompt, /Container tool rules:/);
