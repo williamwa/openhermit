@@ -307,7 +307,7 @@ test('AgentRunner injects runtime mission and container guidance into the system
   assert.match(capturedSystemPrompt, /containers\/<name>\/data/);
 });
 
-test('AgentRunner injects session-local working memory before now and main memory', async (t) => {
+test('AgentRunner injects session working memory and long-term memory context', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: {
       ANTHROPIC_API_KEY: 'test-anthropic-key',
@@ -342,17 +342,9 @@ test('AgentRunner injects session-local working memory before now and main memor
     '# Session Working Memory\nsession local context\n',
     '2026-03-13T00:00:00.000Z',
   );
-  await store.memories.setMemory(
+  await store.memories.add(
     testScope,
-    'now',
-    '# Now Memory\ncurrent active work\n',
-    '2026-03-13T00:00:00.000Z',
-  );
-  await store.memories.setMemory(
-    testScope,
-    'main',
-    '# Main Memory\nstable user preference\n',
-    '2026-03-13T00:00:00.000Z',
+    { id: 'project-plan', content: 'stable project knowledge' },
   );
   await runner.postMessage('cli:working-context', {
     text: 'use memory',
@@ -367,12 +359,7 @@ test('AgentRunner injects session-local working memory before now and main memor
   assert.equal(capturedMessages[1]?.role, 'user');
   assert.match(
     JSON.stringify(capturedMessages[1]?.content ?? ''),
-    /Now memory/,
-  );
-  assert.equal(capturedMessages[2]?.role, 'user');
-  assert.match(
-    JSON.stringify(capturedMessages[2]?.content ?? ''),
-    /Main memory/,
+    /Long-term memory/,
   );
 });
 

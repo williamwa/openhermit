@@ -842,7 +842,7 @@ export class AgentRunner implements SessionRuntime {
       ?? createBuiltInTools({
         security: this.options.security,
         containerManager: this.containerManager,
-        memoryStore: this.store.memories,
+        memoryProvider: this.store.memories,
         instructionStore: this.store.instructions,
         storeScope: this.scope,
         ...(input.config.workspace_container ? {
@@ -925,11 +925,9 @@ export class AgentRunner implements SessionRuntime {
     _signal?: AbortSignal,
   ): Promise<AgentMessage[]> {
     const sessionWorking =
-      (await this.store.messages.getSessionWorkingMemory(this.scope,sessionId)) ?? '';
-    const nowMemory =
-      (await this.store.memories.getNowMemory(this.scope)) ?? '';
-    const mainMemory =
-      (await this.store.memories.getMainMemory(this.scope)) ?? '';
+      (await this.store.messages.getSessionWorkingMemory(this.scope, sessionId)) ?? '';
+    const memoryContext =
+      (await this.store.memories.getContextBlock(this.scope)) ?? '';
 
     const contextBlocks: AgentMessage[] = [];
 
@@ -946,26 +944,13 @@ export class AgentRunner implements SessionRuntime {
       });
     }
 
-    if (nowMemory.trim()) {
+    if (memoryContext.trim()) {
       contextBlocks.push({
         role: 'user',
         content: [
           {
             type: 'text',
-            text: `Now memory (read-only context):\n\n${nowMemory}`,
-          },
-        ],
-        timestamp: Date.now(),
-      });
-    }
-
-    if (mainMemory.trim()) {
-      contextBlocks.push({
-        role: 'user',
-        content: [
-          {
-            type: 'text',
-            text: `Main memory (read-only context):\n\n${mainMemory}`,
+            text: `Long-term memory (read-only context):\n\n${memoryContext}`,
           },
         ],
         timestamp: Date.now(),

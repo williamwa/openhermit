@@ -295,7 +295,7 @@ test('withApproval caches container_start approval by name within a session', as
   assert.equal(approvalCount, 2, 'second call to same name should skip approval');
 });
 
-test('memory_update stores named memory, memory_recall finds it, and memory_get returns full content', async (t) => {
+test('memory_add stores entry, memory_recall finds it, and memory_get returns full content', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: { ANTHROPIC_API_KEY: 'key' },
   });
@@ -303,7 +303,7 @@ test('memory_update stores named memory, memory_recall finds it, and memory_get 
 
   const store = SqliteInternalStateStore.open(security.stateFilePath);
   t.after(() => store.close());
-  const memoryStore = store.memories;
+  const memoryProvider = store.memories;
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
     stateFilePath: security.stateFilePath,
@@ -311,22 +311,21 @@ test('memory_update stores named memory, memory_recall finds it, and memory_get 
   const tools = createBuiltInTools({
     security,
     containerManager,
-    memoryStore,
+    memoryProvider,
     storeScope: standaloneScope,
   });
-  const updateTool = findTool(tools, 'memory_update');
+  const addTool = findTool(tools, 'memory_add');
   const getTool = findTool(tools, 'memory_get');
   const recallTool = findTool(tools, 'memory_recall');
 
-  const updateResult = await updateTool.execute('call-memory-update', {
-    key: 'main',
-    title: 'Language preference',
+  const addResult = await addTool.execute('call-memory-add', {
+    id: 'lang-pref',
     content: 'The user prefers TypeScript for new examples.',
-    tags: ['preferences', 'language'],
+    metadata: { title: 'Language preference' },
   });
 
-  const updateDetails = updateResult.details as Record<string, unknown>;
-  assert.equal(updateDetails.memoryKey, 'main');
+  const addDetails = addResult.details as Record<string, unknown>;
+  assert.equal(addDetails.id, 'lang-pref');
 
   const recallResult = await recallTool.execute('call-memory-recall', {
     query: 'TypeScript',
@@ -335,25 +334,23 @@ test('memory_update stores named memory, memory_recall finds it, and memory_get 
 
   const recallText = getFirstText(recallResult);
   assert.match(recallText, /TypeScript/);
-  assert.match(recallText, /Language preference/);
 
   const recallDetails = recallResult.details as Record<string, unknown>;
   assert.equal(recallDetails.query, 'TypeScript');
   assert.equal(recallDetails.count, 1);
 
   const getResult = await getTool.execute('call-memory-get', {
-    key: 'main',
+    id: 'lang-pref',
   });
   const getDetails = getResult.details as Record<string, unknown>;
-  assert.equal(getDetails.memoryKey, 'main');
+  assert.equal(getDetails.id, 'lang-pref');
   assert.equal(
     getDetails.content,
     'The user prefers TypeScript for new examples.',
   );
-  assert.equal(getDetails.title, 'Language preference');
 });
 
-test('memory_recall supports key_prefix filtering and memory_update can write now', async (t) => {
+test('memory_add creates entries and memory_recall searches them', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: { ANTHROPIC_API_KEY: 'key' },
   });
@@ -361,7 +358,7 @@ test('memory_recall supports key_prefix filtering and memory_update can write no
 
   const store = SqliteInternalStateStore.open(security.stateFilePath);
   t.after(() => store.close());
-  const memoryStore = store.memories;
+  const memoryProvider = store.memories;
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
     stateFilePath: security.stateFilePath,
@@ -369,35 +366,34 @@ test('memory_recall supports key_prefix filtering and memory_update can write no
   const tools = createBuiltInTools({
     security,
     containerManager,
-    memoryStore,
+    memoryProvider,
     storeScope: standaloneScope,
   });
-  const updateTool = findTool(tools, 'memory_update');
+  const addTool = findTool(tools, 'memory_add');
   const recallTool = findTool(tools, 'memory_recall');
 
-  await updateTool.execute('call-memory-update-now', {
-    key: 'now',
+  await addTool.execute('call-memory-add-focus', {
+    id: 'current-focus',
     content: 'I am currently working in session:web:abc on the OpenHermit web UI.',
   });
-  await updateTool.execute('call-memory-update-project', {
-    key: 'project/openhermit/plan',
+  await addTool.execute('call-memory-add-project', {
+    id: 'project/openhermit/plan',
     content: 'Next up: scheduler and identity split.',
   });
 
-  const recallResult = await recallTool.execute('call-memory-recall-prefix', {
+  const recallResult = await recallTool.execute('call-memory-recall-search', {
     query: 'scheduler',
-    key_prefix: 'project/openhermit/',
   });
 
   const recallDetails = recallResult.details as Record<string, unknown>;
   assert.equal(recallDetails.count, 1);
   assert.equal(
-    (recallDetails.matches as Array<Record<string, unknown>>)[0]?.memoryKey,
+    (recallDetails.matches as Array<Record<string, unknown>>)[0]?.id,
     'project/openhermit/plan',
   );
 });
 
-test('memory_get rejects unknown keys', async (t) => {
+test('memory_get rejects unknown IDs', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: { ANTHROPIC_API_KEY: 'key' },
   });
@@ -405,7 +401,7 @@ test('memory_get rejects unknown keys', async (t) => {
 
   const store = SqliteInternalStateStore.open(security.stateFilePath);
   t.after(() => store.close());
-  const memoryStore = store.memories;
+  const memoryProvider = store.memories;
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
     stateFilePath: security.stateFilePath,
@@ -413,7 +409,7 @@ test('memory_get rejects unknown keys', async (t) => {
   const tools = createBuiltInTools({
     security,
     containerManager,
-    memoryStore,
+    memoryProvider,
     storeScope: standaloneScope,
   });
   const getTool = findTool(tools, 'memory_get');
@@ -421,7 +417,7 @@ test('memory_get rejects unknown keys', async (t) => {
   await assert.rejects(
     () =>
       getTool.execute('call-memory-get-missing', {
-        key: 'project/missing',
+        id: 'project/missing',
       }),
     (error: unknown) =>
       error instanceof ValidationError
@@ -429,7 +425,7 @@ test('memory_get rejects unknown keys', async (t) => {
   );
 });
 
-test('memory_update is blocked in readonly mode', async (t) => {
+test('memory_add is blocked in readonly mode', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: { ANTHROPIC_API_KEY: 'key' },
     security: {
@@ -441,7 +437,7 @@ test('memory_update is blocked in readonly mode', async (t) => {
 
   const store = SqliteInternalStateStore.open(security.stateFilePath);
   t.after(() => store.close());
-  const memoryStore = store.memories;
+  const memoryProvider = store.memories;
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
     stateFilePath: security.stateFilePath,
@@ -449,14 +445,14 @@ test('memory_update is blocked in readonly mode', async (t) => {
   const tools = createBuiltInTools({
     security,
     containerManager,
-    memoryStore,
+    memoryProvider,
     storeScope: standaloneScope,
   });
-  const updateTool = findTool(tools, 'memory_update');
+  const addTool = findTool(tools, 'memory_add');
 
   await assert.rejects(
     () =>
-      updateTool.execute('call-memory-readonly', {
+      addTool.execute('call-memory-readonly', {
         content: 'Remember this forever.',
       }),
     ValidationError,

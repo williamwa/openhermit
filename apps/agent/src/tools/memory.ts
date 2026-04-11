@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto';
-
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 import { Type, type Static } from '@mariozechner/pi-ai';
 import { ValidationError } from '@openhermit/shared';
@@ -13,17 +11,11 @@ import {
 
 const MemoryRecallParams = Type.Object({
   query: Type.String({
-    description: 'Keyword or phrase to search in named system memory.',
+    description: 'Keyword or phrase to search in memory.',
   }),
   limit: Type.Optional(
     Type.Number({
       description: 'Maximum number of matches to return. Defaults to 5.',
-    }),
-  ),
-  key_prefix: Type.Optional(
-    Type.String({
-      description:
-        'Optional memory-key prefix filter, for example "project/openhermit/" or "user/preferences/".',
     }),
   ),
 });
@@ -31,84 +23,81 @@ const MemoryRecallParams = Type.Object({
 type MemoryRecallArgs = Static<typeof MemoryRecallParams>;
 
 const MemoryGetParams = Type.Object({
-  key: Type.String({
+  id: Type.String({
     description:
-      'Exact memory key to read, for example "main", "now", or "project/openhermit/plan".',
+      'Exact memory entry ID to read.',
   }),
 });
 
 type MemoryGetArgs = Static<typeof MemoryGetParams>;
 
 const MemoryUpdateParams = Type.Object({
-  key: Type.Optional(
-    Type.String({
-      description:
-        'Stable memory key. Prefer semantic keys such as "main", "now", "project/openhermit/plan", or "user/preferences/style". If omitted, one is generated automatically.',
-    }),
-  ),
-  title: Type.Optional(
-    Type.String({
-      description: 'Short title for this long-term memory entry.',
-    }),
-  ),
-  content: Type.String({
-    description: 'The memory content to store.',
+  id: Type.String({
+    description: 'ID of the memory entry to update.',
   }),
-  tags: Type.Optional(
-    Type.Array(
-      Type.String({
-        description: 'Optional tags to help future retrieval.',
-      }),
-    ),
+  content: Type.Optional(
+    Type.String({
+      description: 'New content for the memory entry.',
+    }),
+  ),
+  metadata: Type.Optional(
+    Type.Record(Type.String(), Type.Unknown(), {
+      description: 'Metadata to merge into the existing entry.',
+    }),
   ),
 });
 
 type MemoryUpdateArgs = Static<typeof MemoryUpdateParams>;
 
-const slugify = (value: string): string =>
-  value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48);
+const MemoryAddParams = Type.Object({
+  id: Type.Optional(
+    Type.String({
+      description:
+        'Stable memory ID. Prefer semantic keys such as "project/openhermit/plan" or "user/preferences/style". If omitted, one is generated automatically.',
+    }),
+  ),
+  content: Type.String({
+    description: 'The memory content to store.',
+  }),
+  metadata: Type.Optional(
+    Type.Record(Type.String(), Type.Unknown(), {
+      description: 'Optional metadata (e.g. title, tags) to help future retrieval.',
+    }),
+  ),
+});
 
-const normalizeLongTermMemoryKey = (args: MemoryUpdateArgs): string => {
-  if (args.key && args.key.trim()) {
-    return args.key.trim();
-  }
+type MemoryAddArgs = Static<typeof MemoryAddParams>;
 
-  const seed = args.title?.trim() || args.content.trim().slice(0, 48);
-  const slug = slugify(seed);
+const MemoryDeleteParams = Type.Object({
+  id: Type.String({
+    description: 'ID of the memory entry to delete.',
+  }),
+});
 
-  return slug.length > 0
-    ? `notes/${slug}`
-    : `notes/${randomUUID().slice(0, 8)}`;
-};
+type MemoryDeleteArgs = Static<typeof MemoryDeleteParams>;
 
 export const createMemoryGetTool = ({
-  memoryStore,
+  memoryProvider,
   storeScope,
 }: ToolContext): AgentTool<typeof MemoryGetParams> => ({
   name: 'memory_get',
   label: 'Get Memory',
   description:
-    'Read one named system memory entry by exact key. Use this after memory_recall when you need the full current content before updating it.',
+    'Read one memory entry by exact ID.',
   parameters: MemoryGetParams,
   execute: async (_toolCallId, args: MemoryGetArgs) => {
-    if (!memoryStore || !storeScope) {
-      throw new ValidationError('memory_get is unavailable: no memory store is configured.');
+    if (!memoryProvider || !storeScope) {
+      throw new ValidationError('memory_get is unavailable: no memory provider is configured.');
     }
 
-    const key = args.key.trim();
-
-    if (!key) {
-      throw new ValidationError('memory_get requires a non-empty key.');
+    const id = args.id.trim();
+    if (!id) {
+      throw new ValidationError('memory_get requires a non-empty id.');
     }
 
-    const entry = await memoryStore.getMemoryEntry(storeScope, key);
-
+    const entry = await memoryProvider.get(storeScope, id);
     if (!entry) {
-      throw new ValidationError(`Memory not found: ${key}`);
+      throw new ValidationError(`Memory not found: ${id}`);
     }
 
     return {
@@ -119,43 +108,36 @@ export const createMemoryGetTool = ({
 });
 
 export const createMemoryRecallTool = ({
-  memoryStore,
+  memoryProvider,
   storeScope,
 }: ToolContext): AgentTool<typeof MemoryRecallParams> => ({
   name: 'memory_recall',
   label: 'Recall Memory',
   description:
-    'Search named system memory records such as "main", "now", and structured keys like "project/openhermit/plan". Use this to recall saved preferences, stable facts, current focus, or durable project knowledge.',
+    'Search memory entries by keyword or phrase. Use this to recall saved preferences, facts, or project knowledge.',
   parameters: MemoryRecallParams,
   execute: async (_toolCallId, args: MemoryRecallArgs) => {
-    if (!memoryStore || !storeScope) {
-      throw new ValidationError('memory_recall is unavailable: no memory store is configured.');
+    if (!memoryProvider || !storeScope) {
+      throw new ValidationError('memory_recall is unavailable: no memory provider is configured.');
     }
 
     const query = args.query.trim();
-
     if (!query) {
       throw new ValidationError('memory_recall requires a non-empty query.');
     }
 
     const limit = Math.max(1, Math.min(10, Math.trunc(args.limit ?? 5)));
-    const matches = await memoryStore.recallLongTermMemories(
-      storeScope,
-      query,
-      limit,
-      args.key_prefix,
-    );
+    const matches = await memoryProvider.search(storeScope, query, { limit });
 
     const text = matches.length > 0
       ? formatJson(matches)
-      : 'No long-term memory entries matched.\n';
+      : 'No memory entries matched.\n';
 
     return {
       content: asTextContent(text),
       details: {
         query,
         limit,
-        ...(args.key_prefix ? { keyPrefix: args.key_prefix } : {}),
         count: matches.length,
         matches,
       },
@@ -163,42 +145,102 @@ export const createMemoryRecallTool = ({
   },
 });
 
+export const createMemoryAddTool = ({
+  security,
+  memoryProvider,
+  storeScope,
+}: ToolContext): AgentTool<typeof MemoryAddParams> => ({
+  name: 'memory_add',
+  label: 'Add Memory',
+  description:
+    'Create or upsert a memory entry. Use semantic IDs like "project/plan" or "user/preferences" for stable entries, or omit the ID for auto-generated ones.',
+  parameters: MemoryAddParams,
+  execute: async (_toolCallId, args: MemoryAddArgs) => {
+    ensureAutonomyAllows(security, 'memory_add');
+
+    if (!memoryProvider || !storeScope) {
+      throw new ValidationError('memory_add is unavailable: no memory provider is configured.');
+    }
+
+    const content = args.content.trim();
+    if (!content) {
+      throw new ValidationError('memory_add requires non-empty content.');
+    }
+
+    const entry = await memoryProvider.add(storeScope, {
+      ...(args.id?.trim() ? { id: args.id.trim() } : {}),
+      content,
+      ...(args.metadata ? { metadata: args.metadata as Record<string, unknown> } : {}),
+    });
+
+    return {
+      content: asTextContent(formatJson(entry)),
+      details: entry,
+    };
+  },
+});
+
 export const createMemoryUpdateTool = ({
   security,
-  memoryStore,
+  memoryProvider,
   storeScope,
 }: ToolContext): AgentTool<typeof MemoryUpdateParams> => ({
   name: 'memory_update',
   label: 'Update Memory',
   description:
-    'Create or update a named system memory entry. Use "main" for stable durable memory, "now" for current cross-session focus, and structured keys like "project/openhermit/plan" for topic-specific memory.',
+    'Update an existing memory entry by ID. Use memory_get first to read the current content before updating.',
   parameters: MemoryUpdateParams,
   execute: async (_toolCallId, args: MemoryUpdateArgs) => {
     ensureAutonomyAllows(security, 'memory_update');
 
-    if (!memoryStore || !storeScope) {
-      throw new ValidationError('memory_update is unavailable: no memory store is configured.');
+    if (!memoryProvider || !storeScope) {
+      throw new ValidationError('memory_update is unavailable: no memory provider is configured.');
     }
 
-    const content = args.content.trim();
-
-    if (!content) {
-      throw new ValidationError('memory_update requires non-empty content.');
+    const id = args.id.trim();
+    if (!id) {
+      throw new ValidationError('memory_update requires a non-empty id.');
     }
 
-    const key = normalizeLongTermMemoryKey(args);
-    const updated = await memoryStore.upsertLongTermMemory(storeScope, {
-      key,
-      content,
-      ...(args.title?.trim() ? { title: args.title.trim() } : {}),
-      ...(args.tags?.length ? { tags: args.tags.map((tag) => tag.trim()).filter(Boolean) } : {}),
-      updatedAt: new Date().toISOString(),
-      kind: key === 'main' ? 'main' : key === 'now' ? 'now' : 'named',
+    const entry = await memoryProvider.update(storeScope, id, {
+      ...(args.content?.trim() ? { content: args.content.trim() } : {}),
+      ...(args.metadata ? { metadata: args.metadata as Record<string, unknown> } : {}),
     });
 
     return {
-      content: asTextContent(formatJson(updated)),
-      details: updated,
+      content: asTextContent(formatJson(entry)),
+      details: entry,
+    };
+  },
+});
+
+export const createMemoryDeleteTool = ({
+  security,
+  memoryProvider,
+  storeScope,
+}: ToolContext): AgentTool<typeof MemoryDeleteParams> => ({
+  name: 'memory_delete',
+  label: 'Delete Memory',
+  description:
+    'Delete a memory entry by ID.',
+  parameters: MemoryDeleteParams,
+  execute: async (_toolCallId, args: MemoryDeleteArgs) => {
+    ensureAutonomyAllows(security, 'memory_delete');
+
+    if (!memoryProvider || !storeScope) {
+      throw new ValidationError('memory_delete is unavailable: no memory provider is configured.');
+    }
+
+    const id = args.id.trim();
+    if (!id) {
+      throw new ValidationError('memory_delete requires a non-empty id.');
+    }
+
+    await memoryProvider.delete(storeScope, id);
+
+    return {
+      content: asTextContent(`Deleted memory: ${id}\n`),
+      details: { id },
     };
   },
 });

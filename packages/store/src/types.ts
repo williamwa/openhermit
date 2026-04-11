@@ -44,20 +44,27 @@ export interface EpisodicLogEntry {
 }
 
 export interface MemoryEntry {
-  memoryKey: string;
+  id: string;
   content: string;
-  title?: string;
-  tags?: string[];
+  metadata: Record<string, unknown>;
+  createdAt: string;
   updatedAt: string;
 }
 
-export interface LongTermMemoryInput {
-  key: string;
+export interface MemoryAddInput {
   content: string;
-  title?: string;
-  tags?: string[];
-  updatedAt: string;
-  kind?: string;
+  id?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface MemoryUpdateInput {
+  content?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface MemorySearchOptions {
+  limit?: number;
+  filter?: Record<string, unknown>;
 }
 
 export type ContainerType = 'ephemeral' | 'service' | 'workspace';

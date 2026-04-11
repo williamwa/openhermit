@@ -1,10 +1,12 @@
 import { ValidationError } from '@openhermit/shared';
-import type { InstructionStore, MemoryStore, StoreScope } from '@openhermit/store';
+import type { InstructionStore, MemoryProvider, StoreScope } from '@openhermit/store';
 
 import { AgentSecurity, type DockerContainerManager, type WorkspaceContainerConfig } from '../core/index.js';
 
 const READONLY_BLOCKED_TOOLS = new Set([
+  'memory_add',
   'memory_update',
+  'memory_delete',
   'container_run',
   'container_start',
   'container_stop',
@@ -36,7 +38,7 @@ export type ToolRequestedCallback = (
 export interface ToolContext {
   security: AgentSecurity;
   containerManager: DockerContainerManager;
-  memoryStore?: MemoryStore;
+  memoryProvider?: MemoryProvider;
   instructionStore?: InstructionStore;
   storeScope?: StoreScope;
   agentId?: string;

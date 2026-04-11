@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { InternalStateStore } from '../interfaces.js';
 import { SqliteSessionStore } from './session-store.js';
 import { SqliteMessageStore } from './message-store.js';
-import { SqliteMemoryStore } from './memory-store.js';
+import { SqliteMemoryProvider } from './memory-provider.js';
 import { SqliteContainerStore } from './container-store.js';
 import { SqliteInstructionStore } from './instruction-store.js';
 import { bootstrapDatabase, CURRENT_SCHEMA_VERSION, getSchemaVersion } from './migrations.js';
@@ -13,7 +13,7 @@ import { bootstrapDatabase, CURRENT_SCHEMA_VERSION, getSchemaVersion } from './m
 export class SqliteInternalStateStore implements InternalStateStore {
   readonly sessions: SqliteSessionStore;
   readonly messages: SqliteMessageStore;
-  readonly memories: SqliteMemoryStore;
+  readonly memories: SqliteMemoryProvider;
   readonly containers: SqliteContainerStore;
   readonly instructions: SqliteInstructionStore;
 
@@ -23,7 +23,7 @@ export class SqliteInternalStateStore implements InternalStateStore {
   ) {
     this.sessions = new SqliteSessionStore(database);
     this.messages = new SqliteMessageStore(database);
-    this.memories = new SqliteMemoryStore(database);
+    this.memories = new SqliteMemoryProvider(database);
     this.containers = new SqliteContainerStore(database);
     this.instructions = new SqliteInstructionStore(database);
   }
@@ -58,7 +58,7 @@ export class SqliteInternalStateStore implements InternalStateStore {
 
 export { SqliteSessionStore } from './session-store.js';
 export { SqliteMessageStore } from './message-store.js';
-export { SqliteMemoryStore } from './memory-store.js';
+export { SqliteMemoryProvider } from './memory-provider.js';
 export { SqliteContainerStore } from './container-store.js';
 export { SqliteInstructionStore } from './instruction-store.js';
 export { CURRENT_SCHEMA_VERSION, bootstrapDatabase, getSchemaVersion } from './migrations.js';

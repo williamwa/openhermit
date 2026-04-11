@@ -5,8 +5,10 @@ import type {
   ContainerRegistryEntry,
   EpisodicLogEntry,
   InstructionEntry,
-  LongTermMemoryInput,
+  MemoryAddInput,
   MemoryEntry,
+  MemorySearchOptions,
+  MemoryUpdateInput,
   PersistedSessionIndexEntry,
   SessionLogEntry,
   StoreScope,
@@ -31,14 +33,16 @@ export interface MessageStore {
   setSessionWorkingMemory(scope: StoreScope, sessionId: string, content: string, updatedAt: string): Promise<void>;
 }
 
-export interface MemoryStore {
-  getMemory(scope: StoreScope, key: string): Promise<string | undefined>;
-  getMemoryEntry(scope: StoreScope, key: string): Promise<MemoryEntry | undefined>;
-  setMemory(scope: StoreScope, key: string, content: string, updatedAt: string, metadata?: Record<string, unknown>): Promise<void>;
-  recallLongTermMemories(scope: StoreScope, query: string, limit: number, keyPrefix?: string): Promise<MemoryEntry[]>;
-  upsertLongTermMemory(scope: StoreScope, input: LongTermMemoryInput): Promise<MemoryEntry>;
-  getMainMemory(scope: StoreScope): Promise<string | undefined>;
-  getNowMemory(scope: StoreScope): Promise<string | undefined>;
+export interface MemoryProvider {
+  readonly name: string;
+  initialize(scope: StoreScope): Promise<void>;
+  shutdown(): Promise<void>;
+  add(scope: StoreScope, input: MemoryAddInput): Promise<MemoryEntry>;
+  search(scope: StoreScope, query: string, options?: MemorySearchOptions): Promise<MemoryEntry[]>;
+  get(scope: StoreScope, id: string): Promise<MemoryEntry | undefined>;
+  update(scope: StoreScope, id: string, input: MemoryUpdateInput): Promise<MemoryEntry>;
+  delete(scope: StoreScope, id: string): Promise<void>;
+  getContextBlock(scope: StoreScope): Promise<string | undefined>;
 }
 
 export interface ContainerStore {
@@ -57,7 +61,7 @@ export interface InstructionStore {
 export interface InternalStateStore {
   sessions: SessionStore;
   messages: MessageStore;
-  memories: MemoryStore;
+  memories: MemoryProvider;
   containers: ContainerStore;
   instructions: InstructionStore;
   close(): void;

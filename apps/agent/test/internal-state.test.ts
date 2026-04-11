@@ -80,9 +80,10 @@ test('SqliteInternalStateStore supports basic CRUD with FK integrity', async (t)
   assert.equal(messages[0]?.content, 'hello');
 
   // Write and read memory
-  await store.memories.setMemory(standaloneScope, 'main', 'remember this', new Date().toISOString());
-  const mainMemory = await store.memories.getMainMemory(standaloneScope);
-  assert.equal(mainMemory, 'remember this');
+  const entry = await store.memories.add(standaloneScope, { id: 'test-key', content: 'remember this' });
+  assert.equal(entry.content, 'remember this');
+  const readBack = await store.memories.get(standaloneScope, 'test-key');
+  assert.equal(readBack?.content, 'remember this');
 });
 
 test('AgentSecurity exposes per-agent internal state paths outside the workspace', async (t) => {

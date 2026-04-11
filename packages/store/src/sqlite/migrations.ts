@@ -68,14 +68,14 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS memories (
     agent_id TEXT NOT NULL DEFAULT '${STANDALONE_AGENT_ID}',
     memory_key TEXT NOT NULL,
-    memory_kind TEXT NOT NULL,
     content TEXT NOT NULL,
     metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL,
     PRIMARY KEY (agent_id, memory_key)
   ) STRICT;`,
   `CREATE INDEX IF NOT EXISTS idx_memories_agent
-    ON memories(agent_id, memory_kind, memory_key);`,
+    ON memories(agent_id, updated_at DESC);`,
   `CREATE TABLE IF NOT EXISTS containers (
     agent_id TEXT NOT NULL DEFAULT '${STANDALONE_AGENT_ID}',
     container_name TEXT NOT NULL,
@@ -101,9 +101,13 @@ const schemaStatements = [
 const migrationStatements = [
   // v7: rename container_runtime_entries → containers
   `ALTER TABLE container_runtime_entries RENAME TO containers;`,
+  // v8: drop memory_kind column, add created_at to memories
+  `ALTER TABLE memories ADD COLUMN created_at TEXT NOT NULL DEFAULT '';`,
+  `DROP INDEX IF EXISTS idx_memories_agent;`,
+  `CREATE INDEX IF NOT EXISTS idx_memories_agent ON memories(agent_id, updated_at DESC);`,
 ] as const;
 
-export const CURRENT_SCHEMA_VERSION = 7;
+export const CURRENT_SCHEMA_VERSION = 8;
 
 const ensureMetaTable = (database: DatabaseSync): void => {
   database.exec(

@@ -1,7 +1,7 @@
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 
 import { createContainerExecTool, createContainerRunTool, createContainerStartTool, createContainerStatusTool, createContainerStopTool, summarizeContainerEntry, summarizeContainerList } from './tools/container.js';
-import { createMemoryGetTool, createMemoryRecallTool, createMemoryUpdateTool } from './tools/memory.js';
+import { createMemoryAddTool, createMemoryDeleteTool, createMemoryGetTool, createMemoryRecallTool, createMemoryUpdateTool } from './tools/memory.js';
 import { withApproval } from './tools/approval.js';
 import type {
   ApprovalCallback,
@@ -34,11 +34,13 @@ export const createBuiltInTools = (
   const { security, approvalCallback, approvedCache, onToolRequested, onToolStarted } = context;
 
   const tools = [
-    ...(context.memoryStore
+    ...(context.memoryProvider
       ? [
           createMemoryGetTool(context),
           createMemoryRecallTool(context),
+          createMemoryAddTool(context),
           createMemoryUpdateTool(context),
+          createMemoryDeleteTool(context),
         ]
       : []),
     ...(context.instructionStore
