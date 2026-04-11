@@ -13,6 +13,9 @@
       ],
       "@openhermit/sdk": [
         "packages/sdk/src/index.ts"
+      ],
+      "@openhermit/store": [
+        "packages/store/src/index.ts"
       ]
     },
     "lib": [

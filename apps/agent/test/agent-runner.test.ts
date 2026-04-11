@@ -12,8 +12,7 @@ import {
 
 import { AgentRunner } from '../src/agent-runner.js';
 import type { LangfuseClientLike } from '../src/langfuse.js';
-import { openInternalStateDatabase } from '../src/internal-state/sqlite.js';
-import { SessionLogWriter } from '../src/session-logs.js';
+import { SqliteInternalStateStore, standaloneScope } from '@openhermit/store';
 import { createSecurityFixture } from './helpers.js';
 
 const zeroUsage: Usage = {
@@ -332,20 +331,22 @@ test('AgentRunner injects session-local working memory before now and main memor
       interactive: true,
     },
   });
-  const database = openInternalStateDatabase(security.stateFilePath);
-  t.after(() => database.close());
-  const logWriter = new SessionLogWriter(database);
-  await logWriter.setSessionWorkingMemory(
+  const store = SqliteInternalStateStore.open(security.stateFilePath);
+  t.after(() => store.close());
+  await store.messages.setSessionWorkingMemory(
+    standaloneScope,
     'cli:working-context',
     '# Session Working Memory\nsession local context\n',
     '2026-03-13T00:00:00.000Z',
   );
-  await logWriter.setMemory(
+  await store.memories.setMemory(
+    standaloneScope,
     'now',
     '# Now Memory\ncurrent active work\n',
     '2026-03-13T00:00:00.000Z',
   );
-  await logWriter.setMemory(
+  await store.memories.setMemory(
+    standaloneScope,
     'main',
     '# Main Memory\nstable user preference\n',
     '2026-03-13T00:00:00.000Z',
@@ -739,10 +740,10 @@ test('AgentRunner writes episodic checkpoints on explicit checkpoint requests an
   assert.doesNotMatch(String(secondData?.summary ?? ''), /first question/);
   assert.match(String(secondData?.summary ?? ''), /second question/);
 
-  const database = openInternalStateDatabase(security.stateFilePath);
-  t.after(() => database.close());
-  const logWriter = new SessionLogWriter(database);
-  const workingMemory = await logWriter.getSessionWorkingMemory(
+  const store = SqliteInternalStateStore.open(security.stateFilePath);
+  t.after(() => store.close());
+  const workingMemory = await store.messages.getSessionWorkingMemory(
+    standaloneScope,
     'cli:checkpoint-session',
   );
   assert.ok(workingMemory);
@@ -792,10 +793,10 @@ test('AgentRunner uses an internal checkpoint turn by default instead of an exte
   assert.equal(episodicEntries.length, 1);
   assert.equal(checkpointData?.summary, 'internal summary for checkpoint');
 
-  const database = openInternalStateDatabase(security.stateFilePath);
-  t.after(() => database.close());
-  const logWriter = new SessionLogWriter(database);
-  const workingMemory = await logWriter.getSessionWorkingMemory(
+  const store = SqliteInternalStateStore.open(security.stateFilePath);
+  t.after(() => store.close());
+  const workingMemory = await store.messages.getSessionWorkingMemory(
+    standaloneScope,
     'cli:internal-checkpoint-session',
   );
 

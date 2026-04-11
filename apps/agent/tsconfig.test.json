@@ -10,6 +10,7 @@
     "test",
     "../../packages/protocol/src",
     "../../packages/sdk/src",
-    "../../packages/shared/src"
+    "../../packages/shared/src",
+    "../../packages/store/src"
   ]
 }

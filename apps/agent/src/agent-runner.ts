@@ -1,7 +1,12 @@
 import { Agent, type AgentEvent, type AgentMessage } from '@mariozechner/pi-agent-core';
-import type { DatabaseSync } from 'node:sqlite';
 import type { SessionHistoryMessage, SessionListQuery, SessionMessage, SessionSpec, SessionSummary } from '@openhermit/protocol';
 import { NotFoundError, ValidationError, getErrorMessage } from '@openhermit/shared';
+import {
+  type InternalStateStore,
+  type StoreScope,
+  SqliteInternalStateStore,
+  standaloneScope,
+} from '@openhermit/store';
 
 import {
   AgentSecurity,
@@ -28,10 +33,6 @@ import {
   serializeDetails,
 } from './agent-runner/message-utils.js';
 import {
-  SessionIndexStore,
-  SessionLogWriter,
-} from './session-logs.js';
-import {
   createFallbackDescription,
   normalizeGeneratedDescription,
 } from './session-utils.js';
@@ -47,7 +48,6 @@ import {
   type ToolStartedCallback,
   createBuiltInTools,
 } from './tools.js';
-import { openInternalStateDatabase } from './internal-state/sqlite.js';
 
 const DEFAULT_CONTEXT_COMPACTION_RECENT_MESSAGE_COUNT = 6;
 
@@ -198,29 +198,25 @@ export class AgentRunner implements SessionRuntime {
 
   private readonly containerManager: DockerContainerManager;
 
-  private readonly sessionIndex: SessionIndexStore;
+  private readonly store: InternalStateStore;
 
-  private readonly logWriter: SessionLogWriter;
+  private readonly scope: StoreScope;
 
   private readonly sessions = new Map<string, RunnerSession>();
-
-  private readonly internalStateDatabase: DatabaseSync;
 
   private logRuntime(message: string): void {
     console.log(`[openhermit-agent] ${message}`);
   }
 
   private constructor(private readonly options: AgentRunnerOptions) {
-    this.internalStateDatabase = openInternalStateDatabase(
-      options.security.stateFilePath,
-    );
+    this.store = options.store
+      ?? SqliteInternalStateStore.open(options.security.stateFilePath);
+    this.scope = standaloneScope;
     this.containerManager =
       options.containerManager
       ?? new DockerContainerManager(options.workspace, {
         stateFilePath: options.security.stateFilePath,
       });
-    this.sessionIndex = new SessionIndexStore(this.internalStateDatabase);
-    this.logWriter = new SessionLogWriter(this.internalStateDatabase);
   }
 
   static async create(options: AgentRunnerOptions): Promise<AgentRunner> {
@@ -260,7 +256,7 @@ export class AgentRunner implements SessionRuntime {
       };
     }
 
-    const persisted = await this.sessionIndex.get(spec.sessionId);
+    const persisted = await this.store.sessions.get(this.scope,spec.sessionId);
     const mergedMetadata = {
       ...(persisted?.metadata ?? {}),
       ...(spec.metadata ?? {}),
@@ -338,7 +334,7 @@ export class AgentRunner implements SessionRuntime {
     this.sessions.set(spec.sessionId, session);
     await this.persistSessionIndex(session);
     if (!persisted) {
-      await this.logWriter.writeSessionStarted(effectiveSpec, {
+      await this.store.messages.writeSessionStarted(this.scope,effectiveSpec, {
         provider: config.model.provider,
         model: config.model.model,
       });
@@ -367,7 +363,7 @@ export class AgentRunner implements SessionRuntime {
   }
 
   async listSessions(query: SessionListQuery = {}): Promise<SessionSummary[]> {
-    const persistedSessions = await this.sessionIndex.list();
+    const persistedSessions = await this.store.sessions.list(this.scope);
     const limit = query.limit;
     const summaries = buildSessionSummaries(
       persistedSessions,
@@ -384,16 +380,16 @@ export class AgentRunner implements SessionRuntime {
 
     if (activeSession) {
       await activeSession.sideEffects;
-      return this.logWriter.listHistoryMessages(activeSession.spec.sessionId);
+      return this.store.messages.listHistoryMessages(this.scope,activeSession.spec.sessionId);
     }
 
-    const persisted = await this.sessionIndex.get(sessionId);
+    const persisted = await this.store.sessions.get(this.scope,sessionId);
 
     if (!persisted) {
       throw new NotFoundError(`Session not found: ${sessionId}`);
     }
 
-    return this.logWriter.listHistoryMessages(persisted.sessionId);
+    return this.store.messages.listHistoryMessages(this.scope,persisted.sessionId);
   }
 
   async listEpisodicEntries(sessionId: string) {
@@ -401,16 +397,16 @@ export class AgentRunner implements SessionRuntime {
 
     if (activeSession) {
       await activeSession.sideEffects;
-      return this.logWriter.listEpisodicEntries(activeSession.spec.sessionId);
+      return this.store.messages.listEpisodicEntries(this.scope,activeSession.spec.sessionId);
     }
 
-    const persisted = await this.sessionIndex.get(sessionId);
+    const persisted = await this.store.sessions.get(this.scope,sessionId);
 
     if (!persisted) {
       throw new NotFoundError(`Session not found: ${sessionId}`);
     }
 
-    return this.logWriter.listEpisodicEntries(persisted.sessionId);
+    return this.store.messages.listEpisodicEntries(this.scope,persisted.sessionId);
   }
 
   /**
@@ -445,7 +441,7 @@ export class AgentRunner implements SessionRuntime {
     await session.queue;
     await session.sideEffects;
     await session.backgroundTasks;
-    await this.sessionIndex.waitForIdle();
+    await this.store.sessions.waitForIdle();
   }
 
   private getIdleSummaryTimeoutMs(): number {
@@ -494,7 +490,7 @@ export class AgentRunner implements SessionRuntime {
       await session.queue;
       await session.sideEffects;
 
-      const chronologicalHistory = await this.logWriter.listCheckpointHistory(
+      const chronologicalHistory = await this.store.messages.listCheckpointHistory(this.scope,
         session.spec.sessionId,
       );
       const newHistory = chronologicalHistory.slice(session.lastSummarizedHistoryCount);
@@ -504,7 +500,7 @@ export class AgentRunner implements SessionRuntime {
       }
 
       const config = await this.options.security.readConfig();
-      const previousWorkingMemory = await this.logWriter.getSessionWorkingMemory(
+      const previousWorkingMemory = await this.store.messages.getSessionWorkingMemory(this.scope,
         session.spec.sessionId,
       );
       const checkpointArtifacts = await this.generateCheckpointArtifacts({
@@ -528,7 +524,7 @@ export class AgentRunner implements SessionRuntime {
       session.lastSummarizedAt = ts;
       await this.persistSessionIndex(session);
 
-      await this.logWriter.appendEpisodic(session.spec.sessionId, {
+      await this.store.messages.appendEpisodicEntry(this.scope,session.spec.sessionId, {
         ts,
         session: session.spec.sessionId,
         type: reason === 'turn_limit' ? 'session_checkpoint' : 'session_summary',
@@ -562,7 +558,7 @@ export class AgentRunner implements SessionRuntime {
       return;
     }
 
-    await this.logWriter.setSessionWorkingMemory(
+    await this.store.messages.setSessionWorkingMemory(this.scope,
       session.spec.sessionId,
       `${nextWorkingMemory.trim()}\n`,
       new Date().toISOString(),
@@ -593,7 +589,7 @@ export class AgentRunner implements SessionRuntime {
 
     const receivedAt = new Date().toISOString();
     await this.queueSideEffect(session, async () => {
-      await this.logWriter.appendSession(session.spec.sessionId, {
+      await this.store.messages.appendLogEntry(this.scope,session.spec.sessionId, {
         ts: receivedAt,
         role: 'user',
         messageId: message.messageId,
@@ -674,7 +670,7 @@ export class AgentRunner implements SessionRuntime {
       });
 
       await this.queueSideEffect(session, async () => {
-        await this.logWriter.appendSession(session.spec.sessionId, {
+        await this.store.messages.appendLogEntry(this.scope,session.spec.sessionId, {
           ts,
           role: 'tool_call',
           type: 'tool_started',
@@ -698,7 +694,7 @@ export class AgentRunner implements SessionRuntime {
       });
 
       await this.queueSideEffect(session, async () => {
-        await this.logWriter.appendSession(session.spec.sessionId, {
+        await this.store.messages.appendLogEntry(this.scope,session.spec.sessionId, {
           ts,
           role: 'tool_call',
           type: 'tool_requested',
@@ -719,7 +715,7 @@ export class AgentRunner implements SessionRuntime {
     const ts = new Date().toISOString();
 
     await this.queueSideEffect(session, async () => {
-      await this.logWriter.appendSession(session.spec.sessionId, {
+      await this.store.messages.appendLogEntry(this.scope,session.spec.sessionId, {
         ts,
         role: 'system',
         type: 'tool_approval_requested',
@@ -739,7 +735,7 @@ export class AgentRunner implements SessionRuntime {
     const ts = new Date().toISOString();
 
     await this.queueSideEffect(session, async () => {
-      await this.logWriter.appendSession(session.spec.sessionId, {
+      await this.store.messages.appendLogEntry(this.scope,session.spec.sessionId, {
         ts,
         role: 'system',
         type: 'tool_approval_resolved',
@@ -787,7 +783,8 @@ export class AgentRunner implements SessionRuntime {
         workspace: this.options.workspace,
         security: this.options.security,
         containerManager: this.containerManager,
-        memoryStore: this.logWriter,
+        memoryStore: this.store.memories,
+        storeScope: this.scope,
         ...(input.approvalCallback ? { approvalCallback: input.approvalCallback } : {}),
         ...(input.onToolRequested ? { onToolRequested: input.onToolRequested } : {}),
         ...(input.onToolStarted ? { onToolStarted: input.onToolStarted } : {}),
@@ -860,11 +857,11 @@ export class AgentRunner implements SessionRuntime {
     _signal?: AbortSignal,
   ): Promise<AgentMessage[]> {
     const sessionWorking =
-      (await this.logWriter.getSessionWorkingMemory(sessionId)) ?? '';
+      (await this.store.messages.getSessionWorkingMemory(this.scope,sessionId)) ?? '';
     const nowMemory =
-      (await this.logWriter.getNowMemory()) ?? '';
+      (await this.store.memories.getNowMemory(this.scope)) ?? '';
     const mainMemory =
-      (await this.logWriter.getMainMemory()) ?? '';
+      (await this.store.memories.getMainMemory(this.scope)) ?? '';
 
     const contextBlocks: AgentMessage[] = [];
 
@@ -1005,7 +1002,7 @@ export class AgentRunner implements SessionRuntime {
       return combined;
     }
 
-    const episodicEntries = await this.logWriter.listEpisodicEntries(sessionId);
+    const episodicEntries = await this.store.messages.listEpisodicEntries(this.scope,sessionId);
     const checkpointSummaries = episodicEntries
       .map((entry) => entry.data.summary)
       .filter((summary): summary is string => typeof summary === 'string' && summary.trim().length > 0)
@@ -1106,7 +1103,7 @@ export class AgentRunner implements SessionRuntime {
       case 'agent_start': {
         const ts = new Date().toISOString();
         void this.queueSideEffect(session, async () => {
-          await this.logWriter.appendSession(session.spec.sessionId, {
+          await this.store.messages.appendLogEntry(this.scope,session.spec.sessionId, {
             ts,
             role: 'system',
             type: 'agent_start',
@@ -1154,7 +1151,7 @@ export class AgentRunner implements SessionRuntime {
         void this.persistSessionIndex(session);
 
         void this.queueSideEffect(session, async () => {
-          await this.logWriter.appendSession(session.spec.sessionId, {
+          await this.store.messages.appendLogEntry(this.scope,session.spec.sessionId, {
             ts,
             role: 'assistant',
             content: assistantText,
@@ -1186,7 +1183,7 @@ export class AgentRunner implements SessionRuntime {
         });
 
         void this.queueSideEffect(session, async () => {
-          await this.logWriter.appendSession(session.spec.sessionId, {
+          await this.store.messages.appendLogEntry(this.scope,session.spec.sessionId, {
             ts,
             role: 'tool_result',
             name: event.toolName,
@@ -1242,7 +1239,7 @@ export class AgentRunner implements SessionRuntime {
 
         session.latestAssistantText = undefined;
         void this.queueSideEffect(session, async () => {
-          await this.logWriter.appendSession(session.spec.sessionId, {
+          await this.store.messages.appendLogEntry(this.scope,session.spec.sessionId, {
             ts,
             role: 'system',
             type: 'agent_end',
@@ -1279,7 +1276,7 @@ export class AgentRunner implements SessionRuntime {
       });
       this.scheduleIdleSummary(session);
       await this.queueSideEffect(session, async () => {
-        await this.logWriter.appendSession(session.spec.sessionId, {
+        await this.store.messages.appendLogEntry(this.scope,session.spec.sessionId, {
           ts,
           role: 'error',
           message,
@@ -1332,7 +1329,7 @@ export class AgentRunner implements SessionRuntime {
   }
 
   private async persistSessionIndex(session: RunnerSession): Promise<void> {
-    await this.sessionIndex.upsert(createPersistedSessionIndexEntry(session));
+    await this.store.sessions.upsert(this.scope,createPersistedSessionIndexEntry(session));
   }
 
   async listSessionLogEntries(sessionId: string) {
@@ -1340,7 +1337,7 @@ export class AgentRunner implements SessionRuntime {
     if (activeSession) {
       await activeSession.sideEffects.catch(() => undefined);
     }
-    return this.logWriter.listSessionEntries(sessionId);
+    return this.store.messages.listSessionEntries(this.scope,sessionId);
   }
 
   private async maybeGenerateSessionDescription(

@@ -12,8 +12,7 @@ import {
   type DockerRunner,
   DockerContainerManager,
 } from '../src/core/index.js';
-import { openInternalStateDatabase } from '../src/internal-state/sqlite.js';
-import { SessionLogWriter } from '../src/session-logs.js';
+import { SqliteInternalStateStore, standaloneScope } from '@openhermit/store';
 import { createBuiltInTools, withApproval } from '../src/tools.js';
 import { createSecurityFixture, createTempDir } from './helpers.js';
 
@@ -297,9 +296,9 @@ test('memory_update stores named memory, memory_recall finds it, and memory_get 
   });
   await security.load();
 
-  const database = openInternalStateDatabase(security.stateFilePath);
-  t.after(() => database.close());
-  const memoryStore = new SessionLogWriter(database);
+  const store = SqliteInternalStateStore.open(security.stateFilePath);
+  t.after(() => store.close());
+  const memoryStore = store.memories;
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
     stateFilePath: security.stateFilePath,
@@ -309,6 +308,7 @@ test('memory_update stores named memory, memory_recall finds it, and memory_get 
     security,
     containerManager,
     memoryStore,
+    storeScope: standaloneScope,
   });
   const updateTool = findTool(tools, 'memory_update');
   const getTool = findTool(tools, 'memory_get');
@@ -355,9 +355,9 @@ test('memory_recall supports key_prefix filtering and memory_update can write no
   });
   await security.load();
 
-  const database = openInternalStateDatabase(security.stateFilePath);
-  t.after(() => database.close());
-  const memoryStore = new SessionLogWriter(database);
+  const store = SqliteInternalStateStore.open(security.stateFilePath);
+  t.after(() => store.close());
+  const memoryStore = store.memories;
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
     stateFilePath: security.stateFilePath,
@@ -367,6 +367,7 @@ test('memory_recall supports key_prefix filtering and memory_update can write no
     security,
     containerManager,
     memoryStore,
+    storeScope: standaloneScope,
   });
   const updateTool = findTool(tools, 'memory_update');
   const recallTool = findTool(tools, 'memory_recall');
@@ -399,9 +400,9 @@ test('memory_get rejects unknown keys', async (t) => {
   });
   await security.load();
 
-  const database = openInternalStateDatabase(security.stateFilePath);
-  t.after(() => database.close());
-  const memoryStore = new SessionLogWriter(database);
+  const store = SqliteInternalStateStore.open(security.stateFilePath);
+  t.after(() => store.close());
+  const memoryStore = store.memories;
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
     stateFilePath: security.stateFilePath,
@@ -411,6 +412,7 @@ test('memory_get rejects unknown keys', async (t) => {
     security,
     containerManager,
     memoryStore,
+    storeScope: standaloneScope,
   });
   const getTool = findTool(tools, 'memory_get');
 
@@ -435,9 +437,9 @@ test('memory_update is blocked in readonly mode', async (t) => {
   });
   await security.load();
 
-  const database = openInternalStateDatabase(security.stateFilePath);
-  t.after(() => database.close());
-  const memoryStore = new SessionLogWriter(database);
+  const store = SqliteInternalStateStore.open(security.stateFilePath);
+  t.after(() => store.close());
+  const memoryStore = store.memories;
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
     stateFilePath: security.stateFilePath,
@@ -447,6 +449,7 @@ test('memory_update is blocked in readonly mode', async (t) => {
     security,
     containerManager,
     memoryStore,
+    storeScope: standaloneScope,
   });
   const updateTool = findTool(tools, 'memory_update');
 

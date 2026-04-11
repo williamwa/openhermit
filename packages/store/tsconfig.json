@@ -6,10 +6,8 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
   "references": [
-    { "path": "../../packages/protocol" },
-    { "path": "../../packages/sdk" },
-    { "path": "../../packages/shared" },
-    { "path": "../../packages/store" }
+    { "path": "../protocol" },
+    { "path": "../shared" }
   ],
   "include": [
     "src"

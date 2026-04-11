@@ -1,5 +1,6 @@
 import type { Agent, StreamFn } from '@mariozechner/pi-agent-core';
 import type { SessionStatus } from '@openhermit/protocol';
+import type { InternalStateStore } from '@openhermit/store';
 
 import type { AgentConfig } from '../core/index.js';
 import type { LangfuseClientLike } from '../langfuse.js';
@@ -30,6 +31,7 @@ export interface RunnerSession extends SessionDescriptor {
 export interface AgentRunnerOptions {
   workspace: import('../core/index.js').AgentWorkspace;
   security: import('../core/index.js').AgentSecurity;
+  store?: InternalStateStore;
   containerManager?: import('../core/index.js').DockerContainerManager;
   streamFn?: StreamFn;
   langfuse?: LangfuseClientLike;

@@ -87,6 +87,7 @@ const normalizeLongTermMemoryKey = (args: MemoryUpdateArgs): string => {
 
 export const createMemoryGetTool = ({
   memoryStore,
+  storeScope,
 }: ToolContext): AgentTool<typeof MemoryGetParams> => ({
   name: 'memory_get',
   label: 'Get Memory',
@@ -94,7 +95,7 @@ export const createMemoryGetTool = ({
     'Read one named system memory entry by exact key. Use this after memory_recall when you need the full current content before updating it.',
   parameters: MemoryGetParams,
   execute: async (_toolCallId, args: MemoryGetArgs) => {
-    if (!memoryStore) {
+    if (!memoryStore || !storeScope) {
       throw new ValidationError('memory_get is unavailable: no memory store is configured.');
     }
 
@@ -104,7 +105,7 @@ export const createMemoryGetTool = ({
       throw new ValidationError('memory_get requires a non-empty key.');
     }
 
-    const entry = await memoryStore.getMemoryEntry(key);
+    const entry = await memoryStore.getMemoryEntry(storeScope, key);
 
     if (!entry) {
       throw new ValidationError(`Memory not found: ${key}`);
@@ -119,6 +120,7 @@ export const createMemoryGetTool = ({
 
 export const createMemoryRecallTool = ({
   memoryStore,
+  storeScope,
 }: ToolContext): AgentTool<typeof MemoryRecallParams> => ({
   name: 'memory_recall',
   label: 'Recall Memory',
@@ -126,7 +128,7 @@ export const createMemoryRecallTool = ({
     'Search named system memory records such as "main", "now", and structured keys like "project/openhermit/plan". Use this to recall saved preferences, stable facts, current focus, or durable project knowledge.',
   parameters: MemoryRecallParams,
   execute: async (_toolCallId, args: MemoryRecallArgs) => {
-    if (!memoryStore) {
+    if (!memoryStore || !storeScope) {
       throw new ValidationError('memory_recall is unavailable: no memory store is configured.');
     }
 
@@ -138,6 +140,7 @@ export const createMemoryRecallTool = ({
 
     const limit = Math.max(1, Math.min(10, Math.trunc(args.limit ?? 5)));
     const matches = await memoryStore.recallLongTermMemories(
+      storeScope,
       query,
       limit,
       args.key_prefix,
@@ -163,6 +166,7 @@ export const createMemoryRecallTool = ({
 export const createMemoryUpdateTool = ({
   security,
   memoryStore,
+  storeScope,
 }: ToolContext): AgentTool<typeof MemoryUpdateParams> => ({
   name: 'memory_update',
   label: 'Update Memory',
@@ -172,7 +176,7 @@ export const createMemoryUpdateTool = ({
   execute: async (_toolCallId, args: MemoryUpdateArgs) => {
     ensureAutonomyAllows(security, 'memory_update');
 
-    if (!memoryStore) {
+    if (!memoryStore || !storeScope) {
       throw new ValidationError('memory_update is unavailable: no memory store is configured.');
     }
 
@@ -183,7 +187,7 @@ export const createMemoryUpdateTool = ({
     }
 
     const key = normalizeLongTermMemoryKey(args);
-    const updated = await memoryStore.upsertLongTermMemory({
+    const updated = await memoryStore.upsertLongTermMemory(storeScope, {
       key,
       content,
       ...(args.title?.trim() ? { title: args.title.trim() } : {}),

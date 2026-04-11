@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
 import { internalStateFiles } from '@openhermit/shared';
+import { SqliteInternalStateStore, standaloneScope } from '@openhermit/store';
 
 import { initializeInternalStateDatabase, openInternalStateDatabase } from '../src/internal-state/sqlite.js';
 import { createSecurityFixture } from './helpers.js';
@@ -107,6 +108,63 @@ test('initializeInternalStateDatabase migrates a version 3 database to version 4
     rawDatabase.close();
     database.close();
   }
+});
+
+test('SqliteInternalStateStore migrates a v4 database to v5 and FK integrity holds', async (t) => {
+  const { security } = await createSecurityFixture(t);
+
+  // Create a v4 database using the old code path.
+  const legacyDb = initializeInternalStateDatabase(security.stateFilePath);
+  assert.equal(legacyDb.getSchemaVersion(), 4);
+  legacyDb.close();
+
+  // Seed some data so the migration has rows to move.
+  const raw = new DatabaseSync(security.stateFilePath);
+  raw.exec(`
+    INSERT INTO sessions(session_id, source_kind, interactive, created_at, last_activity_at, message_count)
+    VALUES ('s1', 'cli', 1, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 1);
+  `);
+  raw.exec(`
+    INSERT INTO session_events(session_id, ts, event_type, payload_json)
+    VALUES ('s1', '2026-01-01T00:00:00Z', 'session_started', '{}');
+  `);
+  raw.exec(`
+    INSERT INTO session_messages(session_id, ts, role, content)
+    VALUES ('s1', '2026-01-01T00:00:00Z', 'user', 'hello');
+  `);
+  raw.exec(`
+    INSERT INTO memories(memory_key, memory_kind, content, updated_at)
+    VALUES ('main', 'main', 'remember this', '2026-01-01T00:00:00Z');
+  `);
+  raw.close();
+
+  // Open with the new store — triggers migration v5.
+  const store = SqliteInternalStateStore.open(security.stateFilePath);
+  t.after(() => store.close());
+
+  assert.equal(store.getSchemaVersion(), 5);
+
+  // Verify migrated data is accessible.
+  const sessions = await store.sessions.list(standaloneScope);
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0]?.sessionId, 's1');
+
+  const messages = await store.messages.listHistoryMessages(standaloneScope, 's1');
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0]?.content, 'hello');
+
+  const mainMemory = await store.memories.getMainMemory(standaloneScope);
+  assert.equal(mainMemory, 'remember this');
+
+  // Verify inserts work (FK integrity holds for new writes).
+  await store.messages.appendLogEntry(standaloneScope, 's1', {
+    ts: '2026-01-02T00:00:00Z',
+    role: 'assistant',
+    content: 'world',
+  });
+
+  const updatedMessages = await store.messages.listHistoryMessages(standaloneScope, 's1');
+  assert.equal(updatedMessages.length, 2);
 });
 
 test('AgentSecurity exposes per-agent internal state paths outside the workspace', async (t) => {

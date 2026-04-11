@@ -1,6 +1,6 @@
 import type { SessionListQuery, SessionSummary } from '@openhermit/protocol';
 
-import type { PersistedSessionIndexEntry } from '../session-logs.js';
+import type { PersistedSessionIndexEntry } from '@openhermit/store';
 import { matchesSessionListQuery, sortSessionSummaries } from '../session-utils.js';
 import type { RunnerSession } from './types.js';
 
