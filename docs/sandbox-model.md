@@ -10,10 +10,11 @@ It is not yet the implemented source of truth.
 
 OpenHermit currently implements:
 
-- the main agent runtime runs on the host
-- containers are sandboxed tools and services controlled by the host runtime
-- internal runtime state remains host-owned
-- a **workspace container** provides each agent with a persistent execution environment (workspace mounted at `/workspace`, used via `workspace_exec`)
+- all agent work runs inside containers — no direct host execution
+- the **workspace container** is the primary execution environment (workspace mounted at `/workspace`, used via `workspace_exec`)
+- **service containers** run long-lived daemons (databases, web servers)
+- **ephemeral containers** handle one-off isolated tasks
+- the orchestration process manages containers and persists internal state
 
 Three container types are implemented: `ephemeral`, `service`, and `workspace`.
 
@@ -96,14 +97,14 @@ Purpose:
 
 - a persistent working environment for an agent's regular activity
 - a place where installed tools and accumulated environment state survive across runs
-- a safer alternative to giving the main host runtime broad mutable host access
+- a richer persistent environment beyond the current workspace container
 
 Characteristics:
 
 - persists across agent restarts
 - expected to restore prior environment state
 - suitable for repeated daily use by the same agent
-- should still remain more controlled than raw host execution
+- should support declarative environment management beyond basic container state
 
 Examples:
 
@@ -125,7 +126,7 @@ The attraction is that NixOS already has strong primitives for:
 
 For OpenHermit, that suggests a possible daily-sandbox model:
 
-- the host runtime remains the orchestrator
+- the orchestration process remains the manager
 - the agent's everyday execution environment lives inside a NixOS-based sandbox
 - the sandbox can be rebuilt, resumed, and rolled back using existing NixOS mechanisms
 - persistent agent work can return to a known environment after machine or process restart
@@ -149,5 +150,5 @@ Next steps:
 
 1. Keep the current host-runtime architecture as the implemented baseline.
 2. Continue researching how much of OpenHermit's execution should move into a daily sandbox.
-3. Explore whether NixOS should back only the daily sandbox shape, not the entire host runtime.
+3. Explore whether NixOS should back only the daily sandbox shape, or also replace the workspace container.
 4. Design future skill and extension lifecycle around explicit sandbox targets instead of one generic execution model.

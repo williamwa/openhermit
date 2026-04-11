@@ -6,7 +6,7 @@ This document tracks the current implementation status and the next major work i
 
 OpenHermit already has a working single-agent runtime with:
 
-- host-based agent execution
+- container-native agent execution (workspace, service, and ephemeral containers)
 - per-agent internal state in `~/.openhermit/{agent-id}/`
 - per-agent internal runtime config in `~/.openhermit/{agent-id}/config.json`
 - `state.sqlite` as the primary internal-state store
@@ -108,7 +108,7 @@ These tracks are being explored in documentation but are not yet committed imple
   - `ephemeral`
   - `service`
   - `daily`
-- evaluate whether a future `daily sandbox` should host ordinary agent work while the main runtime remains on the host
+- evaluate whether a future `daily sandbox` shape adds value beyond the current workspace container
 - continue exploring NixOS as a candidate substrate for the `daily sandbox`, especially for restart recovery and generation-style environment management
 
 ### Storage Model Draft

@@ -2,10 +2,10 @@
 
 This document describes the current target architecture for OpenHermit.
 
-OpenHermit is a host-based autonomous agent platform:
+OpenHermit is a container-native autonomous agent platform:
 
-- the agent runtime runs on the host
-- containers are sandboxed tools and services, not the agent itself
+- the agent runtime orchestrates execution across containers
+- all agent work (code execution, file operations, services) runs inside Docker containers
 - external task files live in a workspace
 - internal runtime state lives outside the workspace
 
@@ -14,7 +14,7 @@ OpenHermit is a host-based autonomous agent platform:
 OpenHermit is intentionally shaped around a few problems that show up in OpenClaw-style systems:
 
 - **security through sandboxed execution**
-  OpenHermit treats isolated execution as a first-class requirement. Dangerous code execution and service hosting should happen inside controlled containers rather than inheriting broad host trust by default.
+  OpenHermit treats isolated execution as a first-class requirement. All agent work runs inside containers — the workspace container for everyday execution, service containers for daemons, and ephemeral containers for one-off tasks.
 
 - **multi-user and multi-agent readiness**
   OpenHermit is not only for one self-hosting operator. The architecture is being built so that multiple agents, multiple users, future scheduling, and future gateway-style deployment remain natural extensions instead of afterthoughts.

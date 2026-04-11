@@ -1,6 +1,6 @@
 # OpenHermit
 
-A host-based autonomous agent platform with persistent workspaces and memory, using Docker as an isolated execution and service sandbox.
+A container-native autonomous agent platform with persistent workspaces and memory, using Docker as the primary execution and service sandbox.
 
 Like a hermit crab living inside its protective shell, an agent can use shells and containers as its sandbox: protected, autonomous, and able to operate safely while still interacting with the outside world. The system is designed for strong agent autonomy, sandboxed execution, and native multi-agent collaboration.
 
@@ -20,7 +20,7 @@ Like a hermit crab living inside its protective shell, an agent can use shells a
 OpenHermit is explicitly designed to address several structural issues that appear in OpenClaw-style systems:
 
 1. **Safer execution by default**
-   OpenClaw exposes a large amount of host power directly. OpenHermit treats sandboxing as a first-class design goal: code execution and long-running services are pushed into isolated containers so the agent can stay powerful without defaulting to host-level trust.
+   OpenClaw exposes a large amount of host power directly. OpenHermit treats sandboxing as a first-class design goal: the agent runs entirely inside containers, with code execution and long-running services isolated in their own sandboxes.
 
 2. **Built for multi-user, multi-agent deployment from the start**
    OpenClaw is primarily optimized for self-hosting by a single operator. OpenHermit is designed from the beginning around multiple agents, multiple users, and future platform-style deployment. Its internal state model, runtime discovery, gateway control plane, and planned scheduler layer all aim toward hosted operation rather than only personal local use.

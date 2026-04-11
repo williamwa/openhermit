@@ -11,7 +11,7 @@ OpenHermit is a single-agent-per-process runtime today. The goal is to evolve it
 
 The three confirmed design constraints:
 - Gateway and Agent stay **separate processes** — agent can run standalone, gateway manages multiple agents
-- Workspace files stay on **host filesystem, mounted into** the workspace container
+- Workspace files are **mounted into** the workspace container from the storage volume
 - Plugin mechanism covers **more than tools** — webhooks, channels, skills, hooks — and each agent may have different plugins
 
 ---
@@ -420,7 +420,7 @@ After Phase 2:
 After Phase 3:
 - Agent creates workspace container on startup
 - `workspace_exec` tool works
-- File tools still work on host filesystem
+- File operations work via `workspace_exec` inside the workspace container
 - Files are visible inside workspace container
 
 After Phase 4:

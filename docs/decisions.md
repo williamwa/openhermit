@@ -14,15 +14,15 @@
 - the system should grow toward platform deployment, not only personal self-hosting
 - separate components with explicit interfaces are easier to reason about than one large mixed package
 
-## ADR-001: Agent runs on host, containers are tools
+## ADR-001: Agent execution is container-native
 
-**Decision**: The agent process runs on the host. Containers are sandboxed workers and services controlled by the agent.
+**Decision**: All agent work runs inside containers. The workspace container is the primary execution environment, with service and ephemeral containers for daemons and one-off tasks. The orchestration process manages containers and internal state.
 
 **Rationale**:
 
-- persistent runtime state belongs on the host
-- the agent must manage containers directly
-- the trust boundary stays clear
+- full sandboxing by default — no host filesystem or process access from agent actions
+- consistent execution environment across local and cloud deployments
+- the trust boundary is enforced by container isolation
 
 ## ADR-002: Internal state is outside the workspace
 
