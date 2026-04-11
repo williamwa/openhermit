@@ -1,5 +1,7 @@
 import {
   agentLocalRoutes,
+  gatewayRoutes,
+  type AgentInfo,
   type SessionHistoryMessage,
   type SessionCheckpointRequest,
   type SessionListQuery,
@@ -164,6 +166,134 @@ export class AgentLocalClient {
       throw new OpenHermitError(
         `Agent local API request failed (${response.status}): ${responseText || response.statusText}`,
         'agent_api_error',
+        statusCode,
+      );
+    }
+
+    return (await response.json()) as T;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// GatewayClient — talks to the multi-agent gateway
+// ---------------------------------------------------------------------------
+
+export interface GatewayClientOptions {
+  baseUrl: string;
+  token: string;
+  fetch?: FetchLike;
+}
+
+export class GatewayClient {
+  private readonly baseUrl: string;
+  private readonly token: string;
+  private readonly fetchImpl: FetchLike;
+
+  constructor(options: GatewayClientOptions) {
+    this.baseUrl = options.baseUrl;
+    this.token = options.token;
+    this.fetchImpl = options.fetch ?? fetch;
+  }
+
+  async listAgents(): Promise<AgentInfo[]> {
+    return this.getJson(gatewayRoutes.agents);
+  }
+
+  async manageAgent(
+    agentId: string,
+    action: 'start' | 'stop' | 'restart',
+  ): Promise<AgentInfo> {
+    return this.postJson(gatewayRoutes.agentManage(agentId, action), {});
+  }
+
+  async agentHealth(agentId: string): Promise<{ agentId: string; ok: boolean; status: string }> {
+    return this.getJson(gatewayRoutes.agentHealth(agentId));
+  }
+
+  /**
+   * Returns an `AgentLocalClient` whose requests are routed through the
+   * gateway at `/agents/:agentId/...`. The agent-local client sees the
+   * same API surface as if it were talking to the agent directly.
+   */
+  agent(agentId: string): AgentLocalClient {
+    return new AgentLocalClient({
+      baseUrl: joinUrl(this.baseUrl, `/agents/${encodeURIComponent(agentId)}`),
+      token: this.token,
+      fetch: this.fetchImpl,
+    });
+  }
+
+  private async getJson<T>(path: string): Promise<T> {
+    let response: Response;
+
+    try {
+      response = await this.fetchImpl(joinUrl(this.baseUrl, path), {
+        method: 'GET',
+        headers: { authorization: `Bearer ${this.token}` },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new OpenHermitError(
+        `Gateway API is unavailable at ${joinUrl(this.baseUrl, path)}: ${message}`,
+        'gateway_api_error',
+        500,
+      );
+    }
+
+    if (!response.ok) {
+      const responseText = await response.text();
+      const statusCode: OpenHermitStatusCode =
+        response.status === 400 ||
+        response.status === 401 ||
+        response.status === 404 ||
+        response.status === 500
+          ? response.status
+          : 500;
+
+      throw new OpenHermitError(
+        `Gateway API request failed (${response.status}): ${responseText || response.statusText}`,
+        'gateway_api_error',
+        statusCode,
+      );
+    }
+
+    return (await response.json()) as T;
+  }
+
+  private async postJson<T>(path: string, body: unknown): Promise<T> {
+    let response: Response;
+
+    try {
+      response = await this.fetchImpl(joinUrl(this.baseUrl, path), {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${this.token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new OpenHermitError(
+        `Gateway API is unavailable at ${joinUrl(this.baseUrl, path)}: ${message}`,
+        'gateway_api_error',
+        500,
+      );
+    }
+
+    if (!response.ok) {
+      const responseText = await response.text();
+      const statusCode: OpenHermitStatusCode =
+        response.status === 400 ||
+        response.status === 401 ||
+        response.status === 404 ||
+        response.status === 500
+          ? response.status
+          : 500;
+
+      throw new OpenHermitError(
+        `Gateway API request failed (${response.status}): ${responseText || response.statusText}`,
+        'gateway_api_error',
         statusCode,
       );
     }

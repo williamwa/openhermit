@@ -114,6 +114,50 @@ export const agentLocalRoutes = {
     `/sessions/${encodeURIComponent(sessionId)}/events`,
 } as const;
 
+export type AgentStatus =
+  | 'registered'
+  | 'starting'
+  | 'running'
+  | 'stopped'
+  | 'error';
+
+export interface AgentInfo {
+  agentId: string;
+  status: AgentStatus;
+  port?: number;
+  workspaceRoot?: string;
+  error?: string;
+}
+
+export const gatewayRoutes = {
+  agents: '/agents',
+  agentHealth: (agentId: string): string =>
+    `/agents/${encodeURIComponent(agentId)}/health`,
+  agentHealthPattern: '/agents/:agentId/health',
+  agentSessions: (agentId: string): string =>
+    `/agents/${encodeURIComponent(agentId)}/sessions`,
+  agentSessionsPattern: '/agents/:agentId/sessions',
+  agentSessionMessages: (agentId: string, sessionId: string): string =>
+    `/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/messages`,
+  agentSessionMessagesPattern:
+    '/agents/:agentId/sessions/:sessionId/messages',
+  agentSessionEvents: (agentId: string, sessionId: string): string =>
+    `/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/events`,
+  agentSessionEventsPattern:
+    '/agents/:agentId/sessions/:sessionId/events',
+  agentSessionApprove: (agentId: string, sessionId: string): string =>
+    `/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/approve`,
+  agentSessionApprovePattern:
+    '/agents/:agentId/sessions/:sessionId/approve',
+  agentSessionCheckpoint: (agentId: string, sessionId: string): string =>
+    `/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/checkpoint`,
+  agentSessionCheckpointPattern:
+    '/agents/:agentId/sessions/:sessionId/checkpoint',
+  agentManage: (agentId: string, action: string): string =>
+    `/agents/${encodeURIComponent(agentId)}/manage/${encodeURIComponent(action)}`,
+  agentManagePattern: '/agents/:agentId/manage/:action',
+} as const;
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
 
