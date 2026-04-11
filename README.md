@@ -23,7 +23,7 @@ OpenHermit is explicitly designed to address several structural issues that appe
    OpenClaw exposes a large amount of host power directly. OpenHermit treats sandboxing as a first-class design goal: code execution and long-running services are pushed into isolated containers so the agent can stay powerful without defaulting to host-level trust.
 
 2. **Built for multi-user, multi-agent deployment from the start**
-   OpenClaw is primarily optimized for self-hosting by a single operator. OpenHermit is designed from the beginning around multiple agents, multiple users, and future platform-style deployment. Its internal state model, runtime discovery, and planned scheduler/gateway layers all aim toward hosted operation rather than only personal local use.
+   OpenClaw is primarily optimized for self-hosting by a single operator. OpenHermit is designed from the beginning around multiple agents, multiple users, and future platform-style deployment. Its internal state model, runtime discovery, gateway control plane, and planned scheduler layer all aim toward hosted operation rather than only personal local use.
 
 3. **Clear boundaries between components**
    OpenClaw concentrates many concerns into one large package. OpenHermit keeps the system split into focused components such as `agent`, `cli`, `web`, `gateway`, and shared protocol/sdk/store packages. Components are expected to communicate through explicit interfaces instead of hidden in-process coupling.
@@ -53,7 +53,7 @@ Runtime-owned settings such as model selection and checkpoint cadence live in `~
 ```text
 openhermit/
 ├── apps/
-│   ├── agent/                # Current focus: single-agent runtime (Hono + session API)
+│   ├── agent/                # Single-agent runtime (Hono + session API)
 │   ├── cli/                  # Local terminal client for the agent-local API
 │   ├── web/                  # Local browser client and launcher for the agent-local API
 │   ├── gateway/              # Control plane for multi-agent lifecycle and proxy routing
@@ -67,8 +67,9 @@ openhermit/
 └── docs/
     ├── architecture.md
     ├── participant-model.md   # Draft participant / role model
-    ├── sandbox-model.md       # Draft sandbox model directions
-    ├── storage-model.md       # Draft storage abstraction model
+    ├── sandbox-model.md       # Sandbox model (ephemeral, service, workspace, daily)
+    ├── storage-model.md       # Storage abstraction model
+    ├── multi-agent-plan.md    # Multi-agent, store, plugin architecture plan
     ├── plan.md
     ├── memory-model.md
     ├── session-model.md
@@ -78,9 +79,10 @@ openhermit/
 ## Documentation
 
 - Architecture: [docs/architecture.md](docs/architecture.md)
-- Participant model draft: [docs/participant-model.md](docs/participant-model.md)
-- Sandbox model draft: [docs/sandbox-model.md](docs/sandbox-model.md)
-- Storage model draft: [docs/storage-model.md](docs/storage-model.md)
+- Participant model (draft): [docs/participant-model.md](docs/participant-model.md)
+- Sandbox model: [docs/sandbox-model.md](docs/sandbox-model.md)
+- Storage model: [docs/storage-model.md](docs/storage-model.md)
+- Multi-agent plan: [docs/multi-agent-plan.md](docs/multi-agent-plan.md)
 - Plan: [docs/plan.md](docs/plan.md)
 - Memory model: [docs/memory-model.md](docs/memory-model.md)
 - Session model: [docs/session-model.md](docs/session-model.md)
