@@ -98,7 +98,7 @@ const schemaStatements = [
   ) STRICT;`,
 ] as const;
 
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 6;
 
 const ensureMetaTable = (database: DatabaseSync): void => {
   database.exec(
