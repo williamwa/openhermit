@@ -76,7 +76,7 @@ const schemaStatements = [
   ) STRICT;`,
   `CREATE INDEX IF NOT EXISTS idx_memories_agent
     ON memories(agent_id, memory_kind, memory_key);`,
-  `CREATE TABLE IF NOT EXISTS container_runtime_entries (
+  `CREATE TABLE IF NOT EXISTS containers (
     agent_id TEXT NOT NULL DEFAULT '${STANDALONE_AGENT_ID}',
     container_name TEXT NOT NULL,
     container_type TEXT NOT NULL,
@@ -88,7 +88,7 @@ const schemaStatements = [
     PRIMARY KEY (agent_id, container_name)
   ) STRICT;`,
   `CREATE INDEX IF NOT EXISTS idx_containers_agent
-    ON container_runtime_entries(agent_id, container_name);`,
+    ON containers(agent_id, container_name);`,
   `CREATE TABLE IF NOT EXISTS instructions (
     agent_id TEXT NOT NULL DEFAULT '${STANDALONE_AGENT_ID}',
     key TEXT NOT NULL,
@@ -98,7 +98,12 @@ const schemaStatements = [
   ) STRICT;`,
 ] as const;
 
-export const CURRENT_SCHEMA_VERSION = 6;
+const migrationStatements = [
+  // v7: rename container_runtime_entries → containers
+  `ALTER TABLE container_runtime_entries RENAME TO containers;`,
+] as const;
+
+export const CURRENT_SCHEMA_VERSION = 7;
 
 const ensureMetaTable = (database: DatabaseSync): void => {
   database.exec(
@@ -140,6 +145,16 @@ export const bootstrapDatabase = (database: DatabaseSync): void => {
     database.exec('BEGIN');
 
     try {
+      if (currentVersion >= 1) {
+        for (const statement of migrationStatements) {
+          try {
+            database.exec(statement);
+          } catch {
+            // Table may not exist (fresh DB) or already renamed — safe to skip.
+          }
+        }
+      }
+
       for (const statement of schemaStatements) {
         database.exec(statement);
       }

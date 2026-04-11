@@ -76,7 +76,7 @@ export class SqliteContainerStore implements ContainerStore {
     const rows = this.database
       .prepare(
         `SELECT container_name, container_type, image, status, description, metadata_json
-         FROM container_runtime_entries
+         FROM containers
          WHERE agent_id = ?
          ORDER BY json_extract(metadata_json, '$.created') ASC, container_name ASC`,
       )
@@ -100,7 +100,7 @@ export class SqliteContainerStore implements ContainerStore {
   async upsert(scope: StoreScope, entry: ContainerRegistryEntry): Promise<void> {
     this.database
       .prepare(
-        `INSERT INTO container_runtime_entries(
+        `INSERT INTO containers(
           agent_id,
           container_name,
           container_type,
