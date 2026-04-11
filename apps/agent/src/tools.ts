@@ -12,6 +12,7 @@ import type {
   ToolRequestedCallback,
   ToolStartedCallback,
 } from './tools/shared.js';
+import { createInstructionReadTool, createInstructionUpdateTool } from './tools/instruction.js';
 import { createWebFetchTool } from './tools/web-fetch.js';
 import { createWorkspaceExecTool } from './tools/workspace-exec.js';
 
@@ -45,6 +46,12 @@ export const createBuiltInTools = (
           createMemoryGetTool(context),
           createMemoryRecallTool(context),
           createMemoryUpdateTool(context),
+        ]
+      : []),
+    ...(context.instructionStore
+      ? [
+          createInstructionReadTool(context),
+          createInstructionUpdateTool(context),
         ]
       : []),
     createContainerRunTool(context),

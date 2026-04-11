@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
 import type { AgentTool } from '@mariozechner/pi-agent-core';
+import type { InstructionStore, StoreScope } from '@openhermit/store';
 
 import type { AgentRuntimeConfig, AgentSecurity, AgentWorkspace } from '../core/index.js';
 
@@ -48,24 +49,39 @@ const loadRuntimePromptTemplate = async (): Promise<string> => {
   throw new Error('Unable to load runtime system prompt template.');
 };
 
+export interface InstructionSource {
+  instructionStore?: InstructionStore;
+  storeScope?: StoreScope;
+}
+
 export const buildSystemPrompt = async (
   config: AgentRuntimeConfig,
   workspace: AgentWorkspace,
   security: AgentSecurity,
   tools: AgentTool<any>[],
+  instructionSource?: InstructionSource,
 ): Promise<string> => {
-  const identityFiles = await Promise.all(
-    config.identity.files.map(async (relativePath) => ({
-      relativePath,
-      content: await workspace.readFile(relativePath).catch(() => ''),
-    })),
-  );
-  const identitySections = identityFiles
-    .map(
-      ({ relativePath, content }) =>
-        `File: ${relativePath}\n${content.trim() || '(empty)'}`,
-    )
-    .join('\n\n');
+  let identitySections: string;
+
+  if (instructionSource?.instructionStore && instructionSource.storeScope) {
+    const entries = await instructionSource.instructionStore.getAll(instructionSource.storeScope);
+    identitySections = entries
+      .map((entry) => `${entry.key}:\n${entry.content.trim() || '(empty)'}`)
+      .join('\n\n');
+  } else {
+    const identityFiles = await Promise.all(
+      config.identity.files.map(async (relativePath) => ({
+        relativePath,
+        content: await workspace.readFile(relativePath).catch(() => ''),
+      })),
+    );
+    identitySections = identityFiles
+      .map(
+        ({ relativePath, content }) =>
+          `File: ${relativePath}\n${content.trim() || '(empty)'}`,
+      )
+      .join('\n\n');
+  }
   const secretNames = security.listSecretNames();
   const promptTemplate = await loadRuntimePromptTemplate();
   const containerToolRulesSection = tools.some((tool) => CONTAINER_TOOL_NAMES.has(tool.name))

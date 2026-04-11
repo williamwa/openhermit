@@ -93,3 +93,9 @@ export type CheckpointHistoryRow = {
   content: string;
   ts: string;
 };
+
+export interface InstructionEntry {
+  key: string;
+  content: string;
+  updatedAt: string;
+}

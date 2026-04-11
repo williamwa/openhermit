@@ -164,7 +164,29 @@ export const main = async (): Promise<void> => {
   if (config !== initialConfig) {
     await security.writeConfig(config);
   }
-  SqliteInternalStateStore.open(security.stateFilePath).close();
+  const bootstrapStore = SqliteInternalStateStore.open(security.stateFilePath);
+  const scope = { agentId };
+  const existingInstructions = await bootstrapStore.instructions.getAll(scope);
+
+  if (existingInstructions.length === 0) {
+    const instructionFileMap: Record<string, string> = {
+      '.openhermit/IDENTITY.md': 'identity',
+      '.openhermit/SOUL.md': 'soul',
+      '.openhermit/AGENTS.md': 'agents',
+    };
+    const now = new Date().toISOString();
+
+    for (const [filePath, key] of Object.entries(instructionFileMap)) {
+      const content = await workspace.readFile(filePath).catch(() => '');
+
+      if (content.trim()) {
+        await bootstrapStore.instructions.set(scope, key, content.trim(), now);
+        logStartup(`migrated instruction file ${filePath} -> db key "${key}"`);
+      }
+    }
+  }
+
+  bootstrapStore.close();
   logStartup(`internal state: ${security.stateFilePath}`);
   logStartup(`internal config: ${security.configFilePath}`);
   logStartup(`runtime metadata: ${security.runtimeFilePath}`);

@@ -4,6 +4,7 @@ import type {
   CheckpointHistoryRow,
   ContainerRegistryEntry,
   EpisodicLogEntry,
+  InstructionEntry,
   LongTermMemoryInput,
   MemoryEntry,
   PersistedSessionIndexEntry,
@@ -47,10 +48,17 @@ export interface ContainerStore {
   updateByName(scope: StoreScope, name: string, updater: (e: ContainerRegistryEntry) => ContainerRegistryEntry): Promise<ContainerRegistryEntry>;
 }
 
+export interface InstructionStore {
+  get(scope: StoreScope, key: string): Promise<InstructionEntry | undefined>;
+  getAll(scope: StoreScope): Promise<InstructionEntry[]>;
+  set(scope: StoreScope, key: string, content: string, updatedAt: string): Promise<void>;
+}
+
 export interface InternalStateStore {
   sessions: SessionStore;
   messages: MessageStore;
   memories: MemoryStore;
   containers: ContainerStore;
+  instructions: InstructionStore;
   close(): void;
 }

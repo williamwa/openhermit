@@ -3,6 +3,7 @@ export type {
   MessageStore,
   MemoryStore,
   ContainerStore,
+  InstructionStore,
   InternalStateStore,
 } from './interfaces.js';
 
@@ -13,6 +14,7 @@ export type {
   EpisodicLogEntry,
   MemoryEntry,
   LongTermMemoryInput,
+  InstructionEntry,
   ContainerType,
   ContainerStatus,
   ContainerRegistryEntry,
@@ -27,5 +29,6 @@ export {
   SqliteMessageStore,
   SqliteMemoryStore,
   SqliteContainerStore,
+  SqliteInstructionStore,
   CURRENT_SCHEMA_VERSION,
 } from './sqlite/index.js';

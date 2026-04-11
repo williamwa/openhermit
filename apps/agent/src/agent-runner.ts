@@ -839,6 +839,7 @@ export class AgentRunner implements SessionRuntime {
         security: this.options.security,
         containerManager: this.containerManager,
         memoryStore: this.store.memories,
+        instructionStore: this.store.instructions,
         storeScope: this.scope,
         ...(input.config.workspace_container ? {
           agentId: this.scope.agentId,
@@ -854,6 +855,10 @@ export class AgentRunner implements SessionRuntime {
       this.options.workspace,
       this.options.security,
       tools,
+      {
+        instructionStore: this.store.instructions,
+        storeScope: this.scope,
+      },
     );
     const systemPrompt = input.extraSystemPrompt
       ? `${baseSystemPrompt}\n\n${input.extraSystemPrompt}`.trim()

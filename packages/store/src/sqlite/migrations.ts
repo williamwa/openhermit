@@ -89,9 +89,16 @@ const schemaStatements = [
   ) STRICT;`,
   `CREATE INDEX IF NOT EXISTS idx_containers_agent
     ON container_runtime_entries(agent_id, container_name);`,
+  `CREATE TABLE IF NOT EXISTS instructions (
+    agent_id TEXT NOT NULL DEFAULT '${STANDALONE_AGENT_ID}',
+    key TEXT NOT NULL,
+    content TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (agent_id, key)
+  ) STRICT;`,
 ] as const;
 
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 const ensureMetaTable = (database: DatabaseSync): void => {
   database.exec(
