@@ -230,7 +230,7 @@ export const waitForAssistantTurn = async (
         }
 
         if (frame.event === 'text_final') {
-          const text = String(payload.text ?? '');
+          const text = String(payload.text ?? '').trim();
           if (out?.onTextFinal) {
             out.onTextFinal(text, sawDelta);
           } else {

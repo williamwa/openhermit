@@ -278,7 +278,7 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
             },
             onTextFinal: (fullText, sawDelta) => {
               clearThinking();
-              const text = sawDelta ? streamedAssistantText : fullText;
+              const text = (sawDelta ? streamedAssistantText : fullText).trim();
 
               if (text.trim()) {
                 ensureAgentLabel();

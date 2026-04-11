@@ -14,8 +14,8 @@ export const isAssistantMessage = (
 export const extractAssistantText = (message: AssistantMessage): string =>
   message.content
     .filter((content): content is Extract<typeof content, { type: 'text' }> => content.type === 'text')
-    .map((content) => content.text)
-    .join('');
+    .map((content) => content.text.trim())
+    .join('\n\n');
 
 export const hasMeaningfulAssistantText = (text: string): boolean =>
   text.trim().length > 0;
