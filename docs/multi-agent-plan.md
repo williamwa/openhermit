@@ -16,9 +16,11 @@ The three confirmed design constraints:
 
 ---
 
-## Phase 1: Store Abstraction
+## Phase 1: Store Abstraction ✅ Completed
 
 **Goal**: Extract store interfaces from the current god objects. No behavior change.
+
+> **Status**: Implemented in `packages/store/`. Schema is now at v8.
 
 ### 1.1 Create `packages/store`
 
@@ -28,15 +30,16 @@ New package with store interfaces and SQLite adapters.
 packages/store/
   src/
     index.ts                    — re-exports
-    types.ts                    — StoreScope, MemoryEntry, LongTermMemoryInput, etc.
-    interfaces.ts               — SessionStore, MessageStore, MemoryStore, ContainerStore, InternalStateStore
+    types.ts                    — StoreScope, MemoryEntry, MemoryAddInput, etc.
+    interfaces.ts               — SessionStore, MessageStore, MemoryProvider, ContainerStore, InstructionStore, InternalStateStore
     sqlite/
       index.ts                  — SqliteInternalStateStore
       session-store.ts          — extracted from SessionIndexStore
       message-store.ts          — extracted from SessionLogWriter (log/checkpoint/history methods)
-      memory-store.ts           — extracted from SessionLogWriter (memory methods)
+      memory-provider.ts        — SqliteMemoryProvider (implements MemoryProvider)
       container-store.ts        — extracted from ContainerRegistryStore
-      migrations.ts             — schema init + migrations (moved from internal-state/sqlite.ts)
+      instruction-store.ts      — SqliteInstructionStore
+      migrations.ts             — schema init + migrations (v8)
 ```
 
 ### 1.2 Interface Design
@@ -64,14 +67,22 @@ interface MessageStore {
   writeSessionStarted(scope: StoreScope, spec: SessionSpec, model: {...}): Promise<void>;
 }
 
-interface MemoryStore {
-  getMemory(scope: StoreScope, key: string): Promise<string | undefined>;
-  getMemoryEntry(scope: StoreScope, key: string): Promise<MemoryEntry | undefined>;
-  setMemory(scope: StoreScope, key: string, content: string, updatedAt: string, metadata?: Record<string, unknown>): Promise<void>;
-  recallLongTermMemories(scope: StoreScope, query: string, limit: number, keyPrefix?: string): Promise<MemoryEntry[]>;
-  upsertLongTermMemory(scope: StoreScope, input: LongTermMemoryInput): Promise<MemoryEntry>;
-  getMainMemory(scope: StoreScope): Promise<string | undefined>;
-  getNowMemory(scope: StoreScope): Promise<string | undefined>;
+interface MemoryProvider {
+  readonly name: string;
+  initialize(scope: StoreScope): Promise<void>;
+  shutdown(): Promise<void>;
+  add(scope: StoreScope, input: MemoryAddInput): Promise<MemoryEntry>;
+  search(scope: StoreScope, query: string, options?: MemorySearchOptions): Promise<MemoryEntry[]>;
+  get(scope: StoreScope, id: string): Promise<MemoryEntry | undefined>;
+  update(scope: StoreScope, id: string, input: MemoryUpdateInput): Promise<MemoryEntry>;
+  delete(scope: StoreScope, id: string): Promise<void>;
+  getContextBlock(scope: StoreScope): Promise<string | undefined>;
+}
+
+interface InstructionStore {
+  get(scope: StoreScope, key: string): Promise<InstructionEntry | undefined>;
+  getAll(scope: StoreScope): Promise<InstructionEntry[]>;
+  set(scope: StoreScope, key: string, content: string, updatedAt: string): Promise<void>;
 }
 
 interface ContainerStore {
@@ -84,8 +95,10 @@ interface ContainerStore {
 interface InternalStateStore {
   sessions: SessionStore;
   messages: MessageStore;
-  memories: MemoryStore;
+  memories: MemoryProvider;
   containers: ContainerStore;
+  instructions: InstructionStore;
+  close(): void;
 }
 ```
 
@@ -107,21 +120,21 @@ Existing per-agent DBs get the default `'__standalone__'` — zero data migratio
 
 - `AgentRunnerOptions` gains `store?: InternalStateStore`
 - If `store` provided: use it. If not: create `SqliteInternalStateStore` from `security.stateFilePath` (preserving standalone behavior).
-- `ToolContext.memoryStore` changes type from `SessionLogWriter` to `MemoryStore`
+- `ToolContext.memoryProvider` changes type from `SessionLogWriter` to `MemoryProvider`
 - `DockerContainerManager` accepts optional `ContainerStore` instead of opening its own DB
 
 ### Key files to modify:
 - `apps/agent/src/agent-runner.ts:213-224` — constructor, replace direct DB usage
 - `apps/agent/src/agent-runner/types.ts` — add `store` to `AgentRunnerOptions`
 - `apps/agent/src/tools/shared.ts:36-44` — `ToolContext.memoryStore` type change
-- `apps/agent/src/tools/memory.ts` — use `MemoryStore` interface methods (already compatible)
+- `apps/agent/src/tools/memory.ts` — use `MemoryProvider` interface methods
 - `apps/agent/src/core/container-manager.ts:319-335` — accept `ContainerStore`
 - `apps/agent/src/internal-state/sqlite.ts` — migrations move to `packages/store/src/sqlite/migrations.ts`
 
 ### Key files to extract from:
-- `apps/agent/src/session-logs/writer.ts` → `SqliteMessageStore` + `SqliteMemoryStore`
+- `apps/agent/src/session-logs/writer.ts` → `SqliteMessageStore` + `SqliteMemoryProvider`
 - `apps/agent/src/session-logs/index-store.ts` → `SqliteSessionStore`
-- `apps/agent/src/core/container-manager.ts:170-316` (ContainerRegistryStore) → `SqliteContainerStore`
+- `apps/agent/src/core/container-manager.ts` (ContainerRegistryStore) → `SqliteContainerStore`
 
 ---
 
@@ -217,9 +230,11 @@ The agent process is identical in both modes. Gateway is purely additive — it 
 
 ---
 
-## Phase 3: Workspace Container
+## Phase 3: Workspace Container ✅ Completed
 
 **Goal**: Each agent gets a persistent container with workspace mounted.
+
+> **Status**: Implemented. `workspace_exec` tool exists, workspace container type exists in `ContainerType`.
 
 ### 3.1 Container Type Extension
 
@@ -253,9 +268,9 @@ createWorkspaceExecTool(context): AgentTool
 // Uses DockerContainerManager.execInService() internally
 ```
 
-### 3.4 File Tools Stay on Host
+### 3.4 File Access
 
-File tools (`read_file`, `write_file`, etc.) continue to operate on host filesystem via `AgentWorkspace`. The workspace container sees the same files through the volume mount. No change to file tools.
+File tools have been removed. All file operations are performed via `workspace_exec` inside the workspace container, which has the workspace mounted at `/workspace`.
 
 ### Key files:
 - Modify: `apps/agent/src/core/types.ts`, `apps/agent/src/core/container-manager.ts`
@@ -379,14 +394,14 @@ packages/plugin/
 ## Implementation Order
 
 ```
-Phase 1 (Store Abstraction)     — foundation, must go first
+Phase 1 (Store Abstraction)     ✅ Completed
   ↓
-Phase 2 (Gateway) ←→ Phase 3 (Workspace Container)  — can be parallel
+Phase 2 (Gateway) ←→ Phase 3 (Workspace Container)  ✅ Both completed
   ↓
-Phase 4 (Plugin Architecture)   — builds on all three
+Phase 4 (Plugin Architecture)   — next major work item
 ```
 
-Phase 1 is the prerequisite for everything else. Phases 2 and 3 are independent of each other and can be done in parallel. Phase 4 benefits from having the store abstraction (plugins access `InternalStateStore`) and the gateway (plugins need to work in both standalone and managed mode).
+Phases 1, 2 (basic gateway), and 3 are complete. Phase 4 builds on all three — plugins access `InternalStateStore` and need to work in both standalone and managed mode.
 
 ---
 

@@ -169,7 +169,6 @@ Operational model:
 
 - episodic checkpoints
 - session-local working memory
-- `now`
 
 **Compaction exists to keep long-running sessions within model context limits**:
 

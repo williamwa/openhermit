@@ -1,6 +1,6 @@
 # OpenHermit Memory Model
 
-This document defines the current target memory model after the internal/external state split.
+This document defines the current memory model after the MemoryProvider refactor.
 
 ## Core Distinction
 
@@ -10,7 +10,7 @@ OpenHermit separates:
 - `user-authored knowledge`
 
 System memory is runtime-owned internal state.  
-User-authored knowledge is external state that the agent can read, search, and edit like normal files.
+User-authored knowledge is external state that the agent can read and edit through workspace tools.
 
 They are related, but they are not the same thing.
 
@@ -81,12 +81,7 @@ Fields should include:
 - `turn_count`
 - `summary`
 
-## 2. Active Memory
-
-Active memory should be split into:
-
-- `session-local working memory`
-- `now`
+## 2. Working Memory
 
 ### Session-Local Working Memory
 
@@ -108,79 +103,45 @@ Storage:
 - internal state
 - session-local working memory is stored on the session record
 
-### `now`
+## 3. Long-Term Memory
 
-Purpose:
+Long-term memory is managed through the `MemoryProvider` interface. The default implementation is `SqliteMemoryProvider`, which stores memories in `state.sqlite`.
 
-- hold the agent's current cross-session state
-- record what the agent is working on right now
+### MemoryProvider Interface
 
-Examples:
+```ts
+interface MemoryProvider {
+  readonly name: string;
+  initialize(scope: StoreScope): Promise<void>;
+  shutdown(): Promise<void>;
+  add(scope: StoreScope, input: MemoryAddInput): Promise<MemoryEntry>;
+  search(scope: StoreScope, query: string, options?: MemorySearchOptions): Promise<MemoryEntry[]>;
+  get(scope: StoreScope, id: string): Promise<MemoryEntry | undefined>;
+  update(scope: StoreScope, id: string, input: MemoryUpdateInput): Promise<MemoryEntry>;
+  delete(scope: StoreScope, id: string): Promise<void>;
+  getContextBlock(scope: StoreScope): Promise<string | undefined>;
+}
+```
 
-- I am working in `session:cli:...` on email triage
-- I am working in `session:web:...` on a feature implementation
-- current important active threads
-- recent cross-session decisions
-- important currently running services
+The provider is pluggable — different agents can use different memory backends (SQLite, Mem0, Zep, etc.) while the agent-facing tools remain the same.
 
-Storage:
+### Memory Entry Shape
 
-- internal state
-- stored in `state.sqlite`
-- keyed in the shared `memories` table under the memory key `now`
+```ts
+interface MemoryEntry {
+  id: string;
+  content: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+```
 
-## 3. Durable Memory
+Memories are identified by `id` (e.g. `project/plan`, `user/preferences`, or auto-generated `mem-{uuid}`). Structured metadata replaces the previous title/tags fields.
 
-Durable memory should be split into:
+### Context Injection
 
-- `main`
-- structured named memories
-- `user-authored knowledge`
-
-### `main`
-
-Purpose:
-
-- the primary stable memory for one agent
-- stable reusable facts the runtime decides are worth preserving
-
-Examples:
-
-- persistent user preferences
-- stable project conventions
-- long-lived operational knowledge
-
-Storage:
-
-- internal state
-- stored in `state.sqlite`
-- keyed in the shared `memories` table under the memory key `main`
-
-### Structured Named Memories
-
-Purpose:
-
-- organize memory by topic instead of only by layer
-
-Examples:
-
-- `project/openhermit/plan`
-- `project/openhermit/architecture`
-- `user/preferences/communication`
-- `ops/railway/production`
-
-Rule:
-
-- use keys to express the purpose and topic of the memory
-- prefer structured keys when the memory belongs to a specific project, user preference set, or operational domain
-
-Agent-facing tools:
-
-- `memory_get`
-- `memory_recall`
-- `memory_update`
-
-These tools are for named system memories such as `main`, `now`, and structured keys.
+The runtime calls `getContextBlock()` on each turn to inject relevant long-term memory into the agent's context. The default SqliteMemoryProvider returns the 5 most recently updated memories formatted as markdown sections.
 
 ### User-Authored Knowledge
 
@@ -201,9 +162,7 @@ Storage:
 
 Access:
 
-- `file_search`
-- `read_file`
-- `list_files`
+- `workspace_exec` (shell commands inside the workspace container)
 
 ## Memory Lifecycle
 
@@ -229,7 +188,6 @@ Its purpose is:
 - decide whether the session state changed in a meaningful way
 - update episodic memory
 - update session-local working memory
-- optionally refresh `now`
 
 This turn is program-triggered, not user-triggered.
 
@@ -253,13 +211,11 @@ Inputs for a checkpoint turn should include:
 - the new session-log range since the last memory checkpoint
 - previous session-local working memory
 - current session metadata
-- optionally recent `now`
 
 Outputs of a checkpoint turn should include:
 
 - a new episodic checkpoint, if warranted
 - rewritten session-local working memory
-- optionally refreshed `now`
 
 Checkpointing should not be responsible for fixing oversized model context windows.
 That is the role of compaction.
@@ -280,7 +236,7 @@ That pass should read:
 - episodic memory
 - working memory
 
-Then it should extract only stable, durable information and write it into named durable memory such as `main` or structured keys.
+Then it should extract only stable, durable information and write it into long-term memory via the MemoryProvider.
 
 This is how transient activity becomes persistent memory.
 
@@ -292,7 +248,7 @@ If the user directly says things like:
 - `remember that I prefer ...`
 - `save this as a long-term preference`
 
-then the agent should be able to update long-term memory directly in that turn.
+then the agent should be able to update long-term memory directly in that turn using `memory_add` or `memory_update`.
 
 This path should be immediate, not deferred to idle consolidation.
 
@@ -314,65 +270,79 @@ They should not be treated as ordinary mutable tools the agent can freely rewrit
 
 ### Long-term memory tools
 
-Named durable memory is different because it supports:
+Long-term memory supports:
 
 - explicit user-directed remembering
 - future recall across sessions
 
-OpenHermit should therefore expose three agent-facing memory tools:
+OpenHermit exposes five agent-facing memory tools:
+
+#### `memory_add`
+
+Purpose:
+
+- create a new memory entry, or upsert by ID
+
+Parameters:
+
+- `content` (required)
+- `id` (optional — stable key like `project/plan` or auto-generated)
+- `metadata` (optional — `Record<string, unknown>`)
 
 #### `memory_get`
 
 Purpose:
 
-- read one named system memory by exact key
-- fetch the full current content before rewriting it
+- read one memory entry by exact ID
 
-Typical parameters:
+Parameters:
 
-- `key`
+- `id`
 
-Typical result:
+Result:
 
-- one full memory entry with key, content, and metadata
+- one full memory entry with id, content, metadata, createdAt, updatedAt
 
 #### `memory_recall`
 
 Purpose:
 
-- search and retrieve named system memory
+- search memories by keyword or phrase
 
-Typical parameters:
+Parameters:
 
 - `query`
-- `limit`
-- optional tags or filters
+- `limit` (optional)
 
-Typical result:
+Result:
 
-- matching memory entries with keys, title, snippet/content, and metadata
+- matching memory entries
 
 #### `memory_update`
 
 Purpose:
 
-- create or update named memory when the user explicitly asks the agent to remember something
+- update an existing memory entry's content or metadata
 
-Typical parameters:
+Parameters:
 
-- `key` or generated id
-- `title`
-- `content`
-- `tags`
-- update mode such as `upsert`
+- `id`
+- `content` (optional)
+- `metadata` (optional)
 
-This tool should not update episodic memory or working memory.
+#### `memory_delete`
 
-Recommended conventions:
+Purpose:
 
-- use `main` for durable cross-session facts
-- use `now` for the current cross-session state
-- use structured keys such as `project/...` or `user/preferences/...` for topic-specific memory
+- remove a memory entry that is no longer relevant
+
+Parameters:
+
+- `id`
+
+### Retrieval Strategy
+
+Long-term memory context is injected via `getContextBlock()` on each turn, which returns a curated subset of recent memories. The agent can also explicitly search via `memory_recall` or look up by ID via `memory_get`.
 
 ## Orchestration Responsibility
 
@@ -398,7 +368,6 @@ The agent should generate:
 
 - episodic summaries
 - rewritten session-local working memory
-- rewritten `now`
 - promoted long-term memory content
 
 This keeps memory behavior predictable while still using the model for summarization quality.
@@ -418,59 +387,14 @@ Compaction should:
 - operate on session history
 - be triggered by context-window pressure rather than by normal memory cadence
 - cooperate with checkpoint outputs and working memory
-- not replace episodic checkpoints, `now`, or `main`
-
-## Memory Tools
-
-Memory tools should be planned based on whether a memory layer is directly injected by the runtime or needs explicit manipulation by the agent.
-
-### No Read Tool Needed For Prompt-Injected Memory
-
-If a memory layer is already injected into the agent context by the runtime, the agent does not need a special read tool for that same layer.
-
-This applies to:
-
-- session-local working memory
-- global working memory
-
-These should be inserted into the prompt directly by the runtime.
-
-### Explicit Tools Needed For Long-Term Memory Mutation
-
-Long-term memory is different.
-
-Because the user may explicitly ask the agent to remember or update a durable fact, the agent should have explicit mutation capability for system long-term memory.
-
-OpenHermit should expose:
-
-- `memory_get`
-- `memory_recall`
-- `memory_update`
-
-Recommended usage:
-
-- use `memory_recall` to discover relevant named memories
-- use `memory_get` to read the full current content of one memory
-- use `memory_update` to rewrite or extend the chosen memory key
-
-### Retrieval Strategy
-
-System-managed long-term memory should not be blindly injected in full.
-
-Instead, retrieval should be selective:
-
-- direct lookup by key
-- search by topic or metadata
-- future ranking / retrieval logic
-
-User-authored knowledge remains external and should continue to use normal file tools.
+- not replace episodic checkpoints or long-term memory
 
 ## Summary
 
 - session log = raw factual history
 - episodic memory = checkpoint summaries
-- working memory = active state
-- long-term memory = durable system knowledge
+- working memory = active session state
+- long-term memory = durable knowledge via MemoryProvider
 - user-authored knowledge = external files, not system memory
 - every checkpoint should be executed as a program-triggered internal agent turn
 - long-term memory should update through idle consolidation and explicit user instruction

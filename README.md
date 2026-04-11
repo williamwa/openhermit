@@ -10,7 +10,7 @@ Like a hermit crab living inside its protective shell, an agent can use shells a
 
 - **Sandboxed Execution**: Code execution and long-running services run in isolated Docker containers controlled by the agent
 - **Lifecycle Management**: Support both ephemeral (short-term) and persistent (long-term) agents
-- **Memory System**: Multi-layer memory — session state, episodic checkpoints, and named memories like `main` and `now`
+- **Memory System**: Pluggable memory provider with CRUD + search, episodic checkpoints, and session-local working memory
 - **Context Hygiene**: Long sessions can compact older prompt history into runtime summaries while preserving recent turns
 - **API-first**: All agent operations exposed via a clean HTTP + SSE API
 - **Cloud-native**: Deployable on any VPS/cloud, orchestrated via Docker Compose or Kubernetes
@@ -26,7 +26,7 @@ OpenHermit is explicitly designed to address several structural issues that appe
    OpenClaw is primarily optimized for self-hosting by a single operator. OpenHermit is designed from the beginning around multiple agents, multiple users, and future platform-style deployment. Its internal state model, runtime discovery, and planned scheduler/gateway layers all aim toward hosted operation rather than only personal local use.
 
 3. **Clear boundaries between components**
-   OpenClaw concentrates many concerns into one large package. OpenHermit keeps the system split into focused components such as `agent`, `cli`, `web`, future `gateway`, and shared protocol/sdk packages. Components are expected to communicate through explicit interfaces instead of hidden in-process coupling.
+   OpenClaw concentrates many concerns into one large package. OpenHermit keeps the system split into focused components such as `agent`, `cli`, `web`, `gateway`, and shared protocol/sdk/store packages. Components are expected to communicate through explicit interfaces instead of hidden in-process coupling.
 
 ## State Layout
 
@@ -46,7 +46,7 @@ Current internal-state files include:
 The workspace now keeps agent-managed external inputs under `workspace/.openhermit/`, including identity markdown and workspace-level integration config.
 Runtime-owned settings such as model selection and checkpoint cadence live in `~/.openhermit/{agent-id}/config.json`.
 
-`state.sqlite` now stores sessions, session history, named memories, and container runtime inventory. It also uses lightweight versioned migrations for incremental schema changes.
+`state.sqlite` now stores sessions, session history, memories, instructions, and container runtime inventory. It also uses lightweight versioned migrations for incremental schema changes.
 
 ## Repository Structure
 
@@ -56,13 +56,14 @@ openhermit/
 │   ├── agent/                # Current focus: single-agent runtime (Hono + session API)
 │   ├── cli/                  # Local terminal client for the agent-local API
 │   ├── web/                  # Local browser client and launcher for the agent-local API
-│   ├── gateway/              # Future control plane for multi-agent management
+│   ├── gateway/              # Control plane for multi-agent lifecycle and proxy routing
 │   └── channels/
 │       └── telegram/         # Future IM bridge example
 ├── packages/
 │   ├── protocol/             # Shared session/event contracts and route constants
 │   ├── sdk/                  # Thin client for agent-local API calls
-│   └── shared/               # Errors, runtime metadata types, small shared helpers
+│   ├── shared/               # Errors, runtime metadata types, small shared helpers
+│   └── store/                # Store interfaces (SessionStore, MemoryProvider, etc.) and SQLite adapters
 └── docs/
     ├── architecture.md
     ├── participant-model.md   # Draft participant / role model

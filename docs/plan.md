@@ -16,7 +16,7 @@ OpenHermit already has a working single-agent runtime with:
 - CLI client
 - local web client
 - approval gate
-- file, web, memory, and container tools
+- workspace execution, web, memory, instruction, and container tools
 
 The main architectural direction is now stable:
 
@@ -68,23 +68,23 @@ There are also several active design drafts that are intentionally not yet imple
 - checkpoint endpoint
 - agent-driven internal checkpoint turns
 - session-local working memory
-- named memories with first-class keys:
-  - `main`
-  - `now`
-  - structured keys such as `project/...`
-- agent-facing named-memory tools:
+- pluggable `MemoryProvider` interface (default: `SqliteMemoryProvider`)
+- `getContextBlock()` for per-turn memory injection
+- agent-facing memory tools:
+  - `memory_add`
   - `memory_get`
   - `memory_recall`
-- `memory_update`
+  - `memory_update`
+  - `memory_delete`
 - initial prompt-budget compaction for long sessions
 
 ### Tooling
 
-- file tools
-- `file_search`
+- `workspace_exec` (command execution in workspace container)
 - `web_fetch`
-- container tools
+- container tools (`container_start`, `container_stop`, `container_exec`, `container_run`, `container_status`)
 - configurable container `mount_target`
+- instruction tools (`instruction_read`, `instruction_update`)
 
 ## Remaining Major Work
 
@@ -130,15 +130,14 @@ These tracks are being explored in documentation but are not yet committed imple
 ### 1.2 Durable Memory Refinement
 
 - finalize the boundary between:
-  - named system memory
-  - user-authored knowledge
-- make `main` and `now` the default runtime-loaded memories
+  - system memory (via MemoryProvider)
+  - user-authored knowledge (workspace files)
 - formalize structured key conventions such as:
   - `project/...`
   - `user/preferences/...`
   - `ops/...`
-- define when checkpoint turns may refresh `now`
-- define when idle consolidation may refresh `main` and other durable keys
+- refine `getContextBlock()` retrieval strategy beyond "most recent 5"
+- define when idle consolidation may promote transient knowledge into long-term memory
 
 ### 1.3 Long-Term Consolidation
 
@@ -148,10 +147,7 @@ These tracks are being explored in documentation but are not yet committed imple
   - session logs
   - episodic checkpoints
   - session-local working memory
-  - `now`
-- write promoted results into:
-  - `main`
-  - structured named memories
+- write promoted results into long-term memory via MemoryProvider
 
 ## Phase 2 — Runtime Compaction
 
@@ -165,7 +161,6 @@ These tracks are being explored in documentation but are not yet committed imple
 - make compaction cooperate with:
   - episodic checkpoints
   - session-local working memory
-  - `now`
 
 ## Phase 3 — Scheduler
 
@@ -188,11 +183,8 @@ These tracks are being explored in documentation but are not yet committed imple
 
 - refine how user-authored knowledge is organized in the external workspace
 - improve how `workspace/.openhermit/*.md` is loaded, composed, and validated without moving canonical ownership into internal state
-- improve the agent's use of:
-  - `memory_recall`
-  - `memory_get`
-  - `memory_update`
-- add explicit “remember this” behavior on top of named memories
+- improve the agent's use of memory tools (`memory_add`, `memory_get`, `memory_recall`, `memory_update`, `memory_delete`)
+- add explicit “remember this” behavior on top of the MemoryProvider
 - connect any future normalized identity cache to prompt construction as a derived layer, not as canonical storage
 
 ## Phase 5 — Web + Channel Maturity
@@ -226,5 +218,5 @@ These tracks are being explored in documentation but are not yet committed imple
 - internal state should not flow back into the workspace by default
 - user-editable inputs and runtime-managed state must remain distinct
 - episodic memory and session-local working memory remain runtime-managed
-- agent-facing memory tools should target named system memory only
+- agent-facing memory tools target the MemoryProvider interface
 - mounted container task data remains external state even though container runtime inventory is internal state

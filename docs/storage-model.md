@@ -83,18 +83,20 @@ Draft shape:
 interface InternalStateStore {
   sessions: SessionStore;
   messages: MessageStore;
-  memories: MemoryStore;
-  checkpoints: CheckpointStore;
-  runtime: RuntimeStore;
+  memories: MemoryProvider;
+  containers: ContainerStore;
+  instructions: InstructionStore;
+  close(): void;
 }
 ```
 
-Possible adapters:
+Current adapter: `SqliteInternalStateStore` in `packages/store/src/sqlite/`.
 
-- `SQLiteInternalStateStore`
-- `PostgresInternalStateStore`
+Future adapters: `PostgresInternalStateStore`.
 
 This preserves structure, indexing, migration control, and explicit lifecycle semantics.
+
+> **Note**: The `InternalStateStore` interface is now implemented, not draft. See `packages/store/src/interfaces.ts`.
 
 ### 3. Virtual State View
 

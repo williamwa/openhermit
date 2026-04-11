@@ -53,15 +53,15 @@ Examples:
 - session messages and events
 - episodic checkpoints
 - session-local working memory
-- `now`
-- `main`
-- structured named memories
+- memories (via MemoryProvider)
+- instructions
 - container runtime inventory
 - runtime discovery metadata
 
 Internal state is not part of the agent's ordinary task workspace.
 
-Agent-facing memory tools should only target named system memory such as `main`, `now`, and structured keys. The current tool set should include `memory_get`, `memory_recall`, and `memory_update`.
+Agent-facing memory tools provide CRUD + search over the MemoryProvider: `memory_add`, `memory_get`, `memory_recall`, `memory_update`, `memory_delete`.
+Agent-facing instruction tools manage persistent instructions: `instruction_read`, `instruction_update`.
 Episodic and working memory remain runtime-managed internal state.
 
 ## Storage Layout
@@ -175,7 +175,7 @@ OpenHermit provides the surrounding runtime:
 - built-in tools
 - approval orchestration
 - session persistence
-- memory updates, including checkpoint turns and named-memory maintenance
+- memory updates via pluggable MemoryProvider
 - future compaction for long-running sessions
 - optional Langfuse tracing around model requests when `apps/agent/.env` provides `LANGFUSE_*`
 - HTTP + SSE transport
@@ -221,10 +221,11 @@ Notes:
 
 ## Containers
 
-Containers are split into two categories:
+Containers are split into three categories:
 
-- `ephemeral`
-- `service`
+- `ephemeral` — one-shot execution, auto-removed
+- `service` — long-running daemons (databases, web servers)
+- `workspace` — persistent container with workspace mounted at `/workspace`, used for `workspace_exec`
 
 ## Checkpointing vs. Compaction
 
@@ -236,7 +237,6 @@ Checkpointing exists to update memory:
 
 - episodic checkpoints
 - session-local working memory
-- possibly `now`
 
 Checkpoint turns are internal agent turns triggered by the runtime.
 The periodic turn interval counts completed agent runs, not intermediate assistant messages inside one run.
@@ -279,17 +279,17 @@ Boundary:
 
 ## Memory
 
-OpenHermit uses four logical memory layers:
+OpenHermit uses three logical memory layers:
 
-- session log
-- episodic memory
-- active memory
-- durable memory
+- episodic memory — checkpoint summaries
+- working memory — session-local active state
+- long-term memory — durable knowledge via MemoryProvider
 
 Current direction:
 
 - raw session history, episodic checkpoints, and memories live in `state.sqlite`
-- system-managed memories such as `main`, `now`, and structured keys live in `state.sqlite`
+- long-term memories are managed through a pluggable `MemoryProvider` interface (default: `SqliteMemoryProvider`)
+- the MemoryProvider exposes `getContextBlock()` to inject relevant memory into each turn's context
 - user-authored knowledge should remain external and searchable as normal files
 - checkpoints should be executed as internal agent turns rather than external bare summaries
 - durable memory should be updated through idle consolidation and explicit user instruction
@@ -309,14 +309,19 @@ The direction is:
 - agent executes runs as ordinary sessions/messages
 - heartbeat becomes one task handler, not the scheduling model
 
-## Future Gateway
+## Gateway
 
-A future gateway/control plane may add:
+The gateway (`apps/gateway/`) is a control plane that sits above per-agent runtimes:
 
-- multi-agent lifecycle management
-- unified `/agents/{id}/...` APIs
+- multi-agent lifecycle management (start, stop, restart)
+- agent registry and health checks
+- proxy routing: `/agents/{id}/...` → agent-local API
+- unified agent listing API
+
+Planned additions:
+
 - schedule management
 - channel orchestration
 - monitoring
 
-That gateway should sit above per-agent runtimes, not replace the agent-local contract.
+The gateway proxies requests to per-agent processes and does not replace the agent-local contract.

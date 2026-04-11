@@ -8,13 +8,14 @@ It is not yet the implemented source of truth.
 
 ## Current Baseline
 
-OpenHermit currently assumes:
+OpenHermit currently implements:
 
 - the main agent runtime runs on the host
 - containers are sandboxed tools and services controlled by the host runtime
 - internal runtime state remains host-owned
+- a **workspace container** provides each agent with a persistent execution environment (workspace mounted at `/workspace`, used via `workspace_exec`)
 
-This baseline is still the current architectural decision.
+Three container types are implemented: `ephemeral`, `service`, and `workspace`.
 
 ## Why This Draft Exists
 
@@ -72,7 +73,24 @@ Examples:
 - vector stores
 - MCP sidecars or other helper daemons
 
-### 3. Daily Sandbox
+### 3. Workspace Container (Implemented)
+
+Purpose:
+
+- a persistent execution environment for each agent
+- the primary way agents run shell commands and interact with workspace files
+- installed packages and state persist across commands within a session
+
+Characteristics:
+
+- created on demand when `workspace_exec` is first called
+- workspace root mounted at `/workspace`
+- persists across agent restarts (restarted if stopped)
+- default image configurable per agent
+
+This is the current implemented sandbox for everyday agent work.
+
+### 4. Daily Sandbox (Future)
 
 Purpose:
 
