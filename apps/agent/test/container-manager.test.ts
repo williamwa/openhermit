@@ -229,13 +229,12 @@ test('DockerContainerManager startService and stopService persist service lifecy
 
   const stopped = await manager.stopService('redis-cache');
 
-  assert.deepEqual(runner.calls[1], ['rm', '-f', 'redis-cache']);
-  assert.equal(stopped.status, 'removed');
-  assert.ok(stopped.removed);
+  assert.deepEqual(runner.calls[1], ['stop', 'redis-cache']);
+  assert.equal(stopped.status, 'stopped');
 
   const registryEntries = await manager.registry.readAll();
   assert.equal(registryEntries.length, 1);
-  assert.equal(registryEntries[0]?.status, 'removed');
+  assert.equal(registryEntries[0]?.status, 'stopped');
 });
 
 test('DockerContainerManager tolerates stopping a missing live container when registry exists', async (t) => {
@@ -258,6 +257,8 @@ test('DockerContainerManager tolerates stopping a missing live container when re
 
   assert.equal(stopped.status, 'removed');
 });
+
+
 
 test('DockerContainerManager rejects stopping an unregistered service container', async (t) => {
   const { workspace } = await createWorkspaceFixture(t);

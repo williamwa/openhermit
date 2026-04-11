@@ -998,7 +998,7 @@ test('container_start is blocked in readonly mode', async (t) => {
   assert.equal(docker.calls.length, 0, 'docker should not be called in readonly mode');
 });
 
-test('container_stop removes a running service and updates the registry', async (t) => {
+test('container_stop stops a running service and updates the registry', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: { ANTHROPIC_API_KEY: 'key' },
   });
@@ -1020,15 +1020,13 @@ test('container_stop removes a running service and updates the registry', async 
     name: 'svc-to-stop',
   });
 
-  assert.ok(docker.calls[1]?.includes('rm'));
-  assert.ok(docker.calls[1]?.includes('-f'));
+  assert.ok(docker.calls[1]?.includes('stop'));
   assert.ok(docker.calls[1]?.includes('svc-to-stop'));
   assert.match(getFirstText(stopResult), /svc-to-stop/);
 
   const entries = await containerManager.registry.readAll();
   const entry = entries.find((container) => container.name === 'svc-to-stop');
-  assert.equal(entry?.status, 'removed');
-  assert.ok(entry?.removed, 'removed timestamp should be set');
+  assert.equal(entry?.status, 'stopped');
 });
 
 test('container_stop is blocked in readonly mode', async (t) => {

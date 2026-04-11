@@ -65,6 +65,7 @@ export type ContainerType = 'ephemeral' | 'service' | 'workspace';
 export type ContainerStatus =
   | 'created'
   | 'running'
+  | 'stopped'
   | 'exited'
   | 'removed'
   | 'unknown';

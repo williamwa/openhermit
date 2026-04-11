@@ -227,7 +227,7 @@ export const createContainerStopTool = ({
 }: ToolContext): AgentTool<typeof ContainerStopParams> => ({
   name: 'container_stop',
   label: 'Stop Service Container',
-  description: 'Stop and remove a running service container. The registry entry is preserved with status "removed".',
+  description: 'Stop a running service container. The container is preserved and can be restarted with container_start.',
   parameters: ContainerStopParams,
   execute: async (_toolCallId, args: ContainerStopArgs) => {
     ensureAutonomyAllows(security, 'container_stop');

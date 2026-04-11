@@ -343,6 +343,24 @@ export class DockerContainerManager {
       throw new ValidationError(`Service container already running: ${args.name}`);
     }
 
+    // Restart a stopped container instead of creating a new one.
+    if (existing && existing.status === 'stopped') {
+      const result = await this.docker.run(['start', args.name]);
+
+      if (result.exitCode !== 0) {
+        throw new OpenHermitError(
+          `Failed to restart service container: ${result.stderr || result.stdout}`,
+          'docker_run_failed',
+          500,
+        );
+      }
+
+      return this.registry.updateByName(args.name, (current) => ({
+        ...current,
+        status: 'running',
+      }));
+    }
+
     const mountPath = await this.workspace.resolve(mountRelative);
     await fs.mkdir(mountPath, { recursive: true });
     const mountTarget = normalizeContainerMountTarget(
@@ -353,6 +371,11 @@ export class DockerContainerManager {
       throw new ValidationError(
         `Service mount target must be an absolute in-container path: ${mountTarget}`,
       );
+    }
+
+    // Remove stale removed container so the name is available.
+    if (existing && existing.status === 'removed') {
+      await this.docker.run(['rm', '-f', args.name]);
     }
 
     const dockerArgs = [
@@ -411,6 +434,32 @@ export class DockerContainerManager {
   async stopService(name: string): Promise<ContainerRegistryEntry> {
     const entry = await this.requireRegisteredService(name);
 
+    if (entry.status === 'stopped' || entry.status === 'removed') {
+      return entry;
+    }
+
+    const result = await this.docker.run(['stop', name]);
+    const missingContainer =
+      result.exitCode !== 0 &&
+      /No such container/i.test(`${result.stdout}\n${result.stderr}`);
+
+    if (result.exitCode !== 0 && !missingContainer) {
+      throw new OpenHermitError(
+        `Failed to stop service container: ${result.stderr || result.stdout}`,
+        'docker_stop_failed',
+        500,
+      );
+    }
+
+    return this.registry.updateByName(name, (current) => ({
+      ...current,
+      status: missingContainer ? 'removed' : 'stopped',
+    }));
+  }
+
+  async removeService(name: string): Promise<ContainerRegistryEntry> {
+    const entry = await this.requireRegisteredService(name);
+
     if (entry.status === 'removed') {
       return entry;
     }
@@ -422,7 +471,7 @@ export class DockerContainerManager {
 
     if (result.exitCode !== 0 && !missingContainer) {
       throw new OpenHermitError(
-        `Failed to stop service container: ${result.stderr || result.stdout}`,
+        `Failed to remove service container: ${result.stderr || result.stdout}`,
         'docker_remove_failed',
         500,
       );
@@ -541,7 +590,19 @@ export class DockerContainerManager {
         }));
       }
 
-      // Container exists but is not running — remove stale container and recreate
+      // Container exists but is stopped — restart it.
+      if (liveStatus === 'exited' || existing.status === 'stopped') {
+        const startResult = await this.docker.run(['start', name]);
+
+        if (startResult.exitCode === 0) {
+          return this.registry.updateByName(name, (current) => ({
+            ...current,
+            status: 'running',
+          }));
+        }
+      }
+
+      // Container is in an unrecoverable state — remove and recreate.
       if (liveStatus) {
         await this.docker.run(['rm', '-f', name]);
       }
@@ -603,15 +664,14 @@ export class DockerContainerManager {
     const name = this.workspaceContainerName(agentId);
     const entry = await this.registry.findByName(name);
 
-    if (!entry) {
+    if (!entry || entry.status === 'stopped' || entry.status === 'removed') {
       return;
     }
 
-    await this.docker.run(['rm', '-f', name]);
+    await this.docker.run(['stop', name]);
     await this.registry.updateByName(name, (current) => ({
       ...current,
-      status: 'removed',
-      removed: new Date().toISOString(),
+      status: 'stopped',
     }));
   }
 
