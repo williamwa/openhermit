@@ -31,7 +31,7 @@ export {
 export const createBuiltInTools = (
   context: ToolContext,
 ): AgentTool<any>[] => {
-  const { security, approvalCallback, onToolRequested, onToolStarted } = context;
+  const { security, approvalCallback, approvedCache, onToolRequested, onToolStarted } = context;
 
   const tools = [
     ...(context.memoryStore
@@ -63,6 +63,7 @@ export const createBuiltInTools = (
       approvalCallback,
       onToolRequested,
       onToolStarted,
+      approvedCache,
     ),
   );
 };

@@ -8,12 +8,27 @@ import {
   type ToolStartedCallback,
 } from './shared.js';
 
+const approvalCacheKey = (toolName: string, args: unknown): string | undefined => {
+  if (
+    toolName === 'container_start' &&
+    args !== null &&
+    typeof args === 'object' &&
+    'name' in args &&
+    typeof (args as Record<string, unknown>).name === 'string'
+  ) {
+    return `${toolName}::${(args as Record<string, unknown>).name}`;
+  }
+
+  return undefined;
+};
+
 export const withApproval = (
   tool: AgentTool<any>,
   security: AgentSecurity,
   approvalCallback: ApprovalCallback | undefined,
   onToolRequested?: ToolRequestedCallback,
   onToolStarted?: ToolStartedCallback,
+  approvedCache?: Set<string>,
 ): AgentTool<any> => {
   if (!approvalCallback) {
     if (!onToolRequested && !onToolStarted) {
@@ -50,24 +65,34 @@ export const withApproval = (
       await onToolRequested?.(tool.name, toolCallId, args);
 
       if (needsApproval) {
-        const decision = await approvalCallback(tool.name, toolCallId, args);
+        const cacheKey = approvalCacheKey(tool.name, args);
 
-        if (decision !== 'approved') {
-          const text =
-            decision === 'timed_out'
-              ? `Tool call "${tool.name}" timed out waiting for user approval.`
-              : decision === 'cancelled'
-                ? `Tool call "${tool.name}" was cancelled before approval was received.`
-                : `Tool call "${tool.name}" was rejected by the user.`;
+        if (cacheKey && approvedCache?.has(cacheKey)) {
+          // Already approved in this session — skip prompt.
+        } else {
+          const decision = await approvalCallback(tool.name, toolCallId, args);
 
-          return {
-            content: asTextContent(text),
-            details: {
-              rejected: true,
-              toolName: tool.name,
-              approvalStatus: decision,
-            },
-          };
+          if (decision !== 'approved') {
+            const text =
+              decision === 'timed_out'
+                ? `Tool call "${tool.name}" timed out waiting for user approval.`
+                : decision === 'cancelled'
+                  ? `Tool call "${tool.name}" was cancelled before approval was received.`
+                  : `Tool call "${tool.name}" was rejected by the user.`;
+
+            return {
+              content: asTextContent(text),
+              details: {
+                rejected: true,
+                toolName: tool.name,
+                approvalStatus: decision,
+              },
+            };
+          }
+
+          if (cacheKey && approvedCache) {
+            approvedCache.add(cacheKey);
+          }
         }
       }
 

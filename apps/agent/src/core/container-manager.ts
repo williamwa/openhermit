@@ -344,25 +344,13 @@ export class DockerContainerManager {
 
     const existing = await this.registry.findByName(name);
 
-    if (existing && existing.status === 'running') {
-      throw new ValidationError(`Service container already running: ${name}`);
-    }
-
-    // Restart a stopped container instead of creating a new one.
-    if (existing && existing.status === 'stopped') {
-      const result = await this.docker.run(['start', name]);
-
-      if (result.exitCode !== 0) {
-        throw new OpenHermitError(
-          `Failed to restart service container: ${result.stderr || result.stdout}`,
-          'docker_run_failed',
-          500,
-        );
-      }
-
-      return this.registry.updateByName(name, (current) => ({
+    // Remove any existing container so it is recreated with the latest config.
+    if (existing && (existing.status === 'running' || existing.status === 'stopped')) {
+      await this.docker.run(['stop', name]).catch(() => {});
+      await this.docker.run(['rm', '-f', name]);
+      await this.registry.updateByName(name, (current) => ({
         ...current,
-        status: 'running',
+        status: 'removed',
       }));
     }
 
@@ -520,13 +508,15 @@ export class DockerContainerManager {
 
     return registryEntries.map((entry) => {
       const live = liveByName.get(entry.name);
+      const shortName = this.toShortName(entry.name);
 
       if (!live) {
-        return entry;
+        return { ...entry, name: shortName };
       }
 
       return {
         ...entry,
+        name: shortName,
         status: deriveContainerStatus(live.statusText),
         runtime_container_id: live.id,
         live_status_text: live.statusText,
@@ -560,6 +550,11 @@ export class DockerContainerManager {
 
   private containerName(suffix: string): string {
     return `openhermit-${this.agentId}-${suffix}`;
+  }
+
+  private toShortName(fullName: string): string {
+    const prefix = `openhermit-${this.agentId}-`;
+    return fullName.startsWith(prefix) ? fullName.slice(prefix.length) : fullName;
   }
 
   async getWorkspaceContainer(

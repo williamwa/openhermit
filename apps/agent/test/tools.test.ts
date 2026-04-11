@@ -250,6 +250,51 @@ test('withApproval distinguishes timeout from explicit rejection', async (t) => 
   assert.deepEqual(startedCalls, []);
 });
 
+test('withApproval caches container_start approval by name within a session', async (t) => {
+  const { security } = await createSecurityFixture(t, {
+    security: {
+      autonomy_level: 'supervised',
+      require_approval_for: ['container_start'],
+    },
+  });
+  await security.load();
+
+  const Params = Type.Object({
+    name: Type.String(),
+    image: Type.String(),
+  });
+
+  let execCount = 0;
+  const tool: AgentTool<typeof Params> = {
+    name: 'container_start',
+    label: 'Start Service Container',
+    description: 'test',
+    parameters: Params,
+    execute: async () => {
+      execCount += 1;
+      return { content: [{ type: 'text', text: 'started' }], details: {} };
+    },
+  };
+
+  let approvalCount = 0;
+  const cache = new Set<string>();
+  const wrapped = withApproval(
+    tool,
+    security,
+    async () => { approvalCount += 1; return 'approved'; },
+    undefined,
+    undefined,
+    cache,
+  );
+
+  await wrapped.execute('call-1', { name: 'web', image: 'nginx' });
+  await wrapped.execute('call-2', { name: 'web', image: 'nginx' });
+  await wrapped.execute('call-3', { name: 'db', image: 'postgres' });
+
+  assert.equal(execCount, 3);
+  assert.equal(approvalCount, 2, 'second call to same name should skip approval');
+});
+
 test('memory_update stores named memory, memory_recall finds it, and memory_get returns full content', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: { ANTHROPIC_API_KEY: 'key' },

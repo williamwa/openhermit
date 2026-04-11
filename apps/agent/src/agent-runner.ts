@@ -330,6 +330,7 @@ export class AgentRunner implements SessionRuntime {
     }
 
     const approvalGate = new ApprovalGate();
+    const approvedCache = new Set<string>();
     const approvalCallback = effectiveSpec.source.interactive
       ? this.makeApprovalCallback(effectiveSpec.sessionId, approvalGate)
       : undefined;
@@ -352,6 +353,7 @@ export class AgentRunner implements SessionRuntime {
 
         return this.makeToolStartedCallback(session)(...args);
       },
+      approvedCache,
     );
     session = {
       spec: effectiveSpec,
@@ -807,6 +809,7 @@ export class AgentRunner implements SessionRuntime {
     approvalCallback?: ApprovalCallback,
     onToolRequested?: ToolRequestedCallback,
     onToolStarted?: ToolStartedCallback,
+    approvedCache?: Set<string>,
   ): Promise<Agent> {
     return this.createConfiguredAgent({
       config,
@@ -815,6 +818,7 @@ export class AgentRunner implements SessionRuntime {
       ...(spec.source.interactive && approvalCallback ? { approvalCallback } : {}),
       ...(onToolRequested ? { onToolRequested } : {}),
       ...(onToolStarted ? { onToolStarted } : {}),
+      ...(approvedCache ? { approvedCache } : {}),
     });
   }
 
@@ -823,6 +827,7 @@ export class AgentRunner implements SessionRuntime {
     agentSessionId: string;
     contextSessionId: string;
     approvalCallback?: ApprovalCallback;
+    approvedCache?: Set<string>;
     onToolRequested?: ToolRequestedCallback;
     onToolStarted?: ToolStartedCallback;
     extraSystemPrompt?: string;
@@ -846,6 +851,7 @@ export class AgentRunner implements SessionRuntime {
           onWorkspaceExec: () => this.resetWorkspaceIdleTimer(input.config.workspace_container!),
         } : {}),
         ...(input.approvalCallback ? { approvalCallback: input.approvalCallback } : {}),
+        ...(input.approvedCache ? { approvedCache: input.approvedCache } : {}),
         ...(input.onToolRequested ? { onToolRequested: input.onToolRequested } : {}),
         ...(input.onToolStarted ? { onToolStarted: input.onToolStarted } : {}),
       });

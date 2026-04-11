@@ -43,6 +43,7 @@ export interface ToolContext {
   workspaceContainerConfig?: WorkspaceContainerConfig;
   onWorkspaceExec?: () => void;
   approvalCallback?: ApprovalCallback;
+  approvedCache?: Set<string>;
   onToolRequested?: ToolRequestedCallback;
   onToolStarted?: ToolStartedCallback;
 }
