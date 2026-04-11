@@ -14,6 +14,8 @@ import {
 } from '../src/core/index.js';
 import { createWorkspaceFixture } from './helpers.js';
 
+const prefix = 'openhermit-default-';
+
 class FakeDockerRunner implements DockerRunner {
   readonly calls: string[][] = [];
 
@@ -150,7 +152,7 @@ test('DockerContainerManager runEphemeral records the container and parses struc
   assert.equal(dockerArgs[0], 'run');
   assert.equal(dockerArgs[1], '--rm');
   assert.ok(mountIndex >= 0);
-  assert.match(dockerArgs[mountIndex + 1] ?? '', /\/containers\/run-.*\/data:\/app$/);
+  assert.match(dockerArgs[mountIndex + 1] ?? '', /\/containers\/openhermit-default-run-.*\/data:\/app$/);
   assert.equal(envIndex >= 0, true);
   assert.equal(dockerArgs[envIndex + 1], 'DEMO=1');
   assert.equal(dockerArgs[dockerArgs.indexOf('-w') + 1], '/app/app');
@@ -172,7 +174,7 @@ test('DockerContainerManager runEphemeral records the container and parses struc
   assert.equal(result.container.description, 'Run a one-off node task');
   assert.equal(result.container.command, 'node -e "console.log(1)"');
   assert.equal(result.container.exit_code, 0);
-  assert.match(result.container.mount ?? '', /^containers\/run-.*\/data$/);
+  assert.match(result.container.mount ?? '', /^containers\/openhermit-default-run-.*\/data$/);
   assert.equal(result.container.mount_target, '/app');
 
   const registryEntries = await manager.registry.readAll();
@@ -203,7 +205,7 @@ test('DockerContainerManager startService and stopService persist service lifecy
     network: 'openhermit',
   });
 
-  assert.equal(started.name, 'redis-cache');
+  assert.equal(started.name, `${prefix}redis-cache`);
   assert.equal(started.status, 'running');
   assert.equal(started.runtime_container_id, 'container-123');
   assert.equal(started.description, 'Cache service');
@@ -215,7 +217,7 @@ test('DockerContainerManager startService and stopService persist service lifecy
     'run',
     '-d',
     '--name',
-    'redis-cache',
+    `${prefix}redis-cache`,
     '-v',
     `${workspace.root}/containers/redis-cache/data:/var/lib/redis-data`,
     '-p',
@@ -229,7 +231,7 @@ test('DockerContainerManager startService and stopService persist service lifecy
 
   const stopped = await manager.stopService('redis-cache');
 
-  assert.deepEqual(runner.calls[1], ['stop', 'redis-cache']);
+  assert.deepEqual(runner.calls[1], ['stop', `${prefix}redis-cache`]);
   assert.equal(stopped.status, 'stopped');
 
   const registryEntries = await manager.registry.readAll();
@@ -307,7 +309,7 @@ test('DockerContainerManager listAll merges live docker status into registry ent
     okResult({
       stdout: JSON.stringify({
         ID: 'container-live',
-        Names: 'redis-cache',
+        Names: `${prefix}redis-cache`,
         Image: 'redis:7',
         Status: 'Up 15 seconds',
       }),

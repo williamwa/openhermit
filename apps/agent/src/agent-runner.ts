@@ -216,6 +216,7 @@ export class AgentRunner implements SessionRuntime {
     this.containerManager =
       options.containerManager
       ?? new DockerContainerManager(options.workspace, {
+        agentId: options.security.agentId,
         containerStore: this.store.containers,
         storeScope: this.scope,
       });

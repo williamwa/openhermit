@@ -933,7 +933,7 @@ test('container_start launches a service container and returns entry details', a
 
   assert.ok(docker.calls[0]?.includes('run'));
   assert.ok(docker.calls[0]?.includes('-d'));
-  assert.ok(docker.calls[0]?.includes('pg-main'));
+  assert.ok(docker.calls[0]?.includes('openhermit-default-pg-main'));
   assert.ok(docker.calls[0]?.includes('postgres:16'));
   assert.ok(docker.calls[0]?.includes('-p'));
   assert.ok(docker.calls[0]?.some((arg) => arg.includes('10001:5432')));
@@ -944,7 +944,7 @@ test('container_start launches a service container and returns entry details', a
   assert.match(text, /10001/);
 
   const entries = await containerManager.registry.readAll();
-  const entry = entries.find((container) => container.name === 'pg-main');
+  const entry = entries.find((container) => container.name === 'openhermit-default-pg-main');
   assert.ok(entry);
   assert.equal(entry?.status, 'running');
   assert.equal(entry?.image, 'postgres:16');
@@ -973,7 +973,7 @@ test('container_start resolves env_secrets and merges with plain env', async (t)
   assert.ok(envFlags.some((flag) => flag.startsWith('PLAIN_VAR=')), 'plain env var present');
   assert.ok(envFlags.some((flag) => flag.startsWith('DB_PASSWORD=')), 'secret env var present');
 
-  const entry = (await containerManager.registry.readAll()).find((container) => container.name === 'redis-main');
+  const entry = (await containerManager.registry.readAll()).find((container) => container.name === 'openhermit-default-redis-main');
   const serialized = JSON.stringify(entry);
   assert.ok(!serialized.includes('supersecret'), 'secret value not in registry entry');
 });
@@ -1021,11 +1021,11 @@ test('container_stop stops a running service and updates the registry', async (t
   });
 
   assert.ok(docker.calls[1]?.includes('stop'));
-  assert.ok(docker.calls[1]?.includes('svc-to-stop'));
+  assert.ok(docker.calls[1]?.includes('openhermit-default-svc-to-stop'));
   assert.match(getFirstText(stopResult), /svc-to-stop/);
 
   const entries = await containerManager.registry.readAll();
-  const entry = entries.find((container) => container.name === 'svc-to-stop');
+  const entry = entries.find((container) => container.name === 'openhermit-default-svc-to-stop');
   assert.equal(entry?.status, 'stopped');
 });
 
@@ -1069,7 +1069,7 @@ test('container_exec runs a command and returns stdout stderr exitCode', async (
   });
 
   assert.ok(docker.calls[1]?.includes('exec'));
-  assert.ok(docker.calls[1]?.includes('my-service'));
+  assert.ok(docker.calls[1]?.includes('openhermit-default-my-service'));
 
   const text = getFirstText(result);
   assert.match(text, /hello from container/);

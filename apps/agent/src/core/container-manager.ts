@@ -168,6 +168,7 @@ class DockerCliRunner implements DockerRunner {
 }
 
 export interface DockerContainerManagerOptions {
+  agentId?: string;
   runner?: DockerRunner;
   stateFilePath?: string;
   containerStore?: ContainerStore;
@@ -214,6 +215,7 @@ interface LiveDockerContainer {
 
 export class DockerContainerManager {
   private readonly docker: DockerRunner;
+  private readonly agentId: string;
 
   readonly registry: ScopedContainerRegistry;
 
@@ -222,6 +224,7 @@ export class DockerContainerManager {
     options: DockerContainerManagerOptions = {},
   ) {
     this.docker = options.runner ?? new DockerCliRunner();
+    this.agentId = options.agentId ?? 'default';
 
     if (options.containerStore) {
       this.registry = new ScopedContainerRegistry(
@@ -241,12 +244,13 @@ export class DockerContainerManager {
   }
 
   private async requireRegisteredService(
-    name: string,
+    userFacingName: string,
   ): Promise<ContainerRegistryEntry> {
+    const name = this.containerName(userFacingName);
     const entry = await this.registry.findByName(name);
 
     if (!entry || entry.type !== 'service') {
-      throw new NotFoundError(`Service container not found in registry: ${name}`);
+      throw new NotFoundError(`Service container not found in registry: ${userFacingName}`);
     }
 
     return entry;
@@ -255,7 +259,7 @@ export class DockerContainerManager {
   async runEphemeral(
     args: EphemeralContainerArgs,
   ): Promise<ContainerProcessResult & { container: ContainerRegistryEntry }> {
-    const name = `run-${Date.now()}-${randomUUID().slice(0, 8)}`;
+    const name = this.containerName(`run-${Date.now()}-${randomUUID().slice(0, 8)}`);
     const mountRelative = normalizeContainerRelativePath(
       args.mount ?? `containers/${name}/data`,
     );
@@ -327,6 +331,7 @@ export class DockerContainerManager {
   }
 
   async startService(args: ServiceContainerArgs): Promise<ContainerRegistryEntry> {
+    const name = this.containerName(args.name);
     const mountRelative = normalizeContainerRelativePath(
       args.mount ?? `containers/${args.name}/data`,
     );
@@ -337,15 +342,15 @@ export class DockerContainerManager {
       );
     }
 
-    const existing = await this.registry.findByName(args.name);
+    const existing = await this.registry.findByName(name);
 
     if (existing && existing.status === 'running') {
-      throw new ValidationError(`Service container already running: ${args.name}`);
+      throw new ValidationError(`Service container already running: ${name}`);
     }
 
     // Restart a stopped container instead of creating a new one.
     if (existing && existing.status === 'stopped') {
-      const result = await this.docker.run(['start', args.name]);
+      const result = await this.docker.run(['start', name]);
 
       if (result.exitCode !== 0) {
         throw new OpenHermitError(
@@ -355,7 +360,7 @@ export class DockerContainerManager {
         );
       }
 
-      return this.registry.updateByName(args.name, (current) => ({
+      return this.registry.updateByName(name, (current) => ({
         ...current,
         status: 'running',
       }));
@@ -375,14 +380,14 @@ export class DockerContainerManager {
 
     // Remove stale removed container so the name is available.
     if (existing && existing.status === 'removed') {
-      await this.docker.run(['rm', '-f', args.name]);
+      await this.docker.run(['rm', '-f', name]);
     }
 
     const dockerArgs = [
       'run',
       '-d',
       '--name',
-      args.name,
+      name,
       '-v',
       `${mountPath}:${mountTarget}`,
     ];
@@ -414,7 +419,7 @@ export class DockerContainerManager {
     const runtimeContainerId = result.stdout.trim() || existing?.runtime_container_id;
     const entry: ContainerRegistryEntry = {
       id: existing?.id ?? randomUUID(),
-      name: args.name,
+      name,
       image: args.image,
       type: 'service',
       status: 'running',
@@ -438,7 +443,7 @@ export class DockerContainerManager {
       return entry;
     }
 
-    const result = await this.docker.run(['stop', name]);
+    const result = await this.docker.run(['stop', entry.name]);
     const missingContainer =
       result.exitCode !== 0 &&
       /No such container/i.test(`${result.stdout}\n${result.stderr}`);
@@ -451,7 +456,7 @@ export class DockerContainerManager {
       );
     }
 
-    return this.registry.updateByName(name, (current) => ({
+    return this.registry.updateByName(entry.name, (current) => ({
       ...current,
       status: missingContainer ? 'removed' : 'stopped',
     }));
@@ -464,7 +469,7 @@ export class DockerContainerManager {
       return entry;
     }
 
-    const result = await this.docker.run(['rm', '-f', name]);
+    const result = await this.docker.run(['rm', '-f', entry.name]);
     const missingContainer =
       result.exitCode !== 0 &&
       /No such container/i.test(`${result.stdout}\n${result.stderr}`);
@@ -477,7 +482,7 @@ export class DockerContainerManager {
       );
     }
 
-    return this.registry.updateByName(name, (current) => ({
+    return this.registry.updateByName(entry.name, (current) => ({
       ...current,
       status: 'removed',
       removed: new Date().toISOString(),
@@ -494,7 +499,7 @@ export class DockerContainerManager {
       throw new ValidationError(`Service container is not running: ${name}`);
     }
 
-    const result = await this.docker.run(['exec', name, 'sh', '-lc', command]);
+    const result = await this.docker.run(['exec', entry.name, 'sh', '-lc', command]);
     const parsedOutput = parseStructuredOutput(result.stdout);
 
     return {
@@ -553,14 +558,14 @@ export class DockerContainerManager {
       }));
   }
 
-  private workspaceContainerName(agentId: string): string {
-    return `${agentId}-workspace`;
+  private containerName(suffix: string): string {
+    return `openhermit-${this.agentId}-${suffix}`;
   }
 
   async getWorkspaceContainer(
     agentId: string,
   ): Promise<ContainerRegistryEntry | undefined> {
-    return this.registry.findByName(this.workspaceContainerName(agentId));
+    return this.registry.findByName(this.containerName('workspace'));
   }
 
   /**
@@ -571,7 +576,7 @@ export class DockerContainerManager {
     agentId: string,
     config: WorkspaceContainerConfig,
   ): Promise<ContainerRegistryEntry> {
-    const name = this.workspaceContainerName(agentId);
+    const name = this.containerName('workspace');
     const mountTarget = '/workspace';
 
     const existing = await this.registry.findByName(name);
@@ -661,7 +666,7 @@ export class DockerContainerManager {
   }
 
   async stopWorkspaceContainer(agentId: string): Promise<void> {
-    const name = this.workspaceContainerName(agentId);
+    const name = this.containerName('workspace');
     const entry = await this.registry.findByName(name);
 
     if (!entry || entry.status === 'stopped' || entry.status === 'removed') {
@@ -679,7 +684,7 @@ export class DockerContainerManager {
     agentId: string,
     command: string,
   ): Promise<ContainerProcessResult> {
-    const name = this.workspaceContainerName(agentId);
+    const name = this.containerName('workspace');
     const entry = await this.registry.findByName(name);
 
     if (!entry || entry.type !== 'workspace') {
