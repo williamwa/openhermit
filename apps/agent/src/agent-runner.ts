@@ -204,6 +204,8 @@ export class AgentRunner implements SessionRuntime {
 
   private readonly sessions = new Map<string, RunnerSession>();
 
+  private workspaceIdleTimer: ReturnType<typeof setTimeout> | undefined;
+
   private logRuntime(message: string): void {
     console.log(`[openhermit-agent] ${message}`);
   }
@@ -222,6 +224,46 @@ export class AgentRunner implements SessionRuntime {
 
   static async create(options: AgentRunnerOptions): Promise<AgentRunner> {
     return new AgentRunner(options);
+  }
+
+  resetWorkspaceIdleTimer(config: import('./core/types.js').WorkspaceContainerConfig): void {
+    if (this.workspaceIdleTimer) {
+      clearTimeout(this.workspaceIdleTimer);
+      this.workspaceIdleTimer = undefined;
+    }
+
+    const stopPolicy = config.lifecycle?.stop ?? 'idle';
+
+    if (stopPolicy !== 'idle') {
+      return;
+    }
+
+    const timeoutMs = (config.lifecycle?.idle_timeout_minutes ?? 30) * 60_000;
+
+    this.workspaceIdleTimer = setTimeout(() => {
+      this.workspaceIdleTimer = undefined;
+      void this.containerManager
+        .stopWorkspaceContainer(this.scope.agentId)
+        .then(() => this.logRuntime('workspace container stopped (idle timeout)'))
+        .catch(() => {});
+    }, timeoutMs);
+  }
+
+  async stopWorkspaceContainerIfSessionPolicy(): Promise<void> {
+    const config = await this.options.security.readConfig();
+
+    if (this.workspaceIdleTimer) {
+      clearTimeout(this.workspaceIdleTimer);
+      this.workspaceIdleTimer = undefined;
+    }
+
+    if (
+      config.workspace_container &&
+      (config.workspace_container.lifecycle?.stop ?? 'idle') === 'session'
+    ) {
+      await this.containerManager.stopWorkspaceContainer(this.scope.agentId);
+      this.logRuntime('workspace container stopped (session end)');
+    }
   }
 
   async openSession(spec: SessionSpec): Promise<SessionDescriptor> {
@@ -276,13 +318,15 @@ export class AgentRunner implements SessionRuntime {
 
     const config = await this.options.security.readConfig();
 
-    if (config.workspace_container) {
-      const agentId = this.scope.agentId;
+    if (
+      config.workspace_container &&
+      (config.workspace_container.lifecycle?.start ?? 'ondemand') === 'session'
+    ) {
       await this.containerManager.ensureWorkspaceContainer(
-        agentId,
+        this.scope.agentId,
         config.workspace_container,
       );
-      this.logRuntime(`workspace container ensured for agent ${agentId}`);
+      this.logRuntime(`workspace container ensured for agent ${this.scope.agentId}`);
     }
 
     const approvalGate = new ApprovalGate();
@@ -796,7 +840,11 @@ export class AgentRunner implements SessionRuntime {
         containerManager: this.containerManager,
         memoryStore: this.store.memories,
         storeScope: this.scope,
-        ...(input.config.workspace_container ? { agentId: this.scope.agentId } : {}),
+        ...(input.config.workspace_container ? {
+          agentId: this.scope.agentId,
+          workspaceContainerConfig: input.config.workspace_container,
+          onWorkspaceExec: () => this.resetWorkspaceIdleTimer(input.config.workspace_container!),
+        } : {}),
         ...(input.approvalCallback ? { approvalCallback: input.approvalCallback } : {}),
         ...(input.onToolRequested ? { onToolRequested: input.onToolRequested } : {}),
         ...(input.onToolStarted ? { onToolStarted: input.onToolStarted } : {}),

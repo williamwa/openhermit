@@ -68,10 +68,20 @@ export const DEFAULT_WORKSPACE_IDENTITY_FILES = [
   '.openhermit/AGENTS.md',
 ] as const;
 
+export type WorkspaceContainerStartPolicy = 'session' | 'ondemand';
+export type WorkspaceContainerStopPolicy = 'session' | 'idle';
+
+export interface WorkspaceContainerLifecycle {
+  start?: WorkspaceContainerStartPolicy;
+  stop?: WorkspaceContainerStopPolicy;
+  idle_timeout_minutes?: number;
+}
+
 export interface WorkspaceContainerConfig {
   image: string;
   memory_limit?: string;
   cpu_shares?: number;
+  lifecycle?: WorkspaceContainerLifecycle;
 }
 
 export interface AgentRuntimeConfig {

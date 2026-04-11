@@ -599,6 +599,22 @@ export class DockerContainerManager {
     return entry;
   }
 
+  async stopWorkspaceContainer(agentId: string): Promise<void> {
+    const name = this.workspaceContainerName(agentId);
+    const entry = await this.registry.findByName(name);
+
+    if (!entry) {
+      return;
+    }
+
+    await this.docker.run(['rm', '-f', name]);
+    await this.registry.updateByName(name, (current) => ({
+      ...current,
+      status: 'removed',
+      removed: new Date().toISOString(),
+    }));
+  }
+
   async execInWorkspace(
     agentId: string,
     command: string,

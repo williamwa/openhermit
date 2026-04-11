@@ -109,6 +109,22 @@ export const main = async (): Promise<void> => {
     }
   }
 
+  // Discover already-running agents or start them.
+  for (const entry of registry.list()) {
+    const discovered = await lifecycle.discover(entry.agentId);
+
+    if (discovered) {
+      logStartup(`discovered running agent: ${entry.agentId} on port ${discovered.port}`);
+    } else {
+      try {
+        const started = await lifecycle.start(entry.agentId);
+        logStartup(`started agent: ${entry.agentId} on port ${started.port}`);
+      } catch (error) {
+        logStartup(`failed to start agent ${entry.agentId}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  }
+
   const app = createGatewayApp({ registry, lifecycle, logger: logStartup });
 
   const rawPort = process.env.GATEWAY_PORT ?? process.env.PORT;

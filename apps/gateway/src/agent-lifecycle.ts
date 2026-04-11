@@ -73,6 +73,40 @@ export class AgentLifecycle {
       );
   }
 
+  /**
+   * Check if an agent is already running externally (via runtime.json + health check).
+   * Does NOT spawn a new process — only updates registry if the agent is alive.
+   */
+  async discover(agentId: string): Promise<AgentRegistryEntry | undefined> {
+    const entry = this.registry.get(agentId);
+
+    if (!entry) {
+      return undefined;
+    }
+
+    const runtime = await readRuntimeJson(agentId);
+
+    if (!runtime) {
+      return undefined;
+    }
+
+    const alive = await this.checkHealthHttp(
+      runtime.http_api.port,
+      runtime.http_api.token,
+    );
+
+    if (!alive) {
+      return undefined;
+    }
+
+    this.registry.update(agentId, {
+      status: 'running',
+      port: runtime.http_api.port,
+    });
+
+    return this.registry.get(agentId)!;
+  }
+
   async start(agentId: string): Promise<AgentRegistryEntry> {
     const entry = this.registry.get(agentId);
 

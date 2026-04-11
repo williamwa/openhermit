@@ -27,7 +27,7 @@ export const createWorkspaceExecTool = (
   execute: async (_toolCallId, args: WorkspaceExecArgs) => {
     ensureAutonomyAllows(context.security, 'workspace_exec');
 
-    if (!context.agentId) {
+    if (!context.agentId || !context.workspaceContainerConfig) {
       return {
         content: asTextContent(
           'workspace_exec is unavailable: no workspace container configured for this agent.',
@@ -35,6 +35,13 @@ export const createWorkspaceExecTool = (
         details: {},
       };
     }
+
+    await context.containerManager.ensureWorkspaceContainer(
+      context.agentId,
+      context.workspaceContainerConfig,
+    );
+
+    context.onWorkspaceExec?.();
 
     const result = await context.containerManager.execInWorkspace(
       context.agentId,

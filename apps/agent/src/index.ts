@@ -214,6 +214,7 @@ export const main = async (): Promise<void> => {
     server,
     shutdownLangfuse,
     cleanup: async () => {
+      await runner.stopWorkspaceContainerIfSessionPolicy();
       await fs.rm(security.runtimeFilePath, { force: true });
     },
     logger: logStartup,

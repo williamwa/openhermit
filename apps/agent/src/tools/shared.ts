@@ -1,7 +1,7 @@
 import { ValidationError } from '@openhermit/shared';
 import type { MemoryStore, StoreScope } from '@openhermit/store';
 
-import { AgentSecurity, AgentWorkspace, type DockerContainerManager } from '../core/index.js';
+import { AgentSecurity, AgentWorkspace, type DockerContainerManager, type WorkspaceContainerConfig } from '../core/index.js';
 
 const READONLY_BLOCKED_TOOLS = new Set([
   'write_file',
@@ -41,6 +41,8 @@ export interface ToolContext {
   memoryStore?: MemoryStore;
   storeScope?: StoreScope;
   agentId?: string;
+  workspaceContainerConfig?: WorkspaceContainerConfig;
+  onWorkspaceExec?: () => void;
   approvalCallback?: ApprovalCallback;
   onToolRequested?: ToolRequestedCallback;
   onToolStarted?: ToolStartedCallback;
