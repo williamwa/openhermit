@@ -60,18 +60,18 @@ Examples:
 - clearer mental model
 - better fit for future multi-agent and scheduler work
 
-## ADR-004: Identity markdown stays canonical in the workspace
+## ADR-004: Identity migrated from workspace markdown to InstructionStore
 
-**Decision**: `workspace/.openhermit/*.md` remains workspace-authored, user-editable, agent-editable, and canonical.
+**Decision**: `workspace/.openhermit/*.md` (IDENTITY.md, SOUL.md, AGENTS.md) serve as bootstrap sources. On first boot, they are migrated into the `InstructionStore` in `state.sqlite`. After migration, the `InstructionStore` is the canonical source.
 
-If OpenHermit later needs normalized identity structures for prompt construction or caching, those should be treated as derived internal views rather than as the source of truth.
+The agent manages instructions via `instruction_read` and `instruction_update` tools.
 
 **Rationale**:
 
-- users may need to inspect and edit identity files directly
-- the agent may need to update them through normal workspace operations
-- canonical identity inputs fit the external-state model better than hidden runtime-owned storage
-- derived internal caches remain possible without taking ownership away from the workspace
+- database-backed instructions support cloud deployment without filesystem dependency
+- the agent can update its own identity and instructions through tool calls
+- workspace markdown files remain useful as initial scaffolding for new agents
+- this supersedes the earlier decision to keep workspace files as the canonical source
 
 ## ADR-005: Per-agent SQLite internal store
 

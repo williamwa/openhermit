@@ -52,7 +52,7 @@ interface DocumentStore {
 This layer is a good fit for:
 
 - workspace files
-- identity markdown
+- identity markdown (bootstrap only; migrated to InstructionStore on first boot)
 - future agent-managed config documents
 - selected virtual views of internal state
 

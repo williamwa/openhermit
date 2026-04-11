@@ -88,8 +88,9 @@ Notes:
 
 - the default scaffold is intentionally minimal: `.openhermit/` and `containers/`
 - `workspace/.openhermit/config.json` is the workspace-owned external config surface for agent-manageable integrations and channels
-- `workspace/.openhermit/*.md` is workspace-authored, user-editable, agent-editable, and the canonical source for agent identity inputs
-- any future internal identity representation should be treated as derived cache or normalized view, not the source of truth
+- `workspace/.openhermit/*.md` (IDENTITY.md, SOUL.md, AGENTS.md) serve as bootstrap sources for identity
+- on first boot, these files are migrated into the `InstructionStore` in `state.sqlite`
+- after migration, the `InstructionStore` is the canonical source; the agent manages instructions via `instruction_read` and `instruction_update` tools
 - additional directories such as `files/` may be created later by user work or agent actions
 - `containers/{name}/data/` is external state because it contains mounted task data
 - container runtime inventory is internal state and now lives in `state.sqlite`

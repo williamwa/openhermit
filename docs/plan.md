@@ -121,11 +121,12 @@ These tracks are being explored in documentation but are not yet committed imple
 
 ## Phase 1 — Finish Internal/External State Separation
 
-### 1.1 Identity Split
+### 1.1 Identity ✅ Completed
 
-- keep `workspace/.openhermit/*.md` as workspace-authored, editable, canonical identity inputs
-- decide whether a normalized internal identity cache is still useful as a derived view
-- ensure prompt construction treats workspace identity files as the source of truth
+- workspace `.openhermit/*.md` files serve as bootstrap sources for first boot
+- on first boot, identity files are migrated into `InstructionStore` in `state.sqlite`
+- `InstructionStore` is now the canonical source for agent identity and instructions
+- agent manages instructions via `instruction_read` and `instruction_update` tools
 
 ### 1.2 Durable Memory Refinement
 
@@ -182,10 +183,10 @@ These tracks are being explored in documentation but are not yet committed imple
 ## Phase 4 — Identity + Knowledge Maturity
 
 - refine how user-authored knowledge is organized in the external workspace
-- improve how `workspace/.openhermit/*.md` is loaded, composed, and validated without moving canonical ownership into internal state
+- improve how instructions are loaded, composed, and validated from the InstructionStore
 - improve the agent's use of memory tools (`memory_add`, `memory_get`, `memory_recall`, `memory_update`, `memory_delete`)
 - add explicit “remember this” behavior on top of the MemoryProvider
-- connect any future normalized identity cache to prompt construction as a derived layer, not as canonical storage
+- ensure InstructionStore entries are properly composed into the system prompt
 
 ## Phase 5 — Web + Channel Maturity
 
@@ -202,7 +203,7 @@ These tracks are being explored in documentation but are not yet committed imple
 
 ## Immediate Implementation Order
 
-1. tighten the identity loading model while keeping `workspace/.openhermit/*.md` canonical in the workspace
+1. refine instruction loading and composition from InstructionStore
 2. refine runtime compaction beyond the current first pass
 3. define the durable-memory vs user-knowledge boundary more tightly
 4. continue design work on:
