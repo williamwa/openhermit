@@ -102,14 +102,10 @@ These tracks are being explored in documentation but are not yet committed imple
 - define the minimum participant context needed before pair and channel work lands
 - keep participant-scoped memory separate from agent identity files
 
-### Sandbox Model Draft
+### Sandbox Model
 
-- distinguish three sandbox shapes:
-  - `ephemeral`
-  - `service`
-  - `daily`
-- evaluate whether a future `daily sandbox` shape adds value beyond the current workspace container
-- continue exploring NixOS as a candidate substrate for the `daily sandbox`, especially for restart recovery and generation-style environment management
+- three sandbox shapes implemented: `ephemeral`, `service`, `workspace`
+- evaluate whether the workspace container should support declarative environment management (e.g. NixOS) for reproducible builds and rollback
 
 ### Storage Model Draft
 

@@ -1,10 +1,6 @@
-# Sandbox Model (Draft)
+# Sandbox Model
 
-This document is a working draft.
-
-It records possible sandbox directions discussed for OpenHermit.
-
-It is not yet the implemented source of truth.
+This document describes the sandbox model for OpenHermit.
 
 ## Current Baseline
 
@@ -18,17 +14,7 @@ OpenHermit currently implements:
 
 Three container types are implemented: `ephemeral`, `service`, and `workspace`.
 
-## Why This Draft Exists
-
-OpenHermit needs a clearer sandbox model for several different kinds of work:
-
-- one-off execution such as running code or tests
-- long-running supporting services
-- a future everyday environment where an agent may repeatedly return to the same isolated system state
-
-Those are related, but they are not the same sandbox shape.
-
-## Proposed Sandbox Shapes
+## Sandbox Shapes
 
 ### 1. Ephemeral Sandbox
 
@@ -74,7 +60,7 @@ Examples:
 - vector stores
 - MCP sidecars or other helper daemons
 
-### 3. Workspace Container (Implemented)
+### 3. Workspace Container
 
 Purpose:
 
@@ -89,66 +75,10 @@ Characteristics:
 - persists across agent restarts (restarted if stopped)
 - default image configurable per agent
 
-This is the current implemented sandbox for everyday agent work.
-
-### 4. Daily Sandbox (Future)
-
-Purpose:
-
-- a persistent working environment for an agent's regular activity
-- a place where installed tools and accumulated environment state survive across runs
-- a richer persistent environment beyond the current workspace container
-
-Characteristics:
-
-- persists across agent restarts
-- expected to restore prior environment state
-- suitable for repeated daily use by the same agent
-- should support declarative environment management beyond basic container state
-
-Examples:
-
-- an agent's normal coding environment
-- a long-lived toolchain environment
-- a reusable workstation-like sandbox for autonomous work
-
-## NixOS-Inspired Direction
-
-One possible direction is to use NixOS for the daily sandbox shape.
-
-The attraction is not "run the whole platform inside NixOS" by default.
-The attraction is that NixOS already has strong primitives for:
-
-- declarative environment description
-- reproducible builds
-- system state restoration after restart
-- generation-based switching and rollback
-
-For OpenHermit, that suggests a possible daily-sandbox model:
-
-- the orchestration process remains the manager
-- the agent's everyday execution environment lives inside a NixOS-based sandbox
-- the sandbox can be rebuilt, resumed, and rolled back using existing NixOS mechanisms
-- persistent agent work can return to a known environment after machine or process restart
+This is the implemented sandbox for everyday agent work.
 
 ## Open Questions
 
-This draft intentionally keeps several questions open:
-
-- should the daily sandbox be a container, microVM, or another isolated host-managed environment?
-- should only selected workloads move into the daily sandbox, or should most ordinary agent execution happen there?
-- how should workspace mounts and internal-state access be brokered into a daily sandbox?
-- should service sandboxes and daily sandboxes share the same runtime substrate?
-- how much of skill installation should target ephemeral sandboxes versus the daily sandbox?
-- what lifecycle model best matches a NixOS-based daily sandbox: rebuild, activate, rollback, snapshot, or some combination?
-
-## Current Status
-
-Status: draft only.
-
-Next steps:
-
-1. Keep the current host-runtime architecture as the implemented baseline.
-2. Continue researching how much of OpenHermit's execution should move into a daily sandbox.
-3. Explore whether NixOS should back only the daily sandbox shape, or also replace the workspace container.
-4. Design future skill and extension lifecycle around explicit sandbox targets instead of one generic execution model.
+- should the workspace container eventually support declarative environment description (e.g. NixOS-based) for reproducible builds and rollback?
+- how should skill installation target specific sandbox types?
+- should the workspace container substrate evolve beyond plain Docker containers (microVM, etc.)?
