@@ -7,7 +7,7 @@ import type { AgentRuntimeConfig, AgentSecurity, AgentWorkspace } from '../core/
 const CONTAINER_TOOL_GUIDANCE = [
   'Container tool rules:',
   '- Container tools do not see the whole workspace. They only see the mounted subdirectory.',
-  '- Valid mounts must stay under containers/{name}/data.',
+  '- Valid mounts must stay under containers/<name>/data.',
   '- Files under files/ or the workspace root are not mounted automatically.',
   '- Before running code in a container, write or copy the needed files into the chosen mount directory first.',
   '- You may choose the in-container mount target. Defaults are /workspace for ephemeral runs and /data for service containers.',
@@ -61,11 +61,11 @@ export const buildSystemPrompt = async (
   tools: AgentTool<any>[],
   instructionSource?: InstructionSource,
 ): Promise<string> => {
-  let identitySections: string;
+  let instructionSections: string;
 
   if (instructionSource?.instructionStore && instructionSource.storeScope) {
     const entries = await instructionSource.instructionStore.getAll(instructionSource.storeScope);
-    identitySections = entries
+    instructionSections = entries
       .map((entry) => `${entry.key}:\n${entry.content.trim() || '(empty)'}`)
       .join('\n\n');
   } else {
@@ -75,7 +75,7 @@ export const buildSystemPrompt = async (
         content: await workspace.readFile(relativePath).catch(() => ''),
       })),
     );
-    identitySections = identityFiles
+    instructionSections = identityFiles
       .map(
         ({ relativePath, content }) =>
           `File: ${relativePath}\n${content.trim() || '(empty)'}`,
@@ -91,7 +91,7 @@ export const buildSystemPrompt = async (
   return replacePromptTokens(promptTemplate, {
     autonomyLevel: security.getAutonomyLevel(),
     containerToolRulesSection,
-    identitySections,
+    instructionSections,
     secretReference: secretNames.length > 0
       ? `Available secret names for tool calls: ${secretNames.join(', ')}. Secret values are never shown in the prompt.`
       : 'No secret names are currently configured.',
