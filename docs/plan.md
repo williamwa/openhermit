@@ -23,7 +23,8 @@ The main architectural direction is now stable:
 - `external state` stays in the workspace
 - `internal state` stays outside the workspace
 - checkpointing is agent-driven
-- compaction should become the next major runtime capability
+- LLM-powered context compaction with persistence and progressive summarization
+- session resumption context injection for cross-restart continuity
 - scheduler will be extracted from heartbeat-specific logic
 
 There are also several active design drafts that are intentionally not yet implemented as architecture commitments:
@@ -76,7 +77,9 @@ There are also several active design drafts that are intentionally not yet imple
   - `memory_recall`
   - `memory_update`
   - `memory_delete`
-- initial prompt-budget compaction for long sessions
+- LLM-powered context compaction with progressive summarization and persistence
+- session resumption context injection (compaction summary + checkpoints + recent messages)
+- configurable `memory.context_entry_limit` for `getContextBlock()` (default: 10)
 
 ### Tooling
 
@@ -133,7 +136,8 @@ These tracks are being explored in documentation but are not yet committed imple
   - `project/...`
   - `user/preferences/...`
   - `ops/...`
-- refine `getContextBlock()` retrieval strategy beyond "most recent 5"
+- ~~refine `getContextBlock()` retrieval strategy beyond "most recent 5"~~ — now configurable, default 10
+- explore relevance-based or key-prefix-prioritized retrieval
 - define when idle consolidation may promote transient knowledge into long-term memory
 
 ### 1.3 Long-Term Consolidation
@@ -146,18 +150,20 @@ These tracks are being explored in documentation but are not yet committed imple
   - session-local working memory
 - write promoted results into long-term memory via MemoryProvider
 
-## Phase 2 — Runtime Compaction
+## Phase 2 — Runtime Compaction ✅ Completed
 
-- refine token-aware context budgeting for long sessions
-- improve the current compaction artifact and retention policy
-- decide when compaction should proactively happen versus only when near budget
-- evaluate whether user-visible retry is still needed beyond the current first pass
-- keep compaction distinct from checkpointing:
-  - checkpointing updates memory
-  - compaction keeps the runtime context window healthy
-- make compaction cooperate with:
-  - episodic checkpoints
-  - session-local working memory
+- LLM-powered context compaction extracted into `context-compaction.ts` module
+- token-aware context budgeting with shrink/expand retain-count optimization
+- LLM compaction summary persisted in `sessions.compaction_summary` for progressive reuse
+- all episodic checkpoint summaries included (no limit)
+- graceful fallback to text-extraction when LLM summary fails or is unavailable
+- session resumption context block injected when reopening persisted sessions
+- compaction cooperates with episodic checkpoints and working memory
+
+### Remaining compaction refinements
+
+- evaluate proactive compaction (before reaching budget limit)
+- explore relevance-aware retention (keep important messages longer)
 
 ## Phase 3 — Scheduler
 
@@ -200,14 +206,14 @@ These tracks are being explored in documentation but are not yet committed imple
 ## Immediate Implementation Order
 
 1. refine instruction loading and composition from InstructionStore
-2. refine runtime compaction beyond the current first pass
-3. define the durable-memory vs user-knowledge boundary more tightly
-4. continue design work on:
+2. define the durable-memory vs user-knowledge boundary more tightly
+3. continue design work on:
    - participant model
    - sandbox model
    - storage abstraction
-5. implement idle / sleep-time long-term consolidation
-6. design and implement the scheduler
+4. implement idle / sleep-time long-term consolidation
+5. design and implement the scheduler
+6. fix approval gate tests (polling loop hangs without timeout)
 
 ## Design Constraints
 
