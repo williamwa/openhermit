@@ -810,6 +810,8 @@ export class AgentRunner implements SessionRuntime {
         security: this.options.security,
         containerManager: this.containerManager,
         memoryProvider: this.store.memories,
+        messageStore: this.store.messages,
+        sessionId: input.contextSessionId,
         webProvider,
         instructionStore: this.store.instructions,
         storeScope: this.scope,

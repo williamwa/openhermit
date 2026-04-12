@@ -13,6 +13,7 @@ import type {
 import { createInstructionReadTool, createInstructionUpdateTool } from './tools/instruction.js';
 import { createWebFetchTool } from './tools/web-fetch.js';
 import { createWebSearchTool } from './tools/web-search.js';
+import { createWorkingMemoryUpdateTool } from './tools/working-memory.js';
 import { createWorkspaceExecTool } from './tools/workspace-exec.js';
 
 export type {
@@ -62,6 +63,9 @@ export const createBuiltInTools = (
     createContainerStopTool(context),
     createContainerExecTool(context),
     ...(context.agentId ? [createWorkspaceExecTool(context)] : []),
+    ...(context.messageStore && context.storeScope && context.sessionId
+      ? [createWorkingMemoryUpdateTool(context)]
+      : []),
   ];
 
   return tools.map((tool) =>
