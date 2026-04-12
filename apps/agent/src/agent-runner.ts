@@ -47,146 +47,7 @@ import {
   type ToolStartedCallback,
   createBuiltInTools,
 } from './tools.js';
-
-const DEFAULT_CONTEXT_COMPACTION_RECENT_MESSAGE_COUNT = 6;
-
-const DEFAULT_CONTEXT_COMPACTION_SUMMARY_MAX_CHARS = 2_400;
-
-const DEFAULT_CONTEXT_COMPACTION_SAFETY_MARGIN_TOKENS = 2_048;
-
-const estimateTextTokens = (text: string): number =>
-  Math.max(1, Math.ceil(text.length / 4));
-
-const estimateContentTokens = (content: unknown): number => {
-  if (typeof content === 'string') {
-    return estimateTextTokens(content);
-  }
-
-  if (!Array.isArray(content)) {
-    return estimateTextTokens(JSON.stringify(content));
-  }
-
-  return content.reduce((total, item) => {
-    if (!item || typeof item !== 'object' || !('type' in item)) {
-      return total + estimateTextTokens(JSON.stringify(item));
-    }
-
-    if (item.type === 'text' && typeof item.text === 'string') {
-      return total + estimateTextTokens(item.text);
-    }
-
-    if (item.type === 'thinking' && typeof item.thinking === 'string') {
-      return total + estimateTextTokens(item.thinking);
-    }
-
-    if (item.type === 'toolCall') {
-      return (
-        total +
-        estimateTextTokens(
-          `${item.name ?? ''} ${JSON.stringify(item.arguments ?? {})}`,
-        )
-      );
-    }
-
-    if (item.type === 'image') {
-      return total + 256;
-    }
-
-    return total + estimateTextTokens(JSON.stringify(item));
-  }, 0);
-};
-
-const estimateAgentMessageTokens = (message: AgentMessage): number => {
-  if (!message || typeof message !== 'object' || !('role' in message)) {
-    return estimateTextTokens(JSON.stringify(message));
-  }
-
-  if (message.role === 'user' || message.role === 'assistant') {
-    return estimateContentTokens(message.content) + 12;
-  }
-
-  if (message.role === 'toolResult') {
-    return estimateContentTokens(message.content) + 20;
-  }
-
-  return estimateTextTokens(JSON.stringify(message));
-};
-
-const estimateAgentMessagesTokens = (messages: AgentMessage[]): number =>
-  messages.reduce((total, message) => total + estimateAgentMessageTokens(message), 0);
-
-const getCompactionRetainedStartIndex = (
-  messages: AgentMessage[],
-  retainCount: number,
-): number => {
-  let startIndex = Math.max(0, messages.length - retainCount);
-
-  if (
-    startIndex > 0
-    && messages[startIndex]?.role === 'toolResult'
-    && messages[startIndex - 1]?.role === 'assistant'
-  ) {
-    startIndex -= 1;
-  }
-
-  return startIndex;
-};
-
-const summarizeMessageForCompaction = (message: AgentMessage): string | undefined => {
-  if (!message || typeof message !== 'object' || !('role' in message)) {
-    return undefined;
-  }
-
-  if (message.role === 'user') {
-    const text =
-      typeof message.content === 'string'
-        ? message.content
-        : message.content
-            .filter((item): item is Extract<typeof item, { type: 'text' }> => item.type === 'text')
-            .map((item) => item.text)
-            .join(' ');
-
-    const normalized = text.replace(/\s+/g, ' ').trim();
-    return normalized ? `User: ${normalized}` : undefined;
-  }
-
-  if (message.role === 'assistant') {
-    const text = message.content
-      .filter((item): item is Extract<typeof item, { type: 'text' }> => item.type === 'text')
-      .map((item) => item.text)
-      .join(' ');
-    const toolCalls = message.content
-      .filter((item): item is Extract<typeof item, { type: 'toolCall' }> => item.type === 'toolCall')
-      .map((item) => item.name)
-      .join(', ');
-    const normalized = text.replace(/\s+/g, ' ').trim();
-
-    if (normalized) {
-      return `Agent: ${normalized}`;
-    }
-
-    if (toolCalls) {
-      return `Agent used tools: ${toolCalls}`;
-    }
-
-    return undefined;
-  }
-
-  if (message.role === 'toolResult') {
-    const text = message.content
-      .filter((item): item is Extract<typeof item, { type: 'text' }> => item.type === 'text')
-      .map((item) => item.text)
-      .join(' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    return text
-      ? `Tool ${message.toolName}: ${text}`
-      : `Tool ${message.toolName} completed.`;
-  }
-
-  return undefined;
-};
+import { compactContextIfNeeded } from './agent-runner/context-compaction.js';
 
 export class AgentRunner implements SessionRuntime {
   readonly events = new SessionEventBroker();
@@ -958,164 +819,49 @@ export class AgentRunner implements SessionRuntime {
     }
 
     const config = await this.options.security.readConfig();
-    return this.compactContextIfNeeded(sessionId, config, contextBlocks, messages);
+
+    // Only offer LLM compaction when we have a dedicated API key.
+    // When streamFn is provided (tests, proxied setups), the shared stream
+    // should not be consumed by an internal compaction turn.
+    const canRunLlmCompaction =
+      !this.options.streamFn && Boolean(this.resolveApiKey(config.model.provider));
+
+    return compactContextIfNeeded(sessionId, config, contextBlocks, messages, {
+      store: this.store,
+      scope: this.scope,
+      options: {
+        contextCompactionMaxTokens: this.options.contextCompactionMaxTokens,
+        contextCompactionRecentMessageCount: this.options.contextCompactionRecentMessageCount,
+        contextCompactionSummaryMaxChars: this.options.contextCompactionSummaryMaxChars,
+      },
+      createCompactionAgent: canRunLlmCompaction
+        ? (sid) => this.createCompactionAgent(sid, config)
+        : undefined,
+      logRuntime: (msg) => this.logRuntime(msg),
+    });
   }
 
-  private getContextCompactionMaxTokens(config: AgentConfig): number {
-    if (this.options.contextCompactionMaxTokens !== undefined) {
-      return this.options.contextCompactionMaxTokens;
-    }
-
-    const model = resolveModel(config);
-    const reservedOutputTokens = Math.max(
-      config.model.max_tokens,
-      Math.min(model.maxTokens, 1_024),
-    );
-
-    return Math.max(
-      2_048,
-      model.contextWindow
-      - reservedOutputTokens
-      - DEFAULT_CONTEXT_COMPACTION_SAFETY_MARGIN_TOKENS,
-    );
-  }
-
-  private getContextCompactionRecentMessageCount(): number {
-    return this.options.contextCompactionRecentMessageCount
-      ?? DEFAULT_CONTEXT_COMPACTION_RECENT_MESSAGE_COUNT;
-  }
-
-  private getContextCompactionSummaryMaxChars(): number {
-    return this.options.contextCompactionSummaryMaxChars
-      ?? DEFAULT_CONTEXT_COMPACTION_SUMMARY_MAX_CHARS;
-  }
-
-  private buildContextCompactionBlock(input: {
-    compactedMessages: AgentMessage[];
-    checkpointSummaries: string[];
-    retainedMessageCount: number;
-    originalMessageCount: number;
-  }): AgentMessage | undefined {
-    if (input.compactedMessages.length === 0) {
-      return undefined;
-    }
-
-    const summaryMaxChars = this.getContextCompactionSummaryMaxChars();
-    const compactedLines = input.compactedMessages
-      .map((message) => summarizeMessageForCompaction(message))
-      .filter((line): line is string => Boolean(line))
-      .slice(-12);
-    const compactedHistory = compactedLines
-      .join('\n- ')
-      .slice(0, summaryMaxChars);
-    const checkpointSection =
-      input.checkpointSummaries.length > 0
-        ? [
-            'Recent episodic checkpoints:',
-            ...input.checkpointSummaries.map((summary) => `- ${summary}`),
-            '',
-          ].join('\n')
-        : '';
-
-    const text = [
-      'Context compaction summary (runtime-generated, read-only context):',
-      '',
-      checkpointSection,
-      `Earlier messages compacted: ${input.compactedMessages.length} of ${input.originalMessageCount}`,
-      `Recent messages preserved verbatim: ${input.retainedMessageCount}`,
-      '',
-      'Compacted earlier session history:',
-      compactedHistory ? `- ${compactedHistory}` : '- (no compactable text)',
-    ]
-      .join('\n')
-      .trim();
-
-    return {
-      role: 'user',
-      content: [
-        {
-          type: 'text',
-          text,
-        },
-      ],
-      timestamp: Date.now(),
-    };
-  }
-
-  private async compactContextIfNeeded(
-    sessionId: string,
-    config: AgentConfig,
-    contextBlocks: AgentMessage[],
-    messages: AgentMessage[],
-  ): Promise<AgentMessage[]> {
-    const combined = contextBlocks.concat(messages);
-    const budget = this.getContextCompactionMaxTokens(config);
-
-    if (messages.length <= 1 || estimateAgentMessagesTokens(combined) <= budget) {
-      return combined;
-    }
-
-    const episodicEntries = await this.store.messages.listEpisodicEntries(this.scope,sessionId);
-    const checkpointSummaries = episodicEntries
-      .map((entry) => entry.data.summary)
-      .filter((summary): summary is string => typeof summary === 'string' && summary.trim().length > 0)
-      .slice(-3)
-      .map((summary) => summary.replace(/\s+/g, ' ').trim());
-
-    let retainCount = Math.min(
-      this.getContextCompactionRecentMessageCount(),
-      messages.length,
-    );
-
-    const buildCandidate = (nextRetainCount: number): AgentMessage[] => {
-      const retainedStartIndex = getCompactionRetainedStartIndex(
-        messages,
-        nextRetainCount,
-      );
-      const compactedMessages = messages.slice(0, retainedStartIndex);
-      const retainedMessages = messages.slice(retainedStartIndex);
-      const compactionBlock = this.buildContextCompactionBlock({
-        compactedMessages,
-        checkpointSummaries,
-        retainedMessageCount: retainedMessages.length,
-        originalMessageCount: messages.length,
-      });
-
-      return contextBlocks.concat(
-        compactionBlock ? [compactionBlock] : [],
-        retainedMessages,
-      );
-    };
-
-    let compacted = buildCandidate(retainCount);
-
-    while (estimateAgentMessagesTokens(compacted) > budget && retainCount > 1) {
-      retainCount -= 1;
-      compacted = buildCandidate(retainCount);
-    }
-
-    while (retainCount < messages.length) {
-      const expanded = buildCandidate(retainCount + 1);
-
-      if (estimateAgentMessagesTokens(expanded) > budget) {
-        break;
-      }
-
-      retainCount += 1;
-      compacted = expanded;
-    }
-
-    const compactedTokens = estimateAgentMessagesTokens(compacted);
-
-    if (compactedTokens >= estimateAgentMessagesTokens(combined)) {
-      return combined;
-    }
-
-    this.logRuntime(
-      `context compacted: ${sessionId} estimated ${estimateAgentMessagesTokens(combined)} -> ${compactedTokens} tokens`,
-    );
-
-    return compacted;
+  private async createCompactionAgent(sessionId: string, config: AgentConfig): Promise<Agent> {
+    return this.createConfiguredAgent({
+      config,
+      agentSessionId: `${sessionId}:compaction`,
+      contextSessionId: sessionId,
+      langfuseRequest: {
+        name: 'openhermit.context_compaction',
+        metadata: { requestKind: 'context-compaction' },
+      },
+      extraSystemPrompt: [
+        'Internal compaction turn:',
+        '- This is an internal runtime turn, not a user-facing reply.',
+        '- Summarize the compacted conversation below into a coherent narrative.',
+        '- Capture: key topics discussed, decisions made, important file paths or data, outstanding tasks or questions.',
+        '- Be concise but preserve important context that will help the agent continue the conversation.',
+        '- Return JSON only with key "compactionSummary".',
+        '- Do not call tools.',
+        '- Do not wrap the JSON in markdown fences.',
+      ].join('\n'),
+      tools: [],
+    });
   }
 
   private resolveApiKey(provider: string): string | undefined {

@@ -31,6 +31,8 @@ export interface MessageStore {
   listEpisodicEntries(scope: StoreScope, sessionId: string): Promise<EpisodicLogEntry[]>;
   getSessionWorkingMemory(scope: StoreScope, sessionId: string): Promise<string | undefined>;
   setSessionWorkingMemory(scope: StoreScope, sessionId: string, content: string, updatedAt: string): Promise<void>;
+  getCompactionSummary(scope: StoreScope, sessionId: string): Promise<string | undefined>;
+  setCompactionSummary(scope: StoreScope, sessionId: string, content: string, updatedAt: string): Promise<void>;
 }
 
 export interface MemoryProvider {

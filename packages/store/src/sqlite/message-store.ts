@@ -317,4 +317,31 @@ export class SqliteMessageStore implements MessageStore {
       )
       .run(content, updatedAt, scope.agentId, sessionId);
   }
+
+  async getCompactionSummary(scope: StoreScope, sessionId: string): Promise<string | undefined> {
+    const row = this.database
+      .prepare(
+        `SELECT compaction_summary
+         FROM sessions
+         WHERE agent_id = ? AND session_id = ?`,
+      )
+      .get(scope.agentId, sessionId) as { compaction_summary?: string } | undefined;
+
+    return typeof row?.compaction_summary === 'string' ? row.compaction_summary : undefined;
+  }
+
+  async setCompactionSummary(
+    scope: StoreScope,
+    sessionId: string,
+    content: string,
+    updatedAt: string,
+  ): Promise<void> {
+    this.database
+      .prepare(
+        `UPDATE sessions
+         SET compaction_summary = ?, compaction_summary_updated_at = ?
+         WHERE agent_id = ? AND session_id = ?`,
+      )
+      .run(content, updatedAt, scope.agentId, sessionId);
+  }
 }

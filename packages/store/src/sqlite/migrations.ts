@@ -21,6 +21,8 @@ const schemaStatements = [
     last_message_preview TEXT,
     working_memory TEXT,
     working_memory_updated_at TEXT,
+    compaction_summary TEXT,
+    compaction_summary_updated_at TEXT,
     metadata_json TEXT NOT NULL DEFAULT '{}',
     status TEXT NOT NULL DEFAULT 'idle',
     PRIMARY KEY (agent_id, session_id)
@@ -105,9 +107,12 @@ const migrationStatements = [
   `ALTER TABLE memories ADD COLUMN created_at TEXT NOT NULL DEFAULT '';`,
   `DROP INDEX IF EXISTS idx_memories_agent;`,
   `CREATE INDEX IF NOT EXISTS idx_memories_agent ON memories(agent_id, updated_at DESC);`,
+  // v9: add compaction_summary to sessions
+  `ALTER TABLE sessions ADD COLUMN compaction_summary TEXT;`,
+  `ALTER TABLE sessions ADD COLUMN compaction_summary_updated_at TEXT;`,
 ] as const;
 
-export const CURRENT_SCHEMA_VERSION = 8;
+export const CURRENT_SCHEMA_VERSION = 9;
 
 const ensureMetaTable = (database: DatabaseSync): void => {
   database.exec(
