@@ -75,12 +75,19 @@ export interface WorkspaceContainerConfig {
   lifecycle?: WorkspaceContainerLifecycle;
 }
 
+export type WebProviderName = 'defuddle' | 'exa' | 'tavily';
+
+export interface WebConfig {
+  provider: WebProviderName;
+}
+
 export interface AgentRuntimeConfig {
   workspace_root: string;
   model: AgentModelConfig;
   http_api: HttpApiConfig;
   memory: MemoryConfig;
   workspace_container?: WorkspaceContainerConfig;
+  web?: WebConfig;
 }
 
 export type AgentConfig = AgentRuntimeConfig;

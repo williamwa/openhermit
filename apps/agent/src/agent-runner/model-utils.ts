@@ -12,6 +12,8 @@ const SECRET_NAME_CANDIDATES: Record<string, string[]> = {
   mistral: ['MISTRAL_API_KEY'],
   xai: ['XAI_API_KEY'],
   openrouter: ['OPENROUTER_API_KEY'],
+  exa: ['EXA_API_KEY'],
+  tavily: ['TAVILY_API_KEY'],
 };
 
 export const createProviderSecretCandidates = (provider: string): string[] => {

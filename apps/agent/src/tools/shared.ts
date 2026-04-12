@@ -2,6 +2,7 @@ import { ValidationError } from '@openhermit/shared';
 import type { InstructionStore, MemoryProvider, StoreScope } from '@openhermit/store';
 
 import { AgentSecurity, type DockerContainerManager, type WorkspaceContainerConfig } from '../core/index.js';
+import type { WebProvider } from '../web/index.js';
 
 const READONLY_BLOCKED_TOOLS = new Set([
   'memory_add',
@@ -39,6 +40,7 @@ export interface ToolContext {
   security: AgentSecurity;
   containerManager: DockerContainerManager;
   memoryProvider?: MemoryProvider;
+  webProvider?: WebProvider | undefined;
   instructionStore?: InstructionStore;
   storeScope?: StoreScope;
   agentId?: string;

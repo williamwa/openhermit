@@ -48,6 +48,7 @@ import {
   createBuiltInTools,
 } from './tools.js';
 import { compactContextIfNeeded } from './agent-runner/context-compaction.js';
+import { createWebProvider, type WebProvider } from './web/index.js';
 
 export class AgentRunner implements SessionRuntime {
   readonly events = new SessionEventBroker();
@@ -786,12 +787,15 @@ export class AgentRunner implements SessionRuntime {
       metadata?: Record<string, unknown>;
     };
   }): Promise<Agent> {
+    const webProvider = this.resolveWebProvider(input.config);
+
     const tools =
       input.tools
       ?? createBuiltInTools({
         security: this.options.security,
         containerManager: this.containerManager,
         memoryProvider: this.store.memories,
+        webProvider,
         instructionStore: this.store.instructions,
         storeScope: this.scope,
         ...(input.config.workspace_container ? {
@@ -1022,6 +1026,22 @@ export class AgentRunner implements SessionRuntime {
       ].join('\n'),
       tools: [],
     });
+  }
+
+  private resolveWebProvider(config: AgentConfig): WebProvider | undefined {
+    const providerName = config.web?.provider ?? 'defuddle';
+
+    if (providerName === 'defuddle') {
+      return createWebProvider('defuddle');
+    }
+
+    const apiKey = this.resolveApiKey(providerName);
+    if (!apiKey) {
+      this.logRuntime(`web provider "${providerName}" skipped: no API key found`);
+      return undefined;
+    }
+
+    return createWebProvider(providerName, apiKey);
   }
 
   private resolveApiKey(provider: string): string | undefined {

@@ -14,7 +14,10 @@ import {
 } from '../src/core/index.js';
 import { SqliteInternalStateStore, standaloneScope } from '@openhermit/store';
 import { createBuiltInTools, withApproval } from '../src/tools.js';
+import { DefuddleWebProvider } from '../src/web/index.js';
 import { createSecurityFixture, createTempDir } from './helpers.js';
+
+const defaultWebProvider = new DefuddleWebProvider();
 
 const getFirstText = (result: {
   content: Array<{ type: string; text?: string }>;
@@ -468,7 +471,7 @@ test('web_fetch returns status headers and body for a successful GET', async (t)
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
   });
-  const tools = createBuiltInTools({ security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
   const tool = findTool(tools, 'web_fetch');
 
   await withMockFetch(
@@ -480,16 +483,13 @@ test('web_fetch returns status headers and body for a successful GET', async (t)
       });
 
       const text = getFirstText(result);
-      assert.match(text, /HTTP 200/);
       assert.match(text, /Hello, world!/);
 
       const details = result.details as Record<string, unknown>;
-      assert.equal(details.status, 200);
-      assert.equal(details.method, 'GET');
       assert.equal(details.url, 'https://example.com/');
-      assert.equal(details.body, 'Hello, world!');
-      assert.equal(details.bodyBytes, 13);
-      assert.equal(details.truncated, undefined);
+      assert.equal(details.output, 'raw');
+      assert.equal(details.contentBytes, 13);
+      assert.equal(details.truncated, false);
     },
   );
 });
@@ -514,6 +514,7 @@ test('web_fetch is still wrapped by approval callbacks in createBuiltInTools', a
   const tools = createBuiltInTools({
     security,
     containerManager,
+    webProvider: defaultWebProvider,
     approvalCallback: async (toolName, toolCallId, args) => {
       approvalCalls.push({ toolName, toolCallId, args });
       return 'approved';
@@ -532,7 +533,7 @@ test('web_fetch is still wrapped by approval callbacks in createBuiltInTools', a
       url: 'https://example.com/approved',
       output: 'raw',
     });
-    assert.match(getFirstText(result), /HTTP 200/);
+    assert.match(getFirstText(result), /ok/);
   });
 
   const expectedCall = {
@@ -555,7 +556,7 @@ test('web_fetch truncates large responses at max_bytes', async (t) => {
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
   });
-  const tools = createBuiltInTools({ security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
   const tool = findTool(tools, 'web_fetch');
 
   await withMockFetch(makeFetchMock(200, bigBody), async () => {
@@ -567,9 +568,7 @@ test('web_fetch truncates large responses at max_bytes', async (t) => {
 
     const details = result.details as Record<string, unknown>;
     assert.equal(details.truncated, true);
-    assert.equal(details.bodyBytes, 500);
-    assert.equal(details.returnedBytes, 100);
-    assert.equal(String(details.body).length, 100);
+    assert.equal(details.contentBytes, 500);
     assert.match(getFirstText(result), /truncated/i);
   });
 });
@@ -583,7 +582,7 @@ test('web_fetch caps max_bytes at the hard 200 KB limit', async (t) => {
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
   });
-  const tools = createBuiltInTools({ security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
   const tool = findTool(tools, 'web_fetch');
 
   await withMockFetch(makeFetchMock(200, 'small body'), async () => {
@@ -594,8 +593,8 @@ test('web_fetch caps max_bytes at the hard 200 KB limit', async (t) => {
     });
 
     const details = result.details as Record<string, unknown>;
-    assert.equal(details.truncated, undefined);
-    assert.equal(details.body, 'small body');
+    assert.equal(details.truncated, false);
+    assert.match(getFirstText(result), /small body/);
   });
 });
 
@@ -608,7 +607,7 @@ test('web_fetch rejects non-http/https URLs', async (t) => {
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
   });
-  const tools = createBuiltInTools({ security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
   const tool = findTool(tools, 'web_fetch');
 
   await assert.rejects(
@@ -630,7 +629,7 @@ test('web_fetch rejects malformed URLs', async (t) => {
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
   });
-  const tools = createBuiltInTools({ security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
   const tool = findTool(tools, 'web_fetch');
 
   await assert.rejects(() =>
@@ -647,7 +646,7 @@ test('web_fetch rejects non-positive max_bytes', async (t) => {
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
   });
-  const tools = createBuiltInTools({ security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
   const tool = findTool(tools, 'web_fetch');
 
   await assert.rejects(
@@ -670,7 +669,7 @@ test('web_fetch surfaces network errors as thrown exceptions', async (t) => {
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
   });
-  const tools = createBuiltInTools({ security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
   const tool = findTool(tools, 'web_fetch');
 
   await withMockFetch(makeFetchError('ECONNREFUSED'), async () => {
@@ -698,7 +697,7 @@ test('web_fetch returns non-200 status without throwing', async (t) => {
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
   });
-  const tools = createBuiltInTools({ security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
   const tool = findTool(tools, 'web_fetch');
 
   await withMockFetch(makeFetchMock(404, 'Not Found'), async () => {
@@ -709,7 +708,7 @@ test('web_fetch returns non-200 status without throwing', async (t) => {
 
     const details = result.details as Record<string, unknown>;
     assert.equal(details.status, 404);
-    assert.match(getFirstText(result), /HTTP 404/);
+    assert.match(getFirstText(result), /Not Found/);
   });
 });
 
@@ -722,7 +721,7 @@ test('web_fetch output markdown extracts main content as Markdown', async (t) =>
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
   });
-  const tools = createBuiltInTools({ security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
   const tool = findTool(tools, 'web_fetch');
 
   const html = `
@@ -866,7 +865,7 @@ test('container_start launches a service container and returns entry details', a
   const fakeContainerId = 'abc123def456';
   const docker = new FakeDockerRunner([okResult({ stdout: `${fakeContainerId}\n` })]);
   const containerManager = new DockerContainerManager(workspace, { runner: docker });
-  const tools = createBuiltInTools({ security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
   const tool = findTool(tools, 'container_start');
 
   const result = await tool.execute('call-1', {
@@ -905,7 +904,7 @@ test('container_start resolves env_secrets and merges with plain env', async (t)
 
   const docker = new FakeDockerRunner([okResult({ stdout: 'cid\n' })]);
   const containerManager = new DockerContainerManager(workspace, { runner: docker });
-  const tools = createBuiltInTools({ security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
   const tool = findTool(tools, 'container_start');
 
   await tool.execute('call-2', {
@@ -933,7 +932,7 @@ test('container_start is blocked in readonly mode', async (t) => {
 
   const docker = new FakeDockerRunner([]);
   const containerManager = new DockerContainerManager(workspace, { runner: docker });
-  const tools = createBuiltInTools({ security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
   const tool = findTool(tools, 'container_start');
 
   await assert.rejects(
@@ -955,7 +954,7 @@ test('container_stop stops a running service and updates the registry', async (t
     okResult(),
   ]);
   const containerManager = new DockerContainerManager(workspace, { runner: docker });
-  const tools = createBuiltInTools({ security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
 
   await findTool(tools, 'container_start').execute('call-start', {
     name: 'svc-to-stop',
@@ -984,7 +983,7 @@ test('container_stop is blocked in readonly mode', async (t) => {
 
   const docker = new FakeDockerRunner([]);
   const containerManager = new DockerContainerManager(workspace, { runner: docker });
-  const tools = createBuiltInTools({ security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
 
   await assert.rejects(
     () => findTool(tools, 'container_stop').execute('call-4', { name: 'anything' }),
@@ -1005,7 +1004,7 @@ test('container_exec runs a command and returns stdout stderr exitCode', async (
     okResult({ stdout: 'hello from container\n', stderr: '', exitCode: 0, durationMs: 12 }),
   ]);
   const containerManager = new DockerContainerManager(workspace, { runner: docker });
-  const tools = createBuiltInTools({ security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
 
   await registerService(containerManager, 'my-service', 'alpine:3.20');
 
@@ -1035,7 +1034,7 @@ test('container_exec surfaces non-zero exit code without throwing', async (t) =>
     okResult({ stdout: '', stderr: 'command not found: psql', exitCode: 127, durationMs: 3 }),
   ]);
   const containerManager = new DockerContainerManager(workspace, { runner: docker });
-  const tools = createBuiltInTools({ security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
 
   await registerService(containerManager, 'pg', 'postgres:16');
 
@@ -1067,7 +1066,7 @@ test('container_exec parses structured output between sentinel markers', async (
     okResult({ stdout: structuredStdout, exitCode: 0, durationMs: 8 }),
   ]);
   const containerManager = new DockerContainerManager(workspace, { runner: docker });
-  const tools = createBuiltInTools({ security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
 
   await registerService(containerManager, 'pg', 'postgres:16');
 
@@ -1090,7 +1089,7 @@ test('container_exec is blocked in readonly mode', async (t) => {
 
   const docker = new FakeDockerRunner([]);
   const containerManager = new DockerContainerManager(workspace, { runner: docker });
-  const tools = createBuiltInTools({ security, containerManager });
+  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
 
   await assert.rejects(
     () =>

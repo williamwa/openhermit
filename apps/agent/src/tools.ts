@@ -12,6 +12,7 @@ import type {
 } from './tools/shared.js';
 import { createInstructionReadTool, createInstructionUpdateTool } from './tools/instruction.js';
 import { createWebFetchTool } from './tools/web-fetch.js';
+import { createWebSearchTool } from './tools/web-search.js';
 import { createWorkspaceExecTool } from './tools/workspace-exec.js';
 
 export type {
@@ -49,9 +50,14 @@ export const createBuiltInTools = (
           createInstructionUpdateTool(context),
         ]
       : []),
+    ...(context.webProvider
+      ? [
+          createWebSearchTool(context),
+          createWebFetchTool(context),
+        ]
+      : []),
     createContainerRunTool(context),
     createContainerStatusTool(context),
-    createWebFetchTool(),
     createContainerStartTool(context),
     createContainerStopTool(context),
     createContainerExecTool(context),
