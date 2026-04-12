@@ -463,6 +463,8 @@ export class AgentRunner implements SessionRuntime {
         checkpointArtifacts.sessionWorkingMemory,
       );
 
+      await this.updateSessionDescriptionFromSummary(session, summary, config);
+
       return true;
     } finally {
       session.checkpointInProgress = false;
@@ -483,6 +485,91 @@ export class AgentRunner implements SessionRuntime {
       new Date().toISOString(),
     );
     this.logRuntime(`memory updated: session/${session.spec.sessionId}`);
+  }
+
+  private async updateSessionDescriptionFromSummary(
+    session: RunnerSession,
+    summary: string,
+    config: AgentConfig,
+  ): Promise<void> {
+    try {
+      const description = await this.generateSessionDescriptionFromSummary({
+        sessionId: session.spec.sessionId,
+        summary,
+        config,
+      });
+
+      if (description) {
+        session.description = description;
+        session.descriptionSource = 'ai';
+        await this.persistSessionIndex(session);
+      }
+    } catch {
+      // Description update is best-effort; do not fail the checkpoint.
+    }
+  }
+
+  private async generateSessionDescriptionFromSummary(input: {
+    sessionId: string;
+    summary: string;
+    config: AgentConfig;
+  }): Promise<string | undefined> {
+    if (this.options.sessionDescriptionGenerator) {
+      return normalizeGeneratedDescription(
+        await this.options.sessionDescriptionGenerator({
+          sessionId: input.sessionId,
+          userText: input.summary,
+          config: input.config,
+        }),
+      );
+    }
+
+    if (this.options.streamFn) {
+      return undefined;
+    }
+
+    const apiKey = this.resolveApiKey(input.config.model.provider);
+
+    if (!apiKey) {
+      return undefined;
+    }
+
+    const response = await completeWithLangfuseTrace(
+      this.options.langfuse,
+      resolveModel(input.config),
+      {
+        systemPrompt: [
+          'Generate a short session title for retrieval.',
+          'Return plain text only.',
+          'Do not use quotes, markdown, or trailing punctuation.',
+          'Keep it under 10 words.',
+          'Focus on the main topic or task, not greetings.',
+        ].join(' '),
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: `Session summary:\n${input.summary}`,
+              },
+            ],
+            timestamp: Date.now(),
+          },
+        ],
+      },
+      { apiKey },
+      {
+        name: 'openhermit.session_description',
+        sessionId: input.sessionId,
+        agentSessionId: input.sessionId,
+        metadata: {
+          requestKind: 'session-description',
+        },
+      },
+    );
+
+    return normalizeGeneratedDescription(extractAssistantText(response));
   }
 
   async postMessage(
@@ -1212,6 +1299,8 @@ export class AgentRunner implements SessionRuntime {
     return this.store.messages.listSessionEntries(this.scope,sessionId);
   }
 
+  private static readonly SESSION_DESCRIPTION_MIN_TURNS = 3;
+
   private async maybeGenerateSessionDescription(
     session: RunnerSession,
     input: {
@@ -1220,6 +1309,11 @@ export class AgentRunner implements SessionRuntime {
     },
   ): Promise<void> {
     if (session.descriptionSource === 'ai') {
+      return;
+    }
+
+    // Defer AI description until enough turns have accumulated for meaningful context.
+    if (session.completedTurnCount < AgentRunner.SESSION_DESCRIPTION_MIN_TURNS) {
       return;
     }
 
