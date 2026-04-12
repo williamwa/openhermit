@@ -50,6 +50,7 @@ import {
 import {
   compactContextIfNeeded,
   estimateAgentMessagesTokens,
+  estimateTextTokens,
   getContextCompactionMaxTokens,
 } from './agent-runner/context-compaction.js';
 import { createWebProvider, type WebProvider } from './web/index.js';
@@ -917,7 +918,13 @@ export class AgentRunner implements SessionRuntime {
     return undefined;
   }
 
-  private async buildSessionResumptionBlock(sessionId: string): Promise<AgentMessage | undefined> {
+  /** Max share of the context window the resumption block may occupy. */
+  private static readonly RESUMPTION_BUDGET_RATIO = 0.5;
+
+  private async buildSessionResumptionBlock(
+    sessionId: string,
+    config: AgentConfig,
+  ): Promise<AgentMessage | undefined> {
     const parts: string[] = [];
 
     // Load all session entries since the last compaction (or from beginning).
@@ -943,15 +950,39 @@ export class AgentRunner implements SessionRuntime {
       );
     }
 
-    // Full conversation history since last compaction, including tool interactions.
+    // Format all entries, then trim oldest to fit the token budget.
     const formattedEntries = entries
       .map((entry) => AgentRunner.formatSessionEntry(entry))
       .filter((line): line is string => line !== undefined);
 
     if (formattedEntries.length > 0) {
+      const model = resolveModel(config);
+      const budgetTokens = Math.floor(model.contextWindow * AgentRunner.RESUMPTION_BUDGET_RATIO);
+      const headerTokens = estimateTextTokens(parts.join('\n'));
+
+      // Drop oldest entries until we fit the budget.
+      let startIndex = 0;
+      let totalTokens = headerTokens + formattedEntries.reduce(
+        (sum, line) => sum + estimateTextTokens(line), 0,
+      );
+
+      while (totalTokens > budgetTokens && startIndex < formattedEntries.length - 1) {
+        totalTokens -= estimateTextTokens(formattedEntries[startIndex]!);
+        startIndex++;
+      }
+
+      const trimmedEntries = formattedEntries.slice(startIndex);
+
+      if (startIndex > 0) {
+        this.logDebug(
+          `[${sessionId}] resumption trimmed ${startIndex}/${formattedEntries.length} oldest entries `
+          + `to fit ${budgetTokens.toLocaleString()} token budget (${model.contextWindow.toLocaleString()} × ${AgentRunner.RESUMPTION_BUDGET_RATIO})`,
+        );
+      }
+
       parts.push(
         'Conversation history since last compaction (including tool interactions):',
-        ...formattedEntries,
+        ...trimmedEntries,
         '',
       );
     }
@@ -991,7 +1022,7 @@ export class AgentRunner implements SessionRuntime {
     // instance, inject prior session context so the LLM has history.
     const session = this.sessions.get(sessionId);
     if (session?.resumed && messages.length <= 1) {
-      const resumptionBlock = await this.buildSessionResumptionBlock(sessionId);
+      const resumptionBlock = await this.buildSessionResumptionBlock(sessionId, config);
       if (resumptionBlock) {
         contextBlocks.push(resumptionBlock);
         session.resumed = false; // Only inject once.
