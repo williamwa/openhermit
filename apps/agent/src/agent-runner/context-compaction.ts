@@ -76,6 +76,57 @@ export const estimateAgentMessageTokens = (message: AgentMessage): number => {
 export const estimateAgentMessagesTokens = (messages: AgentMessage[]): number =>
   messages.reduce((total, message) => total + estimateAgentMessageTokens(message), 0);
 
+// ── Per-message truncation ────────────────────────────────────────────
+
+/**
+ * Max share of the context window a single tool result may occupy.
+ * Anything larger is truncated with a marker.
+ */
+export const TOOL_RESULT_MAX_CONTEXT_RATIO = 0.25;
+
+export const truncateToolResults = (
+  messages: AgentMessage[],
+  contextWindow: number,
+): AgentMessage[] => {
+  const maxChars = Math.floor(contextWindow * TOOL_RESULT_MAX_CONTEXT_RATIO * 4); // tokens × ~4 chars/token
+
+  return messages.map((message) => {
+    if (message.role !== 'toolResult') {
+      return message;
+    }
+
+    const totalChars = message.content.reduce((sum, item) => {
+      if (item.type === 'text') {
+        return sum + item.text.length;
+      }
+      return sum;
+    }, 0);
+
+    if (totalChars <= maxChars) {
+      return message;
+    }
+
+    let remaining = maxChars;
+    const truncatedContent = message.content.map((item) => {
+      if (item.type !== 'text' || remaining <= 0) {
+        return remaining <= 0 ? { type: 'text' as const, text: '' } : item;
+      }
+      if (item.text.length <= remaining) {
+        remaining -= item.text.length;
+        return item;
+      }
+      const truncated = item.text.slice(0, remaining);
+      remaining = 0;
+      return {
+        type: 'text' as const,
+        text: `${truncated}\n\n[truncated: original ${totalChars.toLocaleString()} chars, kept ${maxChars.toLocaleString()}]`,
+      };
+    });
+
+    return { ...message, content: truncatedContent };
+  });
+};
+
 // ── Pure helpers ───────────────────────────────────────────────────────
 
 export const getCompactionRetainedStartIndex = (

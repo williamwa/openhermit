@@ -1056,13 +1056,18 @@ export class AgentRunner implements SessionRuntime {
       });
     }
 
+    // Truncate oversized tool results before compaction so that a single
+    // huge tool response cannot blow past the entire context window.
+    const model = resolveModel(config);
+    const truncatedMessages = truncateToolResults(messages, model.contextWindow);
+
     // Only offer LLM compaction when we have a dedicated API key.
     // When streamFn is provided (tests, proxied setups), the shared stream
     // should not be consumed by an internal compaction turn.
     const canRunLlmCompaction =
       !this.options.streamFn && Boolean(this.resolveApiKey(config.model.provider));
 
-    const finalMessages = await compactContextIfNeeded(sessionId, config, contextBlocks, messages, {
+    const finalMessages = await compactContextIfNeeded(sessionId, config, contextBlocks, truncatedMessages, {
       store: this.store,
       scope: this.scope,
       options: {
@@ -1077,7 +1082,6 @@ export class AgentRunner implements SessionRuntime {
     });
 
     if (AgentRunner.DEBUG) {
-      const model = resolveModel(config);
       const budget = getContextCompactionMaxTokens(config, {
         contextCompactionMaxTokens: this.options.contextCompactionMaxTokens,
       });
