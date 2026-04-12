@@ -291,6 +291,37 @@ export class SqliteMessageStore implements MessageStore {
     }));
   }
 
+  async listRecentMessages(
+    scope: StoreScope,
+    sessionId: string,
+    limit: number,
+  ): Promise<CheckpointHistoryRow[]> {
+    const rows = this.database
+      .prepare(
+        `SELECT ts, role, content FROM (
+           SELECT ts, role, content, id
+           FROM session_messages
+           WHERE agent_id = ? AND session_id = ?
+           ORDER BY id DESC
+           LIMIT ?
+         ) sub ORDER BY id ASC`,
+      )
+      .all(scope.agentId, sessionId, limit) as Array<{ ts: string; role: string; content: string }>;
+
+    return rows
+      .filter(
+        (
+          row,
+        ): row is { ts: string; role: 'user' | 'assistant' | 'error'; content: string } =>
+          row.role === 'user' || row.role === 'assistant' || row.role === 'error',
+      )
+      .map((row) => ({
+        ts: row.ts,
+        role: row.role,
+        content: row.content,
+      }));
+  }
+
   async getSessionWorkingMemory(scope: StoreScope, sessionId: string): Promise<string | undefined> {
     const row = this.database
       .prepare(

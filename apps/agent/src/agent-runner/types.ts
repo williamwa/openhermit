@@ -26,6 +26,7 @@ export interface RunnerSession extends SessionDescriptor {
   description?: string;
   descriptionSource?: 'fallback' | 'ai';
   lastMessagePreview?: string;
+  resumed: boolean;
 }
 
 export interface AgentRunnerOptions {

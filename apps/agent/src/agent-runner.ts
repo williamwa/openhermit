@@ -243,6 +243,7 @@ export class AgentRunner implements SessionRuntime {
       ...(persisted?.lastMessagePreview
         ? { lastMessagePreview: persisted.lastMessagePreview }
         : {}),
+      resumed: Boolean(persisted),
     };
 
     agent.subscribe((event) => {
@@ -780,17 +781,91 @@ export class AgentRunner implements SessionRuntime {
     session.agent.sessionId = session.spec.sessionId;
   }
 
+  private static readonly SESSION_RESUMPTION_RECENT_MESSAGE_COUNT = 10;
+
+  private async buildSessionResumptionBlock(sessionId: string): Promise<AgentMessage | undefined> {
+    const parts: string[] = [];
+
+    // Compaction summary — the most comprehensive narrative of earlier conversation.
+    const compactionSummary = await this.store.messages.getCompactionSummary(this.scope, sessionId);
+    if (compactionSummary?.trim()) {
+      parts.push('Previous session summary:', compactionSummary.trim(), '');
+    }
+
+    // Episodic checkpoint summaries.
+    const episodicEntries = await this.store.messages.listEpisodicEntries(this.scope, sessionId);
+    const checkpointSummaries = episodicEntries
+      .map((entry) => entry.data.summary)
+      .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+      .map((s) => s.replace(/\s+/g, ' ').trim());
+
+    if (checkpointSummaries.length > 0) {
+      parts.push(
+        'Episodic checkpoints:',
+        ...checkpointSummaries.map((s) => `- ${s}`),
+        '',
+      );
+    }
+
+    // Recent messages — last N from session_messages for concrete detail.
+    const recentMessages = await this.store.messages.listRecentMessages(
+      this.scope,
+      sessionId,
+      AgentRunner.SESSION_RESUMPTION_RECENT_MESSAGE_COUNT,
+    );
+
+    if (recentMessages.length > 0) {
+      const formattedMessages = recentMessages.map(
+        (msg) => `[${msg.role.toUpperCase()}] ${msg.content.replace(/\s+/g, ' ').trim()}`,
+      );
+      parts.push(
+        'Recent conversation history:',
+        ...formattedMessages.map((m) => m.slice(0, 800)),
+        '',
+      );
+    }
+
+    if (parts.length === 0) {
+      return undefined;
+    }
+
+    return {
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: `Session resumption context (runtime-generated, read-only context):\n\n${parts.join('\n').trim()}`,
+        },
+      ],
+      timestamp: Date.now(),
+    };
+  }
+
   private async transformContext(
     sessionId: string,
     messages: AgentMessage[],
     _signal?: AbortSignal,
   ): Promise<AgentMessage[]> {
+    const config = await this.options.security.readConfig();
     const sessionWorking =
       (await this.store.messages.getSessionWorkingMemory(this.scope, sessionId)) ?? '';
     const memoryContext =
-      (await this.store.memories.getContextBlock(this.scope)) ?? '';
+      (await this.store.memories.getContextBlock(this.scope, {
+        limit: config.memory.context_entry_limit,
+      })) ?? '';
 
     const contextBlocks: AgentMessage[] = [];
+
+    // When a resumed session has at most 1 message in the current agent
+    // instance, inject prior session context so the LLM has history.
+    const session = this.sessions.get(sessionId);
+    if (session?.resumed && messages.length <= 1) {
+      const resumptionBlock = await this.buildSessionResumptionBlock(sessionId);
+      if (resumptionBlock) {
+        contextBlocks.push(resumptionBlock);
+        session.resumed = false; // Only inject once.
+      }
+    }
 
     if (sessionWorking.trim()) {
       contextBlocks.push({
@@ -817,8 +892,6 @@ export class AgentRunner implements SessionRuntime {
         timestamp: Date.now(),
       });
     }
-
-    const config = await this.options.security.readConfig();
 
     // Only offer LLM compaction when we have a dedicated API key.
     // When streamFn is provided (tests, proxied setups), the shared stream

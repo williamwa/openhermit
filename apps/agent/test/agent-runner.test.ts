@@ -1441,6 +1441,67 @@ test('AgentRunner rebuilds and reuses persisted session index across restarts', 
   );
 });
 
+test('AgentRunner injects session resumption context when reopening a persisted session', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: {
+      ANTHROPIC_API_KEY: 'test-anthropic-key',
+    },
+  });
+  await security.load();
+
+  const runner = await AgentRunner.create({
+    workspace,
+    security,
+    streamFn: createSequentialStreamFn([
+      () => createTextResponseStream('first reply about architecture'),
+    ]),
+  });
+
+  await runner.openSession({
+    sessionId: 'cli:resumption-session',
+    source: { kind: 'cli', interactive: true },
+  });
+  await runner.postMessage('cli:resumption-session', {
+    text: 'Explain the container sandbox model',
+  });
+  await runner.waitForSessionIdle('cli:resumption-session');
+
+  // Create a second runner instance (simulates agent restart).
+  let capturedMessages: Context['messages'] = [];
+  const restoredRunner = await AgentRunner.create({
+    workspace,
+    security,
+    streamFn: createSequentialStreamFn([
+      (context) => {
+        capturedMessages = context.messages;
+        return createTextResponseStream('resumed reply');
+      },
+    ]),
+  });
+
+  await restoredRunner.openSession({
+    sessionId: 'cli:resumption-session',
+    source: { kind: 'cli', interactive: true },
+  });
+  await restoredRunner.postMessage('cli:resumption-session', {
+    text: 'Continue the discussion',
+  });
+  await restoredRunner.waitForSessionIdle('cli:resumption-session');
+
+  const resumptionBlock = capturedMessages.find(
+    (msg) =>
+      msg.role === 'user' &&
+      JSON.stringify(msg.content).includes('Session resumption context'),
+  );
+  assert.ok(resumptionBlock, 'resumption context should be injected for a persisted session');
+  const resumptionText = JSON.stringify(resumptionBlock!.content);
+  assert.ok(
+    resumptionText.includes('container sandbox model') ||
+    resumptionText.includes('architecture'),
+    'resumption context should include prior conversation content',
+  );
+});
+
 test('AgentRunner stores an AI-generated session description when available', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: {

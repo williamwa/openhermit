@@ -139,17 +139,21 @@ export class SqliteMemoryProvider implements MemoryProvider {
       .run(scope.agentId, id);
   }
 
-  async getContextBlock(scope: StoreScope): Promise<string | undefined> {
-    // Return the most recently updated memories as context for the agent.
+  async getContextBlock(
+    scope: StoreScope,
+    options?: { limit?: number | undefined },
+  ): Promise<string | undefined> {
+    const limit = Math.max(1, Math.min(50, options?.limit ?? 10));
+
     const rows = this.database
       .prepare(
         `SELECT memory_key, content
          FROM memories
          WHERE agent_id = ?
          ORDER BY updated_at DESC
-         LIMIT 5`,
+         LIMIT ?`,
       )
-      .all(scope.agentId) as Array<{ memory_key: string; content: string }>;
+      .all(scope.agentId, limit) as Array<{ memory_key: string; content: string }>;
 
     if (rows.length === 0) {
       return undefined;

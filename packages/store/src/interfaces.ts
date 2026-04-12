@@ -31,6 +31,7 @@ export interface MessageStore {
   listEpisodicEntries(scope: StoreScope, sessionId: string): Promise<EpisodicLogEntry[]>;
   getSessionWorkingMemory(scope: StoreScope, sessionId: string): Promise<string | undefined>;
   setSessionWorkingMemory(scope: StoreScope, sessionId: string, content: string, updatedAt: string): Promise<void>;
+  listRecentMessages(scope: StoreScope, sessionId: string, limit: number): Promise<CheckpointHistoryRow[]>;
   getCompactionSummary(scope: StoreScope, sessionId: string): Promise<string | undefined>;
   setCompactionSummary(scope: StoreScope, sessionId: string, content: string, updatedAt: string): Promise<void>;
 }
@@ -44,7 +45,7 @@ export interface MemoryProvider {
   get(scope: StoreScope, id: string): Promise<MemoryEntry | undefined>;
   update(scope: StoreScope, id: string, input: MemoryUpdateInput): Promise<MemoryEntry>;
   delete(scope: StoreScope, id: string): Promise<void>;
-  getContextBlock(scope: StoreScope): Promise<string | undefined>;
+  getContextBlock(scope: StoreScope, options?: { limit?: number | undefined }): Promise<string | undefined>;
 }
 
 export interface ContainerStore {

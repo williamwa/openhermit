@@ -47,6 +47,7 @@ export interface HttpApiConfig {
 
 export interface MemoryConfig {
   checkpoint_turn_interval: number;
+  context_entry_limit?: number | undefined;
 }
 
 export interface TelegramBridgeConfig {
