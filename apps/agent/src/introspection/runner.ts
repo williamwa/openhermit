@@ -1,0 +1,201 @@
+import type { Agent, AgentEvent } from '@mariozechner/pi-agent-core';
+
+import type { InternalStateStore, StoreScope } from '@openhermit/store';
+
+import type { AgentConfig, IntrospectionConfig } from '../core/types.js';
+import { DEFAULT_INTROSPECTION_CONFIG } from '../core/types.js';
+import { createIntrospectionTools } from './tools.js';
+import { INTROSPECTION_SYSTEM_PROMPT, buildIntrospectionUserMessage } from './prompt.js';
+import { serializeDetails } from '../agent-runner/message-utils.js';
+import type { AgentSecurity } from '../core/index.js';
+import type { ToolContext } from '../tools/shared.js';
+
+export interface IntrospectionInput {
+  reason: 'manual' | 'new_session' | 'turn_limit' | 'idle';
+  sessionId: string;
+  config: AgentConfig;
+  store: InternalStateStore;
+  scope: StoreScope;
+  security: AgentSecurity;
+  /** History entries new since last introspection. */
+  history: Array<{ role: 'user' | 'assistant' | 'error'; content: string; ts: string }>;
+  previousWorkingMemory: string | undefined;
+  lastSummarizedHistoryCount: number;
+  completedTurnCount: number;
+  lastSummarizedTurnCount: number;
+
+  createAgent: (input: {
+    config: AgentConfig;
+    agentSessionId: string;
+    contextSessionId: string;
+    extraSystemPrompt?: string;
+    tools?: any[];
+    langfuseRequest?: { name: string; metadata?: Record<string, unknown> };
+  }) => Promise<Agent>;
+
+  logRuntime: (message: string) => void;
+}
+
+export interface IntrospectionResult {
+  success: boolean;
+  toolCallCount: number;
+  memoriesAdded: number;
+  memoriesUpdated: number;
+  memoriesDeleted: number;
+  workingMemoryUpdated: boolean;
+}
+
+export const resolveIntrospectionConfig = (config: AgentConfig): IntrospectionConfig => ({
+  ...DEFAULT_INTROSPECTION_CONFIG,
+  ...(config.memory.introspection ?? {}),
+});
+
+export async function runIntrospection(input: IntrospectionInput): Promise<IntrospectionResult> {
+  const introspectionConfig = resolveIntrospectionConfig(input.config);
+  const ts = () => new Date().toISOString();
+
+  const result: IntrospectionResult = {
+    success: false,
+    toolCallCount: 0,
+    memoriesAdded: 0,
+    memoriesUpdated: 0,
+    memoriesDeleted: 0,
+    workingMemoryUpdated: false,
+  };
+
+  const turnsSinceLast = input.completedTurnCount - input.lastSummarizedTurnCount;
+
+  // Write introspection_start event
+  await input.store.messages.appendLogEntry(input.scope, input.sessionId, {
+    ts: ts(),
+    role: 'system',
+    type: 'introspection_start',
+    reason: input.reason,
+    turnsSinceLast,
+  });
+
+  try {
+    // Build transcript from history
+    const transcript = input.history
+      .map((entry) => `${entry.role.toUpperCase()}: ${entry.content}`)
+      .join('\n\n')
+      .slice(0, 32_000);
+
+    // Create tool context for introspection (no approval, no container tools)
+    const toolContext: ToolContext = {
+      security: input.security,
+      containerManager: undefined as any, // not used by memory tools
+      memoryProvider: input.store.memories,
+      messageStore: input.store.messages,
+      sessionId: input.sessionId,
+      storeScope: input.scope,
+    };
+
+    const tools = createIntrospectionTools(toolContext);
+
+    // Create introspection agent
+    const agent = await input.createAgent({
+      config: input.config,
+      agentSessionId: `${input.sessionId}:introspection`,
+      contextSessionId: input.sessionId,
+      extraSystemPrompt: INTROSPECTION_SYSTEM_PROMPT,
+      tools,
+      langfuseRequest: {
+        name: 'openhermit.session_introspection',
+        metadata: {
+          requestKind: 'session-introspection',
+          introspectionReason: input.reason,
+        },
+      },
+    });
+
+    // Track tool calls via subscription
+    const unsub = agent.subscribe((event: AgentEvent) => {
+      if (event.type === 'tool_execution_start') {
+        // Write tool_call event
+        void input.store.messages.appendLogEntry(input.scope, input.sessionId, {
+          ts: ts(),
+          role: 'tool_call',
+          type: 'tool_call',
+          name: event.toolName,
+          toolCallId: event.toolCallId,
+          args: event.args,
+          introspection: true,
+        });
+      }
+
+      if (event.type === 'tool_execution_end') {
+        result.toolCallCount++;
+
+        // Track what changed
+        if (event.toolName === 'memory_add') result.memoriesAdded++;
+        if (event.toolName === 'memory_update') result.memoriesUpdated++;
+        if (event.toolName === 'memory_delete') result.memoriesDeleted++;
+        if (event.toolName === 'working_memory_update') result.workingMemoryUpdated = true;
+
+        // Write tool_result event
+        void input.store.messages.appendLogEntry(input.scope, input.sessionId, {
+          ts: ts(),
+          role: 'tool_result',
+          type: 'tool_result',
+          name: event.toolName,
+          toolCallId: event.toolCallId,
+          isError: event.isError,
+          content: serializeDetails(event.result),
+          introspection: true,
+        });
+
+        // Enforce max tool calls by aborting
+        if (result.toolCallCount >= introspectionConfig.max_tool_calls) {
+          input.logRuntime(`introspection hit max_tool_calls (${introspectionConfig.max_tool_calls}), aborting`);
+          agent.abort();
+        }
+      }
+    });
+
+    // Send the introspection prompt
+    const userMessage = buildIntrospectionUserMessage({
+      reason: input.reason,
+      turnsSinceLast,
+      transcript,
+      currentWorkingMemory: input.previousWorkingMemory,
+    });
+
+    await agent.prompt({
+      role: 'user',
+      content: [{ type: 'text', text: userMessage }],
+      timestamp: Date.now(),
+    });
+    await agent.waitForIdle();
+    unsub();
+
+    result.success = true;
+  } catch (error) {
+    input.logRuntime(`introspection failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  // Build summary for introspection_end
+  const summaryParts: string[] = [];
+  if (result.memoriesAdded > 0) summaryParts.push(`added ${result.memoriesAdded} memory(s)`);
+  if (result.memoriesUpdated > 0) summaryParts.push(`updated ${result.memoriesUpdated} memory(s)`);
+  if (result.memoriesDeleted > 0) summaryParts.push(`deleted ${result.memoriesDeleted} memory(s)`);
+  if (result.workingMemoryUpdated) summaryParts.push('refreshed working memory');
+  if (summaryParts.length === 0) summaryParts.push('no changes');
+
+  // Write introspection_end event
+  await input.store.messages.appendLogEntry(input.scope, input.sessionId, {
+    ts: ts(),
+    role: 'system',
+    type: 'introspection_end',
+    reason: input.reason,
+    summary: summaryParts.join(', '),
+    toolCallCount: result.toolCallCount,
+    memoriesAdded: result.memoriesAdded,
+    memoriesUpdated: result.memoriesUpdated,
+    memoriesDeleted: result.memoriesDeleted,
+    workingMemoryUpdated: result.workingMemoryUpdated,
+    success: result.success,
+  });
+
+  return result;
+}

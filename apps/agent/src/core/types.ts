@@ -45,9 +45,26 @@ export interface HttpApiConfig {
   preferred_port: number;
 }
 
+export interface IntrospectionConfig {
+  enabled: boolean;
+  turn_interval: number;
+  idle_timeout_ms: number;
+  max_tool_calls: number;
+  model: string | null;
+}
+
+export const DEFAULT_INTROSPECTION_CONFIG: IntrospectionConfig = {
+  enabled: true,
+  turn_interval: 5,
+  idle_timeout_ms: 600_000,
+  max_tool_calls: 10,
+  model: null,
+};
+
 export interface MemoryConfig {
   checkpoint_turn_interval: number;
   context_entry_limit?: number | undefined;
+  introspection?: IntrospectionConfig | undefined;
 }
 
 export interface TelegramBridgeConfig {

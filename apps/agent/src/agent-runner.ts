@@ -55,6 +55,7 @@ import {
   truncateToolResults,
 } from './agent-runner/context-compaction.js';
 import { createWebProvider, type WebProvider } from './web/index.js';
+import { runIntrospection, resolveIntrospectionConfig } from './introspection/index.js';
 
 export class AgentRunner implements SessionRuntime {
   readonly events = new SessionEventBroker();
@@ -379,12 +380,20 @@ export class AgentRunner implements SessionRuntime {
     await this.store.sessions.waitForIdle();
   }
 
-  private getIdleSummaryTimeoutMs(): number {
+  private getIdleSummaryTimeoutMs(config?: AgentConfig): number {
+    const introspection = config?.memory.introspection;
+    if (introspection?.enabled && introspection.idle_timeout_ms > 0) {
+      return introspection.idle_timeout_ms;
+    }
     return this.options.idleSummaryTimeoutMs
       ?? AgentRunner.DEFAULT_IDLE_SUMMARY_TIMEOUT_MS;
   }
 
   private getCheckpointTurnInterval(config?: AgentConfig): number {
+    const introspection = config?.memory.introspection;
+    if (introspection?.enabled && introspection.turn_interval > 0) {
+      return introspection.turn_interval;
+    }
     return (
       this.options.checkpointTurnInterval
       ?? config?.memory.checkpoint_turn_interval
@@ -435,56 +444,111 @@ export class AgentRunner implements SessionRuntime {
       }
 
       const config = await this.options.security.readConfig();
-      const previousWorkingMemory = await this.store.messages.getSessionWorkingMemory(this.scope,
-        session.spec.sessionId,
-      );
-      const checkpointArtifacts = await this.generateCheckpointArtifacts({
-        sessionId: session.spec.sessionId,
-        reason,
-        history: newHistory,
-        previousWorkingMemory,
-        config,
-      });
-      const summary = checkpointArtifacts.summary;
+      const introspectionConfig = resolveIntrospectionConfig(config);
 
-      if (!summary) {
-        return false;
+      if (introspectionConfig.enabled) {
+        return await this.runIntrospection(session, reason, config, chronologicalHistory, newHistory);
       }
 
-      const ts = new Date().toISOString();
-      const previousHistoryCount = session.lastSummarizedHistoryCount;
-      const previousTurnCount = session.lastSummarizedTurnCount;
-      session.lastSummarizedHistoryCount = chronologicalHistory.length;
-      session.lastSummarizedTurnCount = session.completedTurnCount;
-      session.lastSummarizedAt = ts;
-      await this.persistSessionIndex(session);
-
-      await this.store.messages.appendEpisodicEntry(this.scope,session.spec.sessionId, {
-        ts,
-        session: session.spec.sessionId,
-        type: reason === 'turn_limit' ? 'session_checkpoint' : 'session_summary',
-        data: {
-          reason,
-          fromHistoryCount: previousHistoryCount,
-          toHistoryCount: session.lastSummarizedHistoryCount,
-          turnCount: session.completedTurnCount,
-          summarizedTurns: session.completedTurnCount - previousTurnCount,
-          summary,
-        },
-      });
-      this.logRuntime(`session checkpoint: ${reason}`);
-
-      await this.updateSessionWorkingMemory(
-        session,
-        checkpointArtifacts.sessionWorkingMemory,
-      );
-
-      await this.updateSessionDescriptionFromSummary(session, summary, config);
-
-      return true;
+      return await this.runLegacyCheckpoint(session, reason, config, chronologicalHistory, newHistory);
     } finally {
       session.checkpointInProgress = false;
     }
+  }
+
+  private async runIntrospection(
+    session: RunnerSession,
+    reason: 'manual' | 'new_session' | 'turn_limit' | 'idle',
+    config: AgentConfig,
+    chronologicalHistory: Array<{ role: 'user' | 'assistant' | 'error'; content: string; ts: string }>,
+    newHistory: Array<{ role: 'user' | 'assistant' | 'error'; content: string; ts: string }>,
+  ): Promise<boolean> {
+    const previousWorkingMemory = await this.store.messages.getSessionWorkingMemory(this.scope,
+      session.spec.sessionId,
+    );
+
+    const result = await runIntrospection({
+      reason,
+      sessionId: session.spec.sessionId,
+      config,
+      store: this.store,
+      scope: this.scope,
+      security: this.options.security,
+      history: newHistory,
+      previousWorkingMemory,
+      lastSummarizedHistoryCount: session.lastSummarizedHistoryCount,
+      completedTurnCount: session.completedTurnCount,
+      lastSummarizedTurnCount: session.lastSummarizedTurnCount,
+      createAgent: (input) => this.createConfiguredAgent(input),
+      logRuntime: (msg) => this.logRuntime(msg),
+    });
+
+    // Update session index
+    const ts = new Date().toISOString();
+    session.lastSummarizedHistoryCount = chronologicalHistory.length;
+    session.lastSummarizedTurnCount = session.completedTurnCount;
+    session.lastSummarizedAt = ts;
+    await this.persistSessionIndex(session);
+
+    this.logRuntime(`introspection: ${reason} — ${result.toolCallCount} tool calls, success=${result.success}`);
+
+    return result.success;
+  }
+
+  private async runLegacyCheckpoint(
+    session: RunnerSession,
+    reason: 'manual' | 'new_session' | 'turn_limit' | 'idle',
+    config: AgentConfig,
+    chronologicalHistory: Array<{ role: 'user' | 'assistant' | 'error'; content: string; ts: string }>,
+    newHistory: Array<{ role: 'user' | 'assistant' | 'error'; content: string; ts: string }>,
+  ): Promise<boolean> {
+    const previousWorkingMemory = await this.store.messages.getSessionWorkingMemory(this.scope,
+      session.spec.sessionId,
+    );
+    const checkpointArtifacts = await this.generateCheckpointArtifacts({
+      sessionId: session.spec.sessionId,
+      reason,
+      history: newHistory,
+      previousWorkingMemory,
+      config,
+    });
+    const summary = checkpointArtifacts.summary;
+
+    if (!summary) {
+      return false;
+    }
+
+    const ts = new Date().toISOString();
+    const previousHistoryCount = session.lastSummarizedHistoryCount;
+    const previousTurnCount = session.lastSummarizedTurnCount;
+    session.lastSummarizedHistoryCount = chronologicalHistory.length;
+    session.lastSummarizedTurnCount = session.completedTurnCount;
+    session.lastSummarizedAt = ts;
+    await this.persistSessionIndex(session);
+
+    await this.store.messages.appendEpisodicEntry(this.scope,session.spec.sessionId, {
+      ts,
+      session: session.spec.sessionId,
+      type: reason === 'turn_limit' ? 'session_checkpoint' : 'session_summary',
+      data: {
+        reason,
+        fromHistoryCount: previousHistoryCount,
+        toHistoryCount: session.lastSummarizedHistoryCount,
+        turnCount: session.completedTurnCount,
+        summarizedTurns: session.completedTurnCount - previousTurnCount,
+        summary,
+      },
+    });
+    this.logRuntime(`session checkpoint: ${reason}`);
+
+    await this.updateSessionWorkingMemory(
+      session,
+      checkpointArtifacts.sessionWorkingMemory,
+    );
+
+    await this.updateSessionDescriptionFromSummary(session, summary, config);
+
+    return true;
   }
 
   private async updateSessionWorkingMemory(
@@ -916,6 +980,16 @@ export class AgentRunner implements SessionRuntime {
 
     if (entry.role === 'error' && typeof entry.message === 'string') {
       return `[ERROR] ${entry.message}`;
+    }
+
+    if (entry.role === 'system' && entry.type === 'introspection_start') {
+      const reason = typeof entry.reason === 'string' ? entry.reason : '';
+      return `[INTROSPECTION_START] reason: ${reason}`;
+    }
+
+    if (entry.role === 'system' && entry.type === 'introspection_end') {
+      const summary = typeof entry.summary === 'string' ? entry.summary : '';
+      return `[INTROSPECTION_END] ${summary}`;
     }
 
     return undefined;
