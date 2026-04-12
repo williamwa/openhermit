@@ -4,8 +4,6 @@ import { AgentLocalClient } from '@openhermit/sdk';
 
 import {
   formatDebugValue,
-  writeToolRequested,
-  writeToolResult,
   writeToolStarted,
 } from './formatting.js';
 import type { AssistantTurnOptions, SseFrame } from './types.js';
@@ -184,11 +182,6 @@ export const waitForAssistantTurn = async (
         }
 
         if (frame.event === 'tool_requested') {
-          if (out?.onToolRequested) {
-            out.onToolRequested(String(payload.tool ?? 'unknown'), payload.args);
-          } else {
-            writeToolRequested(String(payload.tool ?? 'unknown'), payload.args);
-          }
           continue;
         }
 
@@ -208,11 +201,6 @@ export const waitForAssistantTurn = async (
               Boolean(payload.isError),
               payload.text,
               payload.details,
-            );
-          } else {
-            writeToolResult(
-              String(payload.tool ?? 'unknown'),
-              Boolean(payload.isError),
             );
           }
           continue;

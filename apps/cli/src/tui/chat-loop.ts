@@ -288,16 +288,6 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
 
               streamedAssistantText = '';
             },
-            onToolRequested: (tool, args) => {
-              ensureAgentLabel();
-              const formatted = formatDebugValue(args);
-              const suffix = formatted
-                ? formatted.includes('\n')
-                  ? `\n${gray(formatted)}`
-                  : ` ${gray(formatted)}`
-                : '';
-              addText(`${gray('[tool requested]')} ${yellow(tool)}${suffix}`);
-            },
             onToolStarted: (tool, args) => {
               ensureAgentLabel();
               const formatted = formatDebugValue(args);
@@ -308,10 +298,11 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
                 : '';
               addText(`${gray('[tool]')} ${yellow(tool)}${suffix}`);
             },
-            onToolResult: (tool, isError) => {
-              ensureAgentLabel();
-              const label = isError ? red('[tool error]') : gray('[tool result]');
-              addText(`${label} ${yellow(tool)}`);
+            onToolResult: (_tool, isError) => {
+              if (isError) {
+                ensureAgentLabel();
+                addText(`${red('[tool error]')} ${yellow(_tool)}`);
+              }
             },
             onApprovalPrompt: (toolName, args) => {
               ensureAgentLabel();
