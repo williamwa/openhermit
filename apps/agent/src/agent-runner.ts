@@ -52,6 +52,7 @@ import {
   estimateAgentMessagesTokens,
   estimateTextTokens,
   getContextCompactionMaxTokens,
+  truncateToolResults,
 } from './agent-runner/context-compaction.js';
 import { createWebProvider, type WebProvider } from './web/index.js';
 
@@ -1213,6 +1214,36 @@ export class AgentRunner implements SessionRuntime {
 
         const assistantText = extractAssistantText(event.message);
         const assistantMessage = event.message;
+
+        // Handle error responses from the model provider.
+        if (assistantMessage.stopReason === 'error') {
+          const errorMsg = assistantMessage.errorMessage ?? 'Model returned an error.';
+          const ts = new Date().toISOString();
+          session.updatedAt = ts;
+          void this.persistSessionIndex(session);
+
+          this.logRuntime(`model error in ${session.spec.sessionId}: ${errorMsg}`);
+
+          void this.events.publish({
+            type: 'error',
+            sessionId: session.spec.sessionId,
+            message: errorMsg,
+          });
+
+          void this.queueSideEffect(session, async () => {
+            await this.store.messages.appendLogEntry(this.scope, session.spec.sessionId, {
+              ts,
+              role: 'assistant',
+              content: assistantText ?? '',
+              provider: assistantMessage.provider,
+              model: assistantMessage.model,
+              usage: assistantMessage.usage,
+              stopReason: 'error',
+              errorMessage: errorMsg,
+            });
+          });
+          break;
+        }
 
         if (!assistantText || !hasMeaningfulAssistantText(assistantText)) {
           break;
