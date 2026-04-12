@@ -21,8 +21,6 @@ const schemaStatements = [
     last_message_preview TEXT,
     working_memory TEXT,
     working_memory_updated_at TEXT,
-    compaction_summary TEXT,
-    compaction_summary_updated_at TEXT,
     metadata_json TEXT NOT NULL DEFAULT '{}',
     status TEXT NOT NULL DEFAULT 'idle',
     PRIMARY KEY (agent_id, session_id)
@@ -52,6 +50,8 @@ const schemaStatements = [
   ) STRICT;`,
   `CREATE INDEX IF NOT EXISTS idx_session_events_agent_session
     ON session_events(agent_id, session_id, ts DESC);`,
+  `CREATE INDEX IF NOT EXISTS idx_session_events_type
+    ON session_events(agent_id, session_id, event_type, id DESC);`,
   `CREATE TABLE IF NOT EXISTS episodic_checkpoints (
     id INTEGER PRIMARY KEY,
     agent_id TEXT NOT NULL DEFAULT '${STANDALONE_AGENT_ID}',
@@ -107,12 +107,15 @@ const migrationStatements = [
   `ALTER TABLE memories ADD COLUMN created_at TEXT NOT NULL DEFAULT '';`,
   `DROP INDEX IF EXISTS idx_memories_agent;`,
   `CREATE INDEX IF NOT EXISTS idx_memories_agent ON memories(agent_id, updated_at DESC);`,
-  // v9: add compaction_summary to sessions
+  // v9: add compaction_summary to sessions (now obsolete — moved to session_events)
   `ALTER TABLE sessions ADD COLUMN compaction_summary TEXT;`,
   `ALTER TABLE sessions ADD COLUMN compaction_summary_updated_at TEXT;`,
+  // v10: drop compaction_summary from sessions — compaction is now a session_event
+  `ALTER TABLE sessions DROP COLUMN compaction_summary;`,
+  `ALTER TABLE sessions DROP COLUMN compaction_summary_updated_at;`,
 ] as const;
 
-export const CURRENT_SCHEMA_VERSION = 9;
+export const CURRENT_SCHEMA_VERSION = 10;
 
 const ensureMetaTable = (database: DatabaseSync): void => {
   database.exec(
