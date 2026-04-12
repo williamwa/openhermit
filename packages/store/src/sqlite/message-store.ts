@@ -322,6 +322,42 @@ export class SqliteMessageStore implements MessageStore {
       }));
   }
 
+  async listSessionEntriesSinceLastCompaction(
+    scope: StoreScope,
+    sessionId: string,
+  ): Promise<{ compactionSummary: string | undefined; entries: SessionLogEntry[] }> {
+    // Find the last compaction event.
+    const compactionRow = this.database
+      .prepare(
+        `SELECT id, payload_json FROM session_events
+         WHERE agent_id = ? AND session_id = ? AND event_type = 'context_compaction'
+         ORDER BY id DESC LIMIT 1`,
+      )
+      .get(scope.agentId, sessionId) as { id: number; payload_json: string } | undefined;
+
+    const afterId = compactionRow?.id ?? 0;
+    let compactionSummary: string | undefined;
+
+    if (compactionRow) {
+      const parsed = JSON.parse(compactionRow.payload_json) as Record<string, unknown>;
+      compactionSummary = typeof parsed.content === 'string' ? parsed.content : undefined;
+    }
+
+    // Load all entries after the compaction event (or from beginning).
+    const rows = this.database
+      .prepare(
+        `SELECT payload_json FROM session_events
+         WHERE agent_id = ? AND session_id = ? AND id > ?
+         ORDER BY id ASC`,
+      )
+      .all(scope.agentId, sessionId, afterId) as Array<{ payload_json: string }>;
+
+    return {
+      compactionSummary,
+      entries: rows.map((row) => parseStoredSessionLogEntry(row.payload_json)),
+    };
+  }
+
   async getSessionWorkingMemory(scope: StoreScope, sessionId: string): Promise<string | undefined> {
     const row = this.database
       .prepare(
@@ -352,13 +388,18 @@ export class SqliteMessageStore implements MessageStore {
   async getCompactionSummary(scope: StoreScope, sessionId: string): Promise<string | undefined> {
     const row = this.database
       .prepare(
-        `SELECT compaction_summary
-         FROM sessions
-         WHERE agent_id = ? AND session_id = ?`,
+        `SELECT payload_json FROM session_events
+         WHERE agent_id = ? AND session_id = ? AND event_type = 'context_compaction'
+         ORDER BY id DESC LIMIT 1`,
       )
-      .get(scope.agentId, sessionId) as { compaction_summary?: string } | undefined;
+      .get(scope.agentId, sessionId) as { payload_json: string } | undefined;
 
-    return typeof row?.compaction_summary === 'string' ? row.compaction_summary : undefined;
+    if (!row) {
+      return undefined;
+    }
+
+    const parsed = JSON.parse(row.payload_json) as Record<string, unknown>;
+    return typeof parsed.content === 'string' ? parsed.content : undefined;
   }
 
   async setCompactionSummary(
@@ -367,12 +408,11 @@ export class SqliteMessageStore implements MessageStore {
     content: string,
     updatedAt: string,
   ): Promise<void> {
-    this.database
-      .prepare(
-        `UPDATE sessions
-         SET compaction_summary = ?, compaction_summary_updated_at = ?
-         WHERE agent_id = ? AND session_id = ?`,
-      )
-      .run(content, updatedAt, scope.agentId, sessionId);
+    insertSessionLogEntry(this.database, scope.agentId, sessionId, {
+      ts: updatedAt,
+      role: 'system',
+      type: 'context_compaction',
+      content,
+    });
   }
 }

@@ -872,13 +872,45 @@ export class AgentRunner implements SessionRuntime {
     session.agent.sessionId = session.spec.sessionId;
   }
 
-  private static readonly SESSION_RESUMPTION_RECENT_MESSAGE_COUNT = 10;
+  private static formatSessionEntry(entry: import('@openhermit/store').SessionLogEntry): string | undefined {
+    if (entry.role === 'user' && typeof entry.content === 'string') {
+      return `[USER] ${entry.content}`;
+    }
+
+    if (entry.role === 'assistant' && typeof entry.content === 'string') {
+      return `[ASSISTANT] ${entry.content}`;
+    }
+
+    if (entry.role === 'tool_call') {
+      const name = typeof entry.name === 'string' ? entry.name : 'unknown';
+      const args = entry.args !== undefined ? JSON.stringify(entry.args) : '';
+      return `[TOOL_CALL] ${name}(${args})`;
+    }
+
+    if (entry.role === 'tool_result') {
+      const name = typeof entry.name === 'string' ? entry.name : 'unknown';
+      const isError = entry.isError === true;
+      const content = typeof entry.content === 'string'
+        ? entry.content
+        : JSON.stringify(entry.content ?? '');
+      const prefix = isError ? '[TOOL_ERROR]' : '[TOOL_RESULT]';
+      return `${prefix} ${name}: ${content}`;
+    }
+
+    if (entry.role === 'error' && typeof entry.message === 'string') {
+      return `[ERROR] ${entry.message}`;
+    }
+
+    return undefined;
+  }
 
   private async buildSessionResumptionBlock(sessionId: string): Promise<AgentMessage | undefined> {
     const parts: string[] = [];
 
-    // Compaction summary — the most comprehensive narrative of earlier conversation.
-    const compactionSummary = await this.store.messages.getCompactionSummary(this.scope, sessionId);
+    // Load all session entries since the last compaction (or from beginning).
+    const { compactionSummary, entries } =
+      await this.store.messages.listSessionEntriesSinceLastCompaction(this.scope, sessionId);
+
     if (compactionSummary?.trim()) {
       parts.push('Previous session summary:', compactionSummary.trim(), '');
     }
@@ -898,20 +930,15 @@ export class AgentRunner implements SessionRuntime {
       );
     }
 
-    // Recent messages — last N from session_messages for concrete detail.
-    const recentMessages = await this.store.messages.listRecentMessages(
-      this.scope,
-      sessionId,
-      AgentRunner.SESSION_RESUMPTION_RECENT_MESSAGE_COUNT,
-    );
+    // Full conversation history since last compaction, including tool interactions.
+    const formattedEntries = entries
+      .map((entry) => AgentRunner.formatSessionEntry(entry))
+      .filter((line): line is string => line !== undefined);
 
-    if (recentMessages.length > 0) {
-      const formattedMessages = recentMessages.map(
-        (msg) => `[${msg.role.toUpperCase()}] ${msg.content.replace(/\s+/g, ' ').trim()}`,
-      );
+    if (formattedEntries.length > 0) {
       parts.push(
-        'Recent conversation history:',
-        ...formattedMessages.map((m) => m.slice(0, 800)),
+        'Conversation history since last compaction (including tool interactions):',
+        ...formattedEntries,
         '',
       );
     }
