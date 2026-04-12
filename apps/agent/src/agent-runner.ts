@@ -47,7 +47,11 @@ import {
   type ToolStartedCallback,
   createBuiltInTools,
 } from './tools.js';
-import { compactContextIfNeeded } from './agent-runner/context-compaction.js';
+import {
+  compactContextIfNeeded,
+  estimateAgentMessagesTokens,
+  getContextCompactionMaxTokens,
+} from './agent-runner/context-compaction.js';
 import { createWebProvider, type WebProvider } from './web/index.js';
 
 export class AgentRunner implements SessionRuntime {
@@ -67,8 +71,16 @@ export class AgentRunner implements SessionRuntime {
 
   private workspaceIdleTimer: ReturnType<typeof setTimeout> | undefined;
 
+  private static DEBUG = false;
+
   private logRuntime(message: string): void {
     console.log(`[openhermit-agent] ${message}`);
+  }
+
+  private logDebug(message: string): void {
+    if (AgentRunner.DEBUG) {
+      console.log(`[openhermit-debug] ${message}`);
+    }
   }
 
   private constructor(private readonly options: AgentRunnerOptions) {
@@ -85,6 +97,7 @@ export class AgentRunner implements SessionRuntime {
   }
 
   static async create(options: AgentRunnerOptions): Promise<AgentRunner> {
+    AgentRunner.DEBUG = Boolean(process.env.OPENHERMIT_DEBUG);
     return new AgentRunner(options);
   }
 
@@ -1017,7 +1030,7 @@ export class AgentRunner implements SessionRuntime {
     const canRunLlmCompaction =
       !this.options.streamFn && Boolean(this.resolveApiKey(config.model.provider));
 
-    return compactContextIfNeeded(sessionId, config, contextBlocks, messages, {
+    const finalMessages = await compactContextIfNeeded(sessionId, config, contextBlocks, messages, {
       store: this.store,
       scope: this.scope,
       options: {
@@ -1030,6 +1043,31 @@ export class AgentRunner implements SessionRuntime {
         : undefined,
       logRuntime: (msg) => this.logRuntime(msg),
     });
+
+    if (AgentRunner.DEBUG) {
+      const model = resolveModel(config);
+      const budget = getContextCompactionMaxTokens(config, {
+        contextCompactionMaxTokens: this.options.contextCompactionMaxTokens,
+      });
+      const totalTokens = estimateAgentMessagesTokens(finalMessages);
+      const contextTokens = estimateAgentMessagesTokens(contextBlocks);
+      const messageTokens = estimateAgentMessagesTokens(messages);
+      const pct = ((totalTokens / model.contextWindow) * 100).toFixed(1);
+
+      const roleCounts = finalMessages.reduce<Record<string, number>>((acc, m) => {
+        acc[m.role] = (acc[m.role] ?? 0) + 1;
+        return acc;
+      }, {});
+
+      this.logDebug(
+        `[${sessionId}] model: ${config.model.provider}/${config.model.model} | `
+        + `context: ${totalTokens.toLocaleString()}/${model.contextWindow.toLocaleString()} tokens (${pct}%) | `
+        + `budget: ${budget.toLocaleString()} | ctx blocks: ${contextTokens.toLocaleString()} | msgs: ${messageTokens.toLocaleString()} | `
+        + `final: ${finalMessages.length} (${Object.entries(roleCounts).map(([r, c]) => `${r}:${c}`).join(' ')})`,
+      );
+    }
+
+    return finalMessages;
   }
 
   private async createCompactionAgent(sessionId: string, config: AgentConfig): Promise<Agent> {
