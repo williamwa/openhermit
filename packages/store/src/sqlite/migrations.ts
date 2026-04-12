@@ -113,9 +113,11 @@ const migrationStatements = [
   // v10: drop compaction_summary from sessions — compaction is now a session_event
   `ALTER TABLE sessions DROP COLUMN compaction_summary;`,
   `ALTER TABLE sessions DROP COLUMN compaction_summary_updated_at;`,
+  // v11: drop obsolete memory_kind column from memories
+  `ALTER TABLE memories DROP COLUMN memory_kind;`,
 ] as const;
 
-export const CURRENT_SCHEMA_VERSION = 10;
+export const CURRENT_SCHEMA_VERSION = 11;
 
 const ensureMetaTable = (database: DatabaseSync): void => {
   database.exec(
