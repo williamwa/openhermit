@@ -74,7 +74,7 @@ Introspection is configured in `~/.openhermit/{agent-id}/config.json` under the 
     "introspection": {
       "enabled": true,
       "turn_interval": 5,
-      "idle_timeout_ms": 600000,
+      "idle_timeout_minutes": 10,
       "max_tool_calls": 10,
       "model": null
     }
@@ -86,7 +86,7 @@ Introspection is configured in `~/.openhermit/{agent-id}/config.json` under the 
 |-------|------|---------|-------------|
 | `enabled` | boolean | `true` | Set to `false` to disable automatic introspection entirely. Memory tools on the main agent still work — only the automatic reflection is disabled. |
 | `turn_interval` | number | `5` | Run introspection every N completed runs. Set to `0` to disable turn-based triggers (idle and manual triggers still work if enabled). |
-| `idle_timeout_ms` | number | `600000` (10 min) | Run introspection after this many milliseconds of inactivity. Set to `0` to disable idle triggers. |
+| `idle_timeout_minutes` | number | `10` | Run introspection after this many minutes of inactivity. Set to `0` to disable idle triggers. |
 | `max_tool_calls` | number | `10` | Maximum tool calls the introspection agent can make per run. Bounds cost. |
 | `model` | string \| null | `null` | Override model for introspection agent. `null` means use the same model as the main agent. Can be set to a cheaper model (e.g. haiku) since introspection is just reflection + memory CRUD. |
 
@@ -104,7 +104,7 @@ This is useful for cost-sensitive deployments, debugging, or agents that don't n
 When enabled, introspection is triggered by:
 
 - `turn_limit` — every N completed runs (configured by `turn_interval`)
-- `idle` — after idle timeout (configured by `idle_timeout_ms`)
+- `idle` — after idle timeout (configured by `idle_timeout_minutes`)
 - `new_session` — when adapter switches sessions
 - `manual` — explicit API call (`POST /sessions/:id/checkpoint`)
 

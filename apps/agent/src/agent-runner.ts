@@ -382,8 +382,8 @@ export class AgentRunner implements SessionRuntime {
 
   private getIdleSummaryTimeoutMs(config?: AgentConfig): number {
     const introspection = config?.memory.introspection;
-    if (introspection?.enabled && introspection.idle_timeout_ms > 0) {
-      return introspection.idle_timeout_ms;
+    if (introspection?.enabled && introspection.idle_timeout_minutes > 0) {
+      return introspection.idle_timeout_minutes * 60_000;
     }
     return this.options.idleSummaryTimeoutMs
       ?? AgentRunner.DEFAULT_IDLE_SUMMARY_TIMEOUT_MS;
