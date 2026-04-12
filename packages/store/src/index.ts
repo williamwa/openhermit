@@ -11,7 +11,6 @@ export type {
   StoreScope,
   PersistedSessionIndexEntry,
   SessionLogEntry,
-  EpisodicLogEntry,
   MemoryEntry,
   MemoryAddInput,
   MemoryUpdateInput,

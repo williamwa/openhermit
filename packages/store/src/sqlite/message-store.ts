@@ -4,7 +4,6 @@ import type { SessionAttachment, SessionHistoryMessage, SessionSpec } from '@ope
 import type { MessageStore } from '../interfaces.js';
 import type {
   CheckpointHistoryRow,
-  EpisodicLogEntry,
   SessionLogEntry,
   StoreScope,
 } from '../types.js';
@@ -155,36 +154,6 @@ export class SqliteMessageStore implements MessageStore {
     insertSessionLogEntry(this.database, scope.agentId, sessionId, entry);
   }
 
-  async appendEpisodicEntry(scope: StoreScope, sessionId: string, entry: EpisodicLogEntry): Promise<void> {
-    const checkpointData = entry.data;
-
-    this.database
-      .prepare(
-        `INSERT INTO episodic_checkpoints(
-          agent_id,
-          session_id,
-          ts,
-          checkpoint_type,
-          reason,
-          history_from,
-          history_to,
-          turn_count,
-          summary
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        scope.agentId,
-        sessionId,
-        entry.ts,
-        entry.type,
-        String(checkpointData.reason ?? 'manual'),
-        Number(checkpointData.fromHistoryCount ?? 0),
-        Number(checkpointData.toHistoryCount ?? 0),
-        Number(checkpointData.turnCount ?? 0),
-        String(checkpointData.summary ?? ''),
-      );
-  }
-
   async writeSessionStarted(
     scope: StoreScope,
     spec: SessionSpec,
@@ -250,45 +219,6 @@ export class SqliteMessageStore implements MessageStore {
       .all(scope.agentId, sessionId) as Array<{ payload_json: string }>;
 
     return rows.map((row) => parseStoredSessionLogEntry(row.payload_json));
-  }
-
-  async listEpisodicEntries(scope: StoreScope, sessionId: string): Promise<EpisodicLogEntry[]> {
-    const rows = this.database
-      .prepare(
-        `SELECT
-          ts,
-          checkpoint_type,
-          reason,
-          history_from,
-          history_to,
-          turn_count,
-          summary
-         FROM episodic_checkpoints
-         WHERE agent_id = ? AND session_id = ?
-         ORDER BY ts ASC, id ASC`,
-      )
-      .all(scope.agentId, sessionId) as Array<{
-      ts: string;
-      checkpoint_type: string;
-      reason: string;
-      history_from: number;
-      history_to: number;
-      turn_count: number;
-      summary: string;
-    }>;
-
-    return rows.map((row) => ({
-      ts: row.ts,
-      session: sessionId,
-      type: row.checkpoint_type,
-      data: {
-        reason: row.reason,
-        fromHistoryCount: row.history_from,
-        toHistoryCount: row.history_to,
-        turnCount: row.turn_count,
-        summary: row.summary,
-      },
-    }));
   }
 
   async listRecentMessages(

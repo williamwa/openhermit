@@ -70,7 +70,6 @@ Many OpenHermit internals are structured runtime objects:
 
 - sessions
 - messages
-- checkpoints
 - memories
 - approvals
 - runtime inventory

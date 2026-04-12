@@ -328,23 +328,6 @@ export class AgentRunner implements SessionRuntime {
     return this.store.messages.listHistoryMessages(this.scope,persisted.sessionId);
   }
 
-  async listEpisodicEntries(sessionId: string) {
-    const activeSession = this.sessions.get(sessionId);
-
-    if (activeSession) {
-      await activeSession.sideEffects;
-      return this.store.messages.listEpisodicEntries(this.scope,activeSession.spec.sessionId);
-    }
-
-    const persisted = await this.store.sessions.get(this.scope,sessionId);
-
-    if (!persisted) {
-      throw new NotFoundError(`Session not found: ${sessionId}`);
-    }
-
-    return this.store.messages.listEpisodicEntries(this.scope,persisted.sessionId);
-  }
-
   /**
    * Resolve a pending tool approval for the given session.
    * Called by the HTTP `POST /sessions/:id/approve` endpoint.
@@ -519,27 +502,12 @@ export class AgentRunner implements SessionRuntime {
     }
 
     const ts = new Date().toISOString();
-    const previousHistoryCount = session.lastSummarizedHistoryCount;
-    const previousTurnCount = session.lastSummarizedTurnCount;
     session.lastSummarizedHistoryCount = chronologicalHistory.length;
     session.lastSummarizedTurnCount = session.completedTurnCount;
     session.lastSummarizedAt = ts;
     await this.persistSessionIndex(session);
 
-    await this.store.messages.appendEpisodicEntry(this.scope,session.spec.sessionId, {
-      ts,
-      session: session.spec.sessionId,
-      type: reason === 'turn_limit' ? 'session_checkpoint' : 'session_summary',
-      data: {
-        reason,
-        fromHistoryCount: previousHistoryCount,
-        toHistoryCount: session.lastSummarizedHistoryCount,
-        turnCount: session.completedTurnCount,
-        summarizedTurns: session.completedTurnCount - previousTurnCount,
-        summary,
-      },
-    });
-    this.logRuntime(`session checkpoint: ${reason}`);
+    this.logRuntime(`session checkpoint (legacy): ${reason}`);
 
     await this.updateSessionWorkingMemory(
       session,
@@ -1010,21 +978,6 @@ export class AgentRunner implements SessionRuntime {
 
     if (compactionSummary?.trim()) {
       parts.push('Previous session summary:', compactionSummary.trim(), '');
-    }
-
-    // Episodic checkpoint summaries.
-    const episodicEntries = await this.store.messages.listEpisodicEntries(this.scope, sessionId);
-    const checkpointSummaries = episodicEntries
-      .map((entry) => entry.data.summary)
-      .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
-      .map((s) => s.replace(/\s+/g, ' ').trim());
-
-    if (checkpointSummaries.length > 0) {
-      parts.push(
-        'Episodic checkpoints:',
-        ...checkpointSummaries.map((s) => `- ${s}`),
-        '',
-      );
     }
 
     // Format all entries, then trim oldest to fit the token budget.

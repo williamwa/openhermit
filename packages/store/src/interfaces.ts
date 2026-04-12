@@ -3,7 +3,6 @@ import type { SessionHistoryMessage, SessionSpec } from '@openhermit/protocol';
 import type {
   CheckpointHistoryRow,
   ContainerRegistryEntry,
-  EpisodicLogEntry,
   InstructionEntry,
   MemoryAddInput,
   MemoryEntry,
@@ -23,12 +22,10 @@ export interface SessionStore {
 
 export interface MessageStore {
   appendLogEntry(scope: StoreScope, sessionId: string, entry: SessionLogEntry): Promise<void>;
-  appendEpisodicEntry(scope: StoreScope, sessionId: string, entry: EpisodicLogEntry): Promise<void>;
   writeSessionStarted(scope: StoreScope, spec: SessionSpec, model: { provider: string; model: string }): Promise<void>;
   listHistoryMessages(scope: StoreScope, sessionId: string): Promise<SessionHistoryMessage[]>;
   listCheckpointHistory(scope: StoreScope, sessionId: string): Promise<CheckpointHistoryRow[]>;
   listSessionEntries(scope: StoreScope, sessionId: string): Promise<SessionLogEntry[]>;
-  listEpisodicEntries(scope: StoreScope, sessionId: string): Promise<EpisodicLogEntry[]>;
   getSessionWorkingMemory(scope: StoreScope, sessionId: string): Promise<string | undefined>;
   setSessionWorkingMemory(scope: StoreScope, sessionId: string, content: string, updatedAt: string): Promise<void>;
   listRecentMessages(scope: StoreScope, sessionId: string, limit: number): Promise<CheckpointHistoryRow[]>;

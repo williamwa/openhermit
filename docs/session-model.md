@@ -22,7 +22,7 @@ Properties:
 - owns its message history
 - owns its event history
 - may be revisited later
-- may accumulate multiple checkpoints over time
+- may accumulate multiple introspection events over time
 
 Session persistence now lives in:
 
@@ -40,7 +40,7 @@ Examples:
 
 Runs are temporary. Sessions are durable.
 
-For checkpoint interval accounting, one completed run counts as one completed turn.
+For introspection interval accounting, one completed run counts as one completed turn.
 That turn boundary is the runtime-level execution window from `agent_start` to `agent_end`,
 even if the run contains multiple internal assistant messages, tool calls, or LLM steps.
 
@@ -78,7 +78,7 @@ Instead:
 
 - sessions remain addressable indefinitely
 - adapters may stop actively binding to a session
-- summarization happens via checkpoints
+- memory is maintained via introspection
 
 ## Cross-Channel `/new`
 
@@ -158,20 +158,22 @@ Agent-local API:
 
 This streams new events for the session over SSE.
 
-## Checkpoints
+## Introspection
 
 Agent-local API:
 
 - `POST /sessions/{sessionId}/checkpoint`
 
-Checkpoints are program-driven summarization events.
+Introspection is a program-driven memory maintenance turn. A lightweight agent with memory tools reflects on recent conversation and updates long-term memory and working memory.
 
 Typical triggers:
 
-- explicit checkpoint request
+- explicit request
 - adapter switching to a new session
 - configured turn interval
 - idle timeout
+
+See `docs/introspection-design.md` and `docs/memory-model.md` for details.
 
 ## Current Client Behavior
 

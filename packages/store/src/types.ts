@@ -36,13 +36,6 @@ export interface SessionLogEntry {
   [key: string]: unknown;
 }
 
-export interface EpisodicLogEntry {
-  ts: string;
-  session: string;
-  type: string;
-  data: Record<string, unknown>;
-}
-
 export interface MemoryEntry {
   id: string;
   content: string;

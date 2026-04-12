@@ -52,21 +52,6 @@ const schemaStatements = [
     ON session_events(agent_id, session_id, ts DESC);`,
   `CREATE INDEX IF NOT EXISTS idx_session_events_type
     ON session_events(agent_id, session_id, event_type, id DESC);`,
-  `CREATE TABLE IF NOT EXISTS episodic_checkpoints (
-    id INTEGER PRIMARY KEY,
-    agent_id TEXT NOT NULL DEFAULT '${STANDALONE_AGENT_ID}',
-    session_id TEXT NOT NULL,
-    ts TEXT NOT NULL,
-    checkpoint_type TEXT NOT NULL,
-    reason TEXT NOT NULL,
-    history_from INTEGER NOT NULL,
-    history_to INTEGER NOT NULL,
-    turn_count INTEGER NOT NULL,
-    summary TEXT NOT NULL,
-    FOREIGN KEY(agent_id, session_id) REFERENCES sessions(agent_id, session_id) ON DELETE CASCADE
-  ) STRICT;`,
-  `CREATE INDEX IF NOT EXISTS idx_episodic_agent_session
-    ON episodic_checkpoints(agent_id, session_id, ts DESC);`,
   `CREATE TABLE IF NOT EXISTS memories (
     agent_id TEXT NOT NULL DEFAULT '${STANDALONE_AGENT_ID}',
     memory_key TEXT NOT NULL,
@@ -115,9 +100,11 @@ const migrationStatements = [
   `ALTER TABLE sessions DROP COLUMN compaction_summary_updated_at;`,
   // v11: drop obsolete memory_kind column from memories
   `ALTER TABLE memories DROP COLUMN memory_kind;`,
+  // v12: drop episodic_checkpoints table — replaced by introspection events in session_events
+  `DROP TABLE IF EXISTS episodic_checkpoints;`,
 ] as const;
 
-export const CURRENT_SCHEMA_VERSION = 11;
+export const CURRENT_SCHEMA_VERSION = 12;
 
 const ensureMetaTable = (database: DatabaseSync): void => {
   database.exec(

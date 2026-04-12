@@ -435,12 +435,7 @@ export const compactContextIfNeeded = async (
     return combined;
   }
 
-  // Load all episodic checkpoint summaries (no limit).
-  const episodicEntries = await deps.store.messages.listEpisodicEntries(deps.scope, sessionId);
-  const checkpointSummaries = episodicEntries
-    .map((entry) => entry.data.summary)
-    .filter((summary): summary is string => typeof summary === 'string' && summary.trim().length > 0)
-    .map((summary) => summary.replace(/\s+/g, ' ').trim());
+  const checkpointSummaries: string[] = [];
 
   const retainCountOption = getContextCompactionRecentMessageCount(deps.options);
   let retainCount = Math.min(retainCountOption, messages.length);

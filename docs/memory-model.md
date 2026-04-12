@@ -16,11 +16,10 @@ They are related, but they are not the same thing.
 
 ## Memory Layers
 
-OpenHermit uses three logical system-memory layers:
+OpenHermit uses two logical system-memory layers:
 
-1. episodic memory
-2. working memory
-3. long-term memory
+1. working memory
+2. long-term memory
 
 Session logs remain the factual source of truth, but they are not considered a memory layer themselves.
 
@@ -52,36 +51,7 @@ Rule:
 
 - if it happened in a session, it belongs in the session log first
 
-## 1. Episodic Memory
-
-Purpose:
-
-- compact checkpoint summaries with future retrieval value
-- bridge from raw session history into higher-level memory
-
-Storage:
-
-- internal state
-- persisted in `state.sqlite`
-- stored as checkpoint-style records, not raw event mirrors
-
-Rule:
-
-- episodic memory is not a duplicate transcript
-- it stores checkpoint outputs only
-
-Fields should include:
-
-- `session_id`
-- `ts`
-- `checkpoint_type`
-- `reason`
-- `history_from`
-- `history_to`
-- `turn_count`
-- `summary`
-
-## 2. Working Memory
+## 1. Working Memory
 
 ### Session-Local Working Memory
 
@@ -103,7 +73,7 @@ Storage:
 - internal state
 - session-local working memory is stored on the session record
 
-## 3. Long-Term Memory
+## 2. Long-Term Memory
 
 Long-term memory is managed through the `MemoryProvider` interface. The default implementation is `SqliteMemoryProvider`, which stores memories in `state.sqlite`.
 
@@ -166,107 +136,84 @@ Access:
 
 ## Memory Lifecycle
 
-OpenHermit should manage memory in two main phases:
+Introspection should not be confused with compaction.
 
-- `self-introspection`
-- `long-term consolidation`
-
-Checkpointing should not be confused with compaction.
-
-- checkpointing updates memory
+- introspection updates memory (working memory + long-term memory)
 - compaction keeps long session context within model limits
 
-### Checkpoint Turn
+### Introspection Turn
 
-OpenHermit should treat a checkpoint as an internal agent turn.
+OpenHermit treats introspection as an internal agent turn with access to memory tools.
 
-This is a checkpoint turn driven by the runtime, but executed by the same agent.
+A lightweight introspection agent is given:
+
+- memory tools: `memory_recall`, `memory_add`, `memory_update`, `memory_delete`
+- working memory tool: `working_memory_update`
 
 Its purpose is:
 
-- reflect on what happened since the last checkpoint
-- decide whether the session state changed in a meaningful way
-- update episodic memory
-- update session-local working memory
+- reflect on conversation activity since the last introspection
+- update long-term memory for information with durable value
+- refresh session-local working memory with current state
 
 This turn is program-triggered, not user-triggered.
 
-The runtime decides when a checkpoint should happen.  
-The agent does not decide whether checkpointing exists, but it does perform the checkpoint work.
+The runtime decides when introspection should happen.
+The agent performs the introspection work using real tool calls.
 
-Checkpoint triggers should include:
+Introspection events are recorded as a span in `session_events`:
 
-- explicit checkpoint
+- `introspection_start` — marks the beginning
+- `tool_call` / `tool_result` — each memory tool call
+- `introspection_end` — marks completion with a summary of changes
+
+The main agent sees this span in its timeline on subsequent turns.
+
+Configuration lives in `~/.openhermit/{agent-id}/config.json` under `memory.introspection`:
+
+- `enabled` — set to `false` to disable automatic introspection
+- `turn_interval` — run introspection every N completed runs (default: 5)
+- `idle_timeout_minutes` — run after N minutes of inactivity (default: 10)
+- `max_tool_calls` — cap tool calls per introspection (default: 10)
+- `model` — override model for introspection agent (default: same as main agent)
+
+Introspection triggers:
+
+- explicit request
 - adapter session switch such as `/new`
 - idle timeout
-- `memory.checkpoint_turn_interval`
+- turn interval
 
-The config name `memory.checkpoint_turn_interval` can stay as-is.  
-It currently lives in `~/.openhermit/{agent-id}/config.json`.  
-Its meaning is: after every N completed agent runs, run one checkpoint turn.
-One run is counted from `agent_start` to `agent_end`, even if it contains multiple internal LLM steps or intermediate assistant messages.
+Introspection should run more frequently than compaction. This ensures it always operates on raw, uncompressed conversation data — never on compaction summaries.
 
-Inputs for a checkpoint turn should include:
-
-- the new session-log range since the last memory checkpoint
-- previous session-local working memory
-- current session metadata
-
-Outputs of a checkpoint turn should include:
-
-- a new episodic checkpoint, if warranted
-- rewritten session-local working memory
-
-Checkpointing should not be responsible for fixing oversized model context windows.
+Introspection should not be responsible for fixing oversized model context windows.
 That is the role of compaction.
 
-### Long-Term Consolidation
+### Memory Write Paths
 
-Durable memory should not be rewritten on every turn.
+Memory is updated through two paths:
 
-Instead, durable-memory consolidation should happen through two paths:
+#### 1. Introspection (automatic)
 
-#### 1. Idle / sleep-time consolidation
+The reliable, periodic path. Even if the agent never calls memory tools during conversation, introspection will periodically reflect and persist what matters.
 
-When the system is idle for long enough, especially during user-local low-activity periods such as sleeping hours, OpenHermit should run a consolidation pass.
-
-That pass should read:
-
-- recent session logs
-- episodic memory
-- working memory
-
-Then it should extract only stable, durable information and write it into long-term memory via the MemoryProvider.
-
-This is how transient activity becomes persistent memory.
-
-#### 2. Explicit user instruction
+#### 2. Explicit agent tool use
 
 If the user directly says things like:
 
 - `remember this`
 - `remember that I prefer ...`
-- `save this as a long-term preference`
 
-then the agent should be able to update long-term memory directly in that turn using `memory_add` or `memory_update`.
+then the main agent can update long-term memory immediately using `memory_add` or `memory_update`.
 
-This path should be immediate, not deferred to idle consolidation.
+This path is responsive but not reliable — the agent may forget to use it.
 
-## Memory Tool Boundaries
+## Memory Tools
 
-OpenHermit should not expose all memory layers as generic agent tools.
+### Working memory tool
 
-### No direct tools for episodic or working memory
-
-Episodic memory and working memory are runtime-managed internal state.
-
-They should be:
-
-- generated by checkpoint turns
-- injected into context by the runtime
-- updated by program-driven lifecycle logic
-
-They should not be treated as ordinary mutable tools the agent can freely rewrite at any time.
+The agent has a `working_memory_update` tool to explicitly update its session-local scratchpad.
+This is available as a convenience — introspection also maintains working memory automatically.
 
 ### Long-term memory tools
 
@@ -346,31 +293,31 @@ Long-term memory context is injected via `getContextBlock()` on each turn, which
 
 ## Orchestration Responsibility
 
-Memory behavior should be split between:
+Memory behavior is split between:
 
 - program-driven orchestration
 - agent-generated memory content
 
 ### Program-Driven
 
-The program should decide:
+The program decides:
 
-- when checkpoint turns run
-- what transcript range it sees
-- when to checkpoint episodic memory
-- when to refresh working memory
-- when to run long-term consolidation
+- when introspection turns run
+- what transcript range the introspection agent sees
+- when to run compaction
 - where results are stored
 
 ### Agent-Generated
 
-The agent should generate:
+The introspection agent decides:
 
-- episodic summaries
-- rewritten session-local working memory
-- promoted long-term memory content
+- what to store in long-term memory
+- what to update or delete from existing memory
+- what to write in working memory
 
-This keeps memory behavior predictable while still using the model for summarization quality.
+The main agent can also use memory tools directly during conversation.
+
+This keeps memory behavior predictable while using the model for quality judgments.
 
 ## Compaction
 
@@ -392,9 +339,9 @@ Compaction should:
 ## Summary
 
 - session log = raw factual history
-- episodic memory = checkpoint summaries
-- working memory = active session state
-- long-term memory = durable knowledge via MemoryProvider
+- working memory = active session state (maintained by introspection + agent tool)
+- long-term memory = durable knowledge via MemoryProvider (maintained by introspection + agent tools)
 - user-authored knowledge = external files, not system memory
-- every checkpoint should be executed as a program-triggered internal agent turn
-- long-term memory should update through idle consolidation and explicit user instruction
+- introspection = periodic program-triggered agent turn with memory tools
+- compaction = mechanical context trimming, no memory writes
+- introspection runs more frequently than compaction, always on raw data
