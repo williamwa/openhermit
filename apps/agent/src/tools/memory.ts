@@ -114,7 +114,7 @@ export const createMemoryRecallTool = ({
   name: 'memory_recall',
   label: 'Recall Memory',
   description:
-    'Search memory entries by keyword or phrase. Use this to recall saved preferences, facts, or project knowledge.',
+    'Search memory entries by keyword or phrase. Supports word-level matching with stemming — multi-word queries match individual tokens, not exact substrings. Use before adding new memories to avoid duplicates.',
   parameters: MemoryRecallParams,
   execute: async (_toolCallId, args: MemoryRecallArgs) => {
     if (!memoryProvider || !storeScope) {
@@ -153,7 +153,7 @@ export const createMemoryAddTool = ({
   name: 'memory_add',
   label: 'Add Memory',
   description:
-    'Create or upsert a memory entry. Use semantic IDs like "project/plan" or "user/preferences" for stable entries, or omit the ID for auto-generated ones.',
+    'Create or upsert a memory entry. Use semantic IDs like "project/plan" or "user/preferences/style" for stable entries, or omit the ID for auto-generated ones. Save proactively when the user shares preferences, corrects you, or reveals project decisions. Use memory_recall first to check for existing entries and avoid duplicates.',
   parameters: MemoryAddParams,
   execute: async (_toolCallId, args: MemoryAddArgs) => {
     ensureAutonomyAllows(security, 'memory_add');

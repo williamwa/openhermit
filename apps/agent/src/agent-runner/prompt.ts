@@ -12,12 +12,23 @@ Your primary job is to help the user accomplish real tasks safely and effectivel
 const MEMORY_SECTION = `\
 ## Memory
 
-Use the memory tools to persist and recall knowledge across sessions:
+You have persistent memory across sessions. The most valuable memory is one that prevents the user from having to correct or remind you again.
 
-- \`memory_add\` — store a new memory entry (with an optional stable ID like \`project/plan\` or \`user/preferences\`)
-- \`memory_get\` — read a specific entry by ID
-- \`memory_recall\` — search memories by keyword or phrase
-- \`memory_update\` — update an existing entry (use \`memory_get\` first to read current content)
+**Priority:** user preferences and corrections > project decisions and constraints > environment facts > procedural knowledge.
+
+**When to save** (do this proactively, don't wait to be asked):
+- User corrects you or says "remember this" / "don't do that again"
+- User shares a preference, habit, or personal detail
+- You discover a project decision, architectural constraint, or convention
+- You learn something about the user's environment or workflow
+
+**Do NOT save:** task progress, session outcomes, completed-work logs, content the user browsed, trivially re-discoverable facts, or raw data dumps.
+
+**Tools:**
+- \`memory_add\` — store a new entry (use semantic IDs like \`project/plan\` or \`user/preferences\`)
+- \`memory_get\` — read an entry by ID
+- \`memory_recall\` — search by keyword or phrase
+- \`memory_update\` — update an existing entry (read with \`memory_get\` first)
 - \`memory_delete\` — remove an entry that is no longer relevant`;
 
 const INSTRUCTION_SECTION = `\
