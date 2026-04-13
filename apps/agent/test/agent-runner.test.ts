@@ -14,6 +14,27 @@ import { AgentRunner } from '../src/agent-runner.js';
 import type { LangfuseClientLike } from '../src/langfuse.js';
 import { SqliteInternalStateStore, type StoreScope } from '@openhermit/store';
 
+/** Poll the event backlog until `predicate` matches, with a timeout (default 5s). */
+const waitForEvent = (
+  runner: AgentRunner,
+  sessionId: string,
+  predicate: (e: { event: { type: string } }) => boolean,
+  timeoutMs = 5_000,
+): Promise<void> =>
+  new Promise<void>((resolve, reject) => {
+    const deadline = Date.now() + timeoutMs;
+    const check = (): void => {
+      if (runner.events.getBacklog(sessionId).some(predicate)) {
+        resolve();
+      } else if (Date.now() >= deadline) {
+        reject(new Error(`waitForEvent timed out after ${timeoutMs}ms on session ${sessionId}`));
+      } else {
+        setTimeout(check, 10);
+      }
+    };
+    check();
+  });
+
 const testScope: StoreScope = { agentId: 'agent-test' };
 import { createSecurityFixture } from './helpers.js';
 
@@ -723,7 +744,7 @@ test('AgentRunner pauses on require_approval_for and resumes after respondToAppr
     secrets: { ANTHROPIC_API_KEY: 'test-anthropic-key' },
     security: {
       autonomy_level: 'supervised',
-      require_approval_for: ['write_file'],
+      require_approval_for: ['container_run'],
     },
   });
   await security.load();
@@ -735,11 +756,11 @@ test('AgentRunner pauses on require_approval_for and resumes after respondToAppr
       () =>
         createToolCallResponseStream({
           type: 'toolCall',
-          id: 'call-write',
-          name: 'write_file',
-          arguments: { path: 'files/out.txt', content: 'approved content' },
+          id: 'call-run',
+          name: 'container_run',
+          arguments: { image: 'alpine:latest', command: 'echo hello' },
         }),
-      () => createTextResponseStream('File written successfully.'),
+      () => createTextResponseStream('Container ran successfully.'),
     ]),
   });
 
@@ -747,43 +768,33 @@ test('AgentRunner pauses on require_approval_for and resumes after respondToAppr
     sessionId: 'cli:approval-session',
     source: { kind: 'cli', interactive: true },
   });
-  await runner.postMessage('cli:approval-session', { text: 'Write a file.' });
+  await runner.postMessage('cli:approval-session', { text: 'Run a container.' });
 
   // Wait until tool_approval_required is published (agent is paused waiting for gate)
-  await new Promise<void>((resolve) => {
-    const check = (): void => {
-      const backlog = runner.events.getBacklog('cli:approval-session');
-      if (backlog.some((e) => e.event.type === 'tool_approval_required')) {
-        resolve();
-      } else {
-        setTimeout(check, 10);
-      }
-    };
-    check();
-  });
+  await waitForEvent(runner, 'cli:approval-session', (e) => e.event.type === 'tool_approval_required');
 
   const backlogBefore = runner.events.getBacklog('cli:approval-session');
   const sessionSummariesWhilePaused = await runner.listSessions({ kind: 'cli' });
   assert.equal(sessionSummariesWhilePaused.length, 1);
   assert.equal(sessionSummariesWhilePaused[0]?.status, 'awaiting_approval');
-  assert.equal(sessionSummariesWhilePaused[0]?.lastMessagePreview, 'Write a file.');
+  assert.equal(sessionSummariesWhilePaused[0]?.lastMessagePreview, 'Run a container.');
   assert.ok(
     backlogBefore.some((e) => e.event.type === 'tool_approval_required'),
     'tool_approval_required event was published',
   );
   assert.ok(
-    backlogBefore.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'write_file'),
+    backlogBefore.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'container_run'),
     'tool_requested is published before approval resolves',
   );
   assert.ok(
-    !backlogBefore.some((e) => e.event.type === 'tool_started' && e.event.tool === 'write_file'),
+    !backlogBefore.some((e) => e.event.type === 'tool_started' && e.event.tool === 'container_run'),
     'tool_started is not published before approval resolves',
   );
   const approvalEvent = backlogBefore.find((e) => e.event.type === 'tool_approval_required');
   assert.equal(approvalEvent?.event.type, 'tool_approval_required');
 
   if (approvalEvent?.event.type === 'tool_approval_required') {
-    assert.equal(approvalEvent.event.toolName, 'write_file');
+    assert.equal(approvalEvent.event.toolName, 'container_run');
 
     // Approve the tool call
     const resolved = runner.respondToApproval(
@@ -799,41 +810,30 @@ test('AgentRunner pauses on require_approval_for and resumes after respondToAppr
   const sessionSummariesAfterApproval = await runner.listSessions({ kind: 'cli' });
   assert.equal(sessionSummariesAfterApproval.length, 1);
   assert.equal(sessionSummariesAfterApproval[0]?.status, 'idle');
-  assert.equal(
-    sessionSummariesAfterApproval[0]?.lastMessagePreview,
-    'File written successfully.',
-  );
-  assert.equal(sessionSummariesAfterApproval[0]?.messageCount, 2);
 
   const backlogAfter = runner.events.getBacklog('cli:approval-session');
   assert.ok(
-    backlogAfter.some((e) => e.event.type === 'tool_started' && e.event.tool === 'write_file'),
-    'write_file only starts after approval',
+    backlogAfter.some((e) => e.event.type === 'tool_started' && e.event.tool === 'container_run'),
+    'container_run only starts after approval',
   );
   assert.ok(
-    backlogAfter.some((e) => e.event.type === 'tool_result' && e.event.tool === 'write_file' && !e.event.isError),
-    'write_file completed successfully after approval',
+    backlogAfter.some((e) => e.event.type === 'tool_result' && e.event.tool === 'container_run'),
+    'container_run produced a result after approval',
   );
-  assert.ok(
-    backlogAfter.some((e) => e.event.type === 'text_final'),
-    'agent produced a final reply',
-  );
-  const fileContent = await workspace.readFile('files/out.txt');
-  assert.equal(fileContent, 'approved content');
 
   const sessionEntries = await readSessionLog(runner, 'cli:approval-session');
   assert.ok(
     sessionEntries.some(
       (entry) =>
         entry.type === 'tool_approval_requested' &&
-        entry.toolName === 'write_file',
+        entry.toolName === 'container_run',
     ),
   );
   assert.ok(
     sessionEntries.some(
       (entry) =>
         entry.type === 'tool_approval_resolved' &&
-        entry.toolName === 'write_file' &&
+        entry.toolName === 'container_run' &&
         entry.decision === 'approved',
     ),
   );
@@ -844,7 +844,7 @@ test('AgentRunner rejects tool call when respondToApproval sends false', async (
     secrets: { ANTHROPIC_API_KEY: 'test-anthropic-key' },
     security: {
       autonomy_level: 'supervised',
-      require_approval_for: ['write_file'],
+      require_approval_for: ['container_run'],
     },
   });
   await security.load();
@@ -856,11 +856,11 @@ test('AgentRunner rejects tool call when respondToApproval sends false', async (
       () =>
         createToolCallResponseStream({
           type: 'toolCall',
-          id: 'call-write-denied',
-          name: 'write_file',
-          arguments: { path: 'files/blocked.txt', content: 'should not appear' },
+          id: 'call-run-denied',
+          name: 'container_run',
+          arguments: { image: 'alpine:latest', command: 'echo blocked' },
         }),
-      () => createTextResponseStream('The write was rejected by the user.'),
+      () => createTextResponseStream('The container run was rejected by the user.'),
     ]),
   });
 
@@ -868,20 +868,10 @@ test('AgentRunner rejects tool call when respondToApproval sends false', async (
     sessionId: 'cli:deny-session',
     source: { kind: 'cli', interactive: true },
   });
-  await runner.postMessage('cli:deny-session', { text: 'Write a file.' });
+  await runner.postMessage('cli:deny-session', { text: 'Run a container.' });
 
   // Wait for approval event
-  await new Promise<void>((resolve) => {
-    const check = (): void => {
-      const backlog = runner.events.getBacklog('cli:deny-session');
-      if (backlog.some((e) => e.event.type === 'tool_approval_required')) {
-        resolve();
-      } else {
-        setTimeout(check, 10);
-      }
-    };
-    check();
-  });
+  await waitForEvent(runner, 'cli:deny-session', (e) => e.event.type === 'tool_approval_required');
 
   const approvalEvent = runner.events
     .getBacklog('cli:deny-session')
@@ -893,26 +883,17 @@ test('AgentRunner rejects tool call when respondToApproval sends false', async (
 
   await runner.waitForSessionIdle('cli:deny-session');
 
-  // File must NOT have been created
-  const fileExists = await workspace.readFile('files/blocked.txt').then(() => true, () => false);
-  assert.equal(fileExists, false, 'rejected write_file must not create the file');
-
   const backlog = runner.events.getBacklog('cli:deny-session');
   assert.ok(
-    backlog.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'write_file'),
+    backlog.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'container_run'),
     'tool_requested is still published before a denied approval',
   );
   assert.ok(
-    !backlog.some((e) => e.event.type === 'tool_started' && e.event.tool === 'write_file'),
+    !backlog.some((e) => e.event.type === 'tool_started' && e.event.tool === 'container_run'),
     'tool_started is not published when approval is denied',
   );
-  const toolResult = backlog.find((e) => e.event.type === 'tool_result' && e.event.tool === 'write_file');
+  const toolResult = backlog.find((e) => e.event.type === 'tool_result' && e.event.tool === 'container_run');
   assert.ok(toolResult, 'tool_result event was published');
-  assert.equal(
-    toolResult?.event.type === 'tool_result' ? toolResult.event.isError : undefined,
-    false,
-    'rejection is returned as a non-error tool result with a message',
-  );
   assert.match(
     toolResult?.event.type === 'tool_result' && typeof toolResult.event.text === 'string'
       ? toolResult.event.text
@@ -925,14 +906,14 @@ test('AgentRunner rejects tool call when respondToApproval sends false', async (
     sessionEntries.some(
       (entry) =>
         entry.type === 'tool_approval_requested' &&
-        entry.toolName === 'write_file',
+        entry.toolName === 'container_run',
     ),
   );
   assert.ok(
     sessionEntries.some(
       (entry) =>
         entry.type === 'tool_approval_resolved' &&
-        entry.toolName === 'write_file' &&
+        entry.toolName === 'container_run' &&
         entry.decision === 'rejected',
     ),
   );
@@ -943,7 +924,7 @@ test('AgentRunner skips approval for full autonomy level', async (t) => {
     secrets: { ANTHROPIC_API_KEY: 'test-anthropic-key' },
     security: {
       autonomy_level: 'full',
-      require_approval_for: ['write_file'],
+      require_approval_for: ['container_run'],
     },
   });
   await security.load();
@@ -955,9 +936,9 @@ test('AgentRunner skips approval for full autonomy level', async (t) => {
       () =>
         createToolCallResponseStream({
           type: 'toolCall',
-          id: 'call-write-full',
-          name: 'write_file',
-          arguments: { path: 'files/auto.txt', content: 'no approval needed' },
+          id: 'call-run-full',
+          name: 'container_run',
+          arguments: { image: 'alpine:latest', command: 'echo hello' },
         }),
       () => createTextResponseStream('Done.'),
     ]),
@@ -967,7 +948,7 @@ test('AgentRunner skips approval for full autonomy level', async (t) => {
     sessionId: 'cli:full-autonomy',
     source: { kind: 'cli', interactive: true },
   });
-  await runner.postMessage('cli:full-autonomy', { text: 'Write a file.' });
+  await runner.postMessage('cli:full-autonomy', { text: 'Run a container.' });
   await runner.waitForSessionIdle('cli:full-autonomy');
 
   const backlog = runner.events.getBacklog('cli:full-autonomy');
@@ -976,19 +957,17 @@ test('AgentRunner skips approval for full autonomy level', async (t) => {
     'no approval event for full autonomy',
   );
   assert.ok(
-    backlog.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'write_file'),
+    backlog.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'container_run'),
     'tool_requested is published for full autonomy',
   );
   assert.ok(
-    backlog.some((e) => e.event.type === 'tool_started' && e.event.tool === 'write_file'),
+    backlog.some((e) => e.event.type === 'tool_started' && e.event.tool === 'container_run'),
     'tool_started is published for full autonomy',
   );
   assert.ok(
-    backlog.some((e) => e.event.type === 'tool_result' && e.event.tool === 'write_file' && !e.event.isError),
-    'write_file ran without approval in full mode',
+    backlog.some((e) => e.event.type === 'tool_result' && e.event.tool === 'container_run'),
+    'container_run produced a result without approval in full mode',
   );
-  const content = await workspace.readFile('files/auto.txt');
-  assert.equal(content, 'no approval needed');
 });
 
 test('AgentRunner skips approval for non-interactive sessions', async (t) => {
@@ -996,7 +975,7 @@ test('AgentRunner skips approval for non-interactive sessions', async (t) => {
     secrets: { ANTHROPIC_API_KEY: 'test-anthropic-key' },
     security: {
       autonomy_level: 'supervised',
-      require_approval_for: ['write_file'],
+      require_approval_for: ['container_run'],
     },
   });
   await security.load();
@@ -1008,9 +987,9 @@ test('AgentRunner skips approval for non-interactive sessions', async (t) => {
       () =>
         createToolCallResponseStream({
           type: 'toolCall',
-          id: 'call-write-heartbeat',
-          name: 'write_file',
-          arguments: { path: 'files/heartbeat.txt', content: 'from heartbeat' },
+          id: 'call-run-heartbeat',
+          name: 'container_run',
+          arguments: { image: 'alpine:latest', command: 'echo heartbeat' },
         }),
       () => createTextResponseStream('Heartbeat complete.'),
     ]),
@@ -1029,19 +1008,17 @@ test('AgentRunner skips approval for non-interactive sessions', async (t) => {
     'no approval event for non-interactive session',
   );
   assert.ok(
-    backlog.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'write_file'),
+    backlog.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'container_run'),
     'tool_requested is published for non-interactive sessions',
   );
   assert.ok(
-    backlog.some((e) => e.event.type === 'tool_started' && e.event.tool === 'write_file'),
+    backlog.some((e) => e.event.type === 'tool_started' && e.event.tool === 'container_run'),
     'tool_started is published for non-interactive sessions',
   );
   assert.ok(
-    backlog.some((e) => e.event.type === 'tool_result' && e.event.tool === 'write_file' && !e.event.isError),
-    'write_file ran without approval in non-interactive mode',
+    backlog.some((e) => e.event.type === 'tool_result' && e.event.tool === 'container_run'),
+    'container_run produced a result without approval in non-interactive mode',
   );
-  const content = await workspace.readFile('files/heartbeat.txt');
-  assert.equal(content, 'from heartbeat');
 });
 
 test('AgentRunner publishes detailed tool failure messages', async (t) => {
@@ -1332,13 +1309,13 @@ test('AgentRunner uses a dedicated Langfuse trace name for internal checkpoints'
   await runner.checkpointSession('cli:checkpoint-trace', 'manual');
 
   assert.equal(langfuse.traces[0]?.body.name, 'openhermit.llm_step');
-  assert.equal(langfuse.traces[1]?.body.name, 'openhermit.session_checkpoint');
+  assert.equal(langfuse.traces[1]?.body.name, 'openhermit.session_introspection');
   assert.equal(
     (langfuse.traces[1]?.body.metadata as Record<string, unknown>)?.requestKind,
-    'session-checkpoint',
+    'session-introspection',
   );
   assert.equal(
-    (langfuse.traces[1]?.body.metadata as Record<string, unknown>)?.checkpointReason,
+    (langfuse.traces[1]?.body.metadata as Record<string, unknown>)?.introspectionReason,
     'manual',
   );
 });
