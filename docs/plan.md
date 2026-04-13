@@ -104,7 +104,7 @@ There are also several active design drafts that are intentionally not yet imple
 
 ### Runtime Gaps
 
-- **approval gate test reliability** — polling loop hangs without timeout
+- ~~**approval gate test reliability**~~ ✅ Fixed — added waitForEvent helper with timeout, switched to registered tools, updated stale assertions
 - **context compaction test coverage** — compaction module extracted but test coverage is thin
 
 ## Draft Design Tracks
@@ -220,7 +220,7 @@ These tracks are being explored in documentation but are not yet committed imple
 1. ~~fix `memory_recall` search quality~~ ✅ FTS5 with porter stemming (schema v13)
 2. decide on introspection model quality strategy (minimum model floor vs structured pipeline)
 3. ~~resolve working memory ownership~~ ✅ introspection-only
-4. fix approval gate tests (polling loop hangs without timeout)
+4. ~~fix approval gate tests~~ ✅ waitForEvent helper + registered tools + updated assertions
 5. define the durable-memory vs user-knowledge boundary more tightly
 6. implement idle / sleep-time long-term consolidation
 7. design and implement the scheduler
