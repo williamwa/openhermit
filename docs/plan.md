@@ -107,6 +107,14 @@ There are also several active design drafts that are intentionally not yet imple
 - ~~**approval gate test reliability**~~ ✅ Fixed — added waitForEvent helper with timeout, switched to registered tools, updated stale assertions
 - **context compaction test coverage** — compaction module extracted but test coverage is thin
 
+### Transport Protocol
+
+- **three-layer transport model** — designed in `docs/transport-protocol.md`
+  - Phase 1: HTTP sync (`?wait=true`) and stream (`?stream=true`) modes on POST messages
+  - Phase 2: WebSocket endpoint (`ws://host/ws`) with request-response + event streaming
+  - Phase 3-5: CLI/web/gateway migration, SSE deprecation
+- existing HTTP+SSE retained for backward compatibility
+
 ## Draft Design Tracks
 
 These tracks are being explored in documentation but are not yet committed implementation directions.
@@ -221,9 +229,12 @@ These tracks are being explored in documentation but are not yet committed imple
 2. decide on introspection model quality strategy (minimum model floor vs structured pipeline)
 3. ~~resolve working memory ownership~~ ✅ introspection-only
 4. ~~fix approval gate tests~~ ✅ waitForEvent helper + registered tools + updated assertions
-5. define the durable-memory vs user-knowledge boundary more tightly
-6. implement idle / sleep-time long-term consolidation
-7. design and implement the scheduler
+5. ~~design transport protocol~~ ✅ three-layer model in `docs/transport-protocol.md`
+6. implement transport Phase 1: HTTP sync + stream modes
+7. implement transport Phase 2: WebSocket endpoint
+8. define the durable-memory vs user-knowledge boundary more tightly
+9. implement idle / sleep-time long-term consolidation
+10. design and implement the scheduler
 
 ## Design Constraints
 
