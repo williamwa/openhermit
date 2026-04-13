@@ -62,7 +62,6 @@ export const DEFAULT_INTROSPECTION_CONFIG: IntrospectionConfig = {
 };
 
 export interface MemoryConfig {
-  checkpoint_turn_interval: number;
   context_entry_limit?: number | undefined;
   introspection?: IntrospectionConfig | undefined;
 }

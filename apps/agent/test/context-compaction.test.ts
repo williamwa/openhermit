@@ -50,13 +50,12 @@ const stubConfig: AgentConfig = {
   workspace_root: '/workspace',
   model: { provider: 'anthropic', model: 'claude-sonnet-4-20250514', max_tokens: 4096 },
   http_api: { preferred_port: 3000 },
-  memory: { checkpoint_turn_interval: 50 },
+  memory: {},
 };
 
 const createStubDeps = (overrides?: Partial<CompactionDeps>): CompactionDeps => ({
   store: {
     messages: {
-      listEpisodicEntries: async () => [],
       getCompactionSummary: async () => undefined,
       setCompactionSummary: async () => {},
     },
@@ -152,7 +151,7 @@ test('summarizeMessageForCompaction returns undefined for unknown role', () => {
 test('buildContextCompactionBlock returns undefined for empty compacted messages', () => {
   const result = buildContextCompactionBlock({
     compactedMessages: [],
-    checkpointSummaries: [],
+
     retainedMessageCount: 5,
     originalMessageCount: 5,
     llmSummary: undefined,
@@ -164,7 +163,7 @@ test('buildContextCompactionBlock returns undefined for empty compacted messages
 test('buildContextCompactionBlock includes LLM summary when present', () => {
   const result = buildContextCompactionBlock({
     compactedMessages: [makeUserMessage('old message')],
-    checkpointSummaries: [],
+
     retainedMessageCount: 3,
     originalMessageCount: 4,
     llmSummary: 'The user discussed project architecture.',
@@ -181,7 +180,7 @@ test('buildContextCompactionBlock includes LLM summary when present', () => {
 test('buildContextCompactionBlock falls back to text extraction without LLM summary', () => {
   const result = buildContextCompactionBlock({
     compactedMessages: [makeUserMessage('hello'), makeAssistantMessage('world')],
-    checkpointSummaries: [],
+
     retainedMessageCount: 2,
     originalMessageCount: 4,
     llmSummary: undefined,
@@ -191,22 +190,6 @@ test('buildContextCompactionBlock falls back to text extraction without LLM summ
   const text = JSON.stringify(result.content);
   assert.ok(text.includes('Compacted earlier session history'));
   assert.ok(text.includes('User: hello'));
-});
-
-test('buildContextCompactionBlock includes checkpoint summaries', () => {
-  const result = buildContextCompactionBlock({
-    compactedMessages: [makeUserMessage('old')],
-    checkpointSummaries: ['Session discussed file edits.', 'User asked about testing.'],
-    retainedMessageCount: 2,
-    originalMessageCount: 3,
-    llmSummary: 'summary here',
-    options: {},
-  });
-  assert.ok(result);
-  const text = JSON.stringify(result.content);
-  assert.ok(text.includes('Episodic checkpoints'));
-  assert.ok(text.includes('Session discussed file edits'));
-  assert.ok(text.includes('User asked about testing'));
 });
 
 // ── compactContextIfNeeded ─────────────────────────────────────────────
@@ -267,41 +250,6 @@ test('compactContextIfNeeded compacts when over budget', async () => {
   );
 });
 
-test('compactContextIfNeeded includes episodic checkpoint summaries', async () => {
-  const longText = 'word '.repeat(200).trim();
-  const messages = [
-    makeUserMessage(longText),
-    makeAssistantMessage(longText),
-    makeUserMessage('recent'),
-  ];
-  const deps = createStubDeps({
-    options: {
-      contextCompactionMaxTokens: 400,
-      contextCompactionRecentMessageCount: 1,
-      contextCompactionSummaryMaxChars: 100,
-    },
-    store: {
-      messages: {
-        listEpisodicEntries: async () => [
-          { ts: '2025-01-01', session: 's1', type: 'checkpoint', data: { summary: 'User worked on config.' } },
-          { ts: '2025-01-02', session: 's1', type: 'checkpoint', data: { summary: 'Agent fixed a bug.' } },
-        ],
-        getCompactionSummary: async () => undefined,
-        setCompactionSummary: async () => {},
-      },
-    } as unknown as CompactionDeps['store'],
-  });
-
-  const result = await compactContextIfNeeded('s1', stubConfig, [], messages, deps);
-  const compactionBlock = result.find(
-    (m) => m.role === 'user' && JSON.stringify(m.content).includes('Episodic checkpoints'),
-  );
-  assert.ok(compactionBlock);
-  const text = JSON.stringify(compactionBlock.content);
-  assert.ok(text.includes('User worked on config'));
-  assert.ok(text.includes('Agent fixed a bug'));
-});
-
 test('compactContextIfNeeded uses persisted summary when no agent factory', async () => {
   const longText = 'word '.repeat(200).trim();
   const messages = [
@@ -316,7 +264,6 @@ test('compactContextIfNeeded uses persisted summary when no agent factory', asyn
     },
     store: {
       messages: {
-        listEpisodicEntries: async () => [],
         getCompactionSummary: async () => 'Previously generated LLM summary about architecture.',
         setCompactionSummary: async () => {},
       },
@@ -346,7 +293,6 @@ test('compactContextIfNeeded falls back to text extraction when compaction summa
     },
     store: {
       messages: {
-        listEpisodicEntries: async () => [],
         getCompactionSummary: async () => { throw new Error('db error'); },
         setCompactionSummary: async () => {},
       },

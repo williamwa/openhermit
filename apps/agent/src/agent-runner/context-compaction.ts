@@ -281,7 +281,6 @@ const parseCompactionSummaryResponse = (
 export const runCompactionSummaryTurn = async (input: {
   sessionId: string;
   compactedMessages: AgentMessage[];
-  checkpointSummaries: string[];
   previousCompactionSummary: string | undefined;
   createAgent: CreateCompactionAgentFn;
 }): Promise<string | undefined> => {
@@ -317,13 +316,6 @@ export const runCompactionSummaryTurn = async (input: {
     );
   }
 
-  if (input.checkpointSummaries.length > 0) {
-    userParts.push(
-      'Episodic checkpoint summaries:',
-      ...input.checkpointSummaries.map((s) => `- ${s}`),
-    );
-  }
-
   userParts.push(
     'Compacted messages to summarize:',
     transcript,
@@ -352,7 +344,6 @@ export const runCompactionSummaryTurn = async (input: {
 
 export const buildContextCompactionBlock = (input: {
   compactedMessages: AgentMessage[];
-  checkpointSummaries: string[];
   retainedMessageCount: number;
   originalMessageCount: number;
   llmSummary: string | undefined;
@@ -369,14 +360,6 @@ export const buildContextCompactionBlock = (input: {
 
   if (input.llmSummary) {
     parts.push(input.llmSummary, '');
-  }
-
-  if (input.checkpointSummaries.length > 0) {
-    parts.push(
-      'Episodic checkpoints:',
-      ...input.checkpointSummaries.map((summary) => `- ${summary}`),
-      '',
-    );
   }
 
   parts.push(
@@ -435,8 +418,6 @@ export const compactContextIfNeeded = async (
     return combined;
   }
 
-  const checkpointSummaries: string[] = [];
-
   const retainCountOption = getContextCompactionRecentMessageCount(deps.options);
   let retainCount = Math.min(retainCountOption, messages.length);
 
@@ -449,7 +430,6 @@ export const compactContextIfNeeded = async (
     const retainedMessages = messages.slice(retainedStartIndex);
     const compactionBlock = buildContextCompactionBlock({
       compactedMessages,
-      checkpointSummaries,
       retainedMessageCount: retainedMessages.length,
       originalMessageCount: messages.length,
       llmSummary,
@@ -496,7 +476,6 @@ export const compactContextIfNeeded = async (
       llmSummary = await runCompactionSummaryTurn({
         sessionId,
         compactedMessages,
-        checkpointSummaries,
         previousCompactionSummary: previousSummary,
         createAgent: deps.createCompactionAgent,
       });

@@ -44,26 +44,7 @@ export interface AgentRunnerOptions {
       config: AgentConfig;
     },
   ) => Promise<string | undefined>;
-  checkpointSummaryGenerator?: (
-    input: {
-      sessionId: string;
-      reason: 'manual' | 'new_session' | 'turn_limit' | 'idle';
-      history: Array<{ role: 'user' | 'assistant' | 'error'; content: string; ts: string }>;
-      config: AgentConfig;
-    },
-  ) => Promise<string | undefined>;
-  sessionWorkingMemoryGenerator?: (
-    input: {
-      sessionId: string;
-      previousWorkingMemory: string | undefined;
-      checkpointSummary: string;
-      reason: 'manual' | 'new_session' | 'turn_limit' | 'idle';
-      config: AgentConfig;
-    },
-  ) => Promise<string | undefined>;
   contextCompactionMaxTokens?: number;
   contextCompactionRecentMessageCount?: number;
   contextCompactionSummaryMaxChars?: number;
-  idleSummaryTimeoutMs?: number;
-  checkpointTurnInterval?: number;
 }

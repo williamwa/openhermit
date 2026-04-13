@@ -10,6 +10,7 @@ import {
 import {
   AgentSecurity,
   AgentWorkspace,
+  DEFAULT_INTROSPECTION_CONFIG,
   DockerContainerManager,
   type AgentConfig,
 } from './core/index.js';
@@ -55,14 +56,10 @@ import {
   truncateToolResults,
 } from './agent-runner/context-compaction.js';
 import { createWebProvider, type WebProvider } from './web/index.js';
-import { runIntrospection, resolveIntrospectionConfig } from './introspection/index.js';
+import { runIntrospection } from './introspection/index.js';
 
 export class AgentRunner implements SessionRuntime {
   readonly events = new SessionEventBroker();
-
-  private static readonly DEFAULT_IDLE_SUMMARY_TIMEOUT_MS = 10 * 60_000;
-
-  private static readonly DEFAULT_CHECKPOINT_TURN_INTERVAL = 50;
 
   private readonly containerManager: DockerContainerManager;
 
@@ -368,8 +365,7 @@ export class AgentRunner implements SessionRuntime {
     if (introspection?.enabled && introspection.idle_timeout_minutes > 0) {
       return introspection.idle_timeout_minutes * 60_000;
     }
-    return this.options.idleSummaryTimeoutMs
-      ?? AgentRunner.DEFAULT_IDLE_SUMMARY_TIMEOUT_MS;
+    return DEFAULT_INTROSPECTION_CONFIG.idle_timeout_minutes * 60_000;
   }
 
   private getCheckpointTurnInterval(config?: AgentConfig): number {
@@ -377,11 +373,7 @@ export class AgentRunner implements SessionRuntime {
     if (introspection?.enabled && introspection.turn_interval > 0) {
       return introspection.turn_interval;
     }
-    return (
-      this.options.checkpointTurnInterval
-      ?? config?.memory.checkpoint_turn_interval
-      ?? AgentRunner.DEFAULT_CHECKPOINT_TURN_INTERVAL
-    );
+    return DEFAULT_INTROSPECTION_CONFIG.turn_interval;
   }
 
   private clearIdleSummaryTimer(session: RunnerSession): void {
@@ -427,13 +419,7 @@ export class AgentRunner implements SessionRuntime {
       }
 
       const config = await this.options.security.readConfig();
-      const introspectionConfig = resolveIntrospectionConfig(config);
-
-      if (introspectionConfig.enabled) {
-        return await this.runIntrospection(session, reason, config, chronologicalHistory, newHistory);
-      }
-
-      return await this.runLegacyCheckpoint(session, reason, config, chronologicalHistory, newHistory);
+      return await this.runIntrospection(session, reason, config, chronologicalHistory, newHistory);
     } finally {
       session.checkpointInProgress = false;
     }
@@ -476,148 +462,6 @@ export class AgentRunner implements SessionRuntime {
     this.logRuntime(`introspection: ${reason} — ${result.toolCallCount} tool calls, success=${result.success}`);
 
     return result.success;
-  }
-
-  private async runLegacyCheckpoint(
-    session: RunnerSession,
-    reason: 'manual' | 'new_session' | 'turn_limit' | 'idle',
-    config: AgentConfig,
-    chronologicalHistory: Array<{ role: 'user' | 'assistant' | 'error'; content: string; ts: string }>,
-    newHistory: Array<{ role: 'user' | 'assistant' | 'error'; content: string; ts: string }>,
-  ): Promise<boolean> {
-    const previousWorkingMemory = await this.store.messages.getSessionWorkingMemory(this.scope,
-      session.spec.sessionId,
-    );
-    const checkpointArtifacts = await this.generateCheckpointArtifacts({
-      sessionId: session.spec.sessionId,
-      reason,
-      history: newHistory,
-      previousWorkingMemory,
-      config,
-    });
-    const summary = checkpointArtifacts.summary;
-
-    if (!summary) {
-      return false;
-    }
-
-    const ts = new Date().toISOString();
-    session.lastSummarizedHistoryCount = chronologicalHistory.length;
-    session.lastSummarizedTurnCount = session.completedTurnCount;
-    session.lastSummarizedAt = ts;
-    await this.persistSessionIndex(session);
-
-    this.logRuntime(`session checkpoint (legacy): ${reason}`);
-
-    await this.updateSessionWorkingMemory(
-      session,
-      checkpointArtifacts.sessionWorkingMemory,
-    );
-
-    await this.updateSessionDescriptionFromSummary(session, summary, config);
-
-    return true;
-  }
-
-  private async updateSessionWorkingMemory(
-    session: RunnerSession,
-    nextWorkingMemory: string | undefined,
-  ): Promise<void> {
-    if (!nextWorkingMemory) {
-      return;
-    }
-
-    await this.store.messages.setSessionWorkingMemory(this.scope,
-      session.spec.sessionId,
-      `${nextWorkingMemory.trim()}\n`,
-      new Date().toISOString(),
-    );
-    this.logRuntime(`memory updated: session/${session.spec.sessionId}`);
-  }
-
-  private async updateSessionDescriptionFromSummary(
-    session: RunnerSession,
-    summary: string,
-    config: AgentConfig,
-  ): Promise<void> {
-    try {
-      const description = await this.generateSessionDescriptionFromSummary({
-        sessionId: session.spec.sessionId,
-        summary,
-        config,
-      });
-
-      if (description) {
-        session.description = description;
-        session.descriptionSource = 'ai';
-        await this.persistSessionIndex(session);
-      }
-    } catch {
-      // Description update is best-effort; do not fail the checkpoint.
-    }
-  }
-
-  private async generateSessionDescriptionFromSummary(input: {
-    sessionId: string;
-    summary: string;
-    config: AgentConfig;
-  }): Promise<string | undefined> {
-    if (this.options.sessionDescriptionGenerator) {
-      return normalizeGeneratedDescription(
-        await this.options.sessionDescriptionGenerator({
-          sessionId: input.sessionId,
-          userText: input.summary,
-          config: input.config,
-        }),
-      );
-    }
-
-    if (this.options.streamFn) {
-      return undefined;
-    }
-
-    const apiKey = this.resolveApiKey(input.config.model.provider);
-
-    if (!apiKey) {
-      return undefined;
-    }
-
-    const response = await completeWithLangfuseTrace(
-      this.options.langfuse,
-      resolveModel(input.config),
-      {
-        systemPrompt: [
-          'Generate a short session title for retrieval.',
-          'Return plain text only.',
-          'Do not use quotes, markdown, or trailing punctuation.',
-          'Keep it under 10 words.',
-          'Focus on the main topic or task, not greetings.',
-        ].join(' '),
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: `Session summary:\n${input.summary}`,
-              },
-            ],
-            timestamp: Date.now(),
-          },
-        ],
-      },
-      { apiKey },
-      {
-        name: 'openhermit.session_description',
-        sessionId: input.sessionId,
-        agentSessionId: input.sessionId,
-        metadata: {
-          requestKind: 'session-description',
-        },
-      },
-    );
-
-    return normalizeGeneratedDescription(extractAssistantText(response));
   }
 
   async postMessage(
@@ -1577,277 +1421,4 @@ export class AgentRunner implements SessionRuntime {
     return normalizeGeneratedDescription(extractAssistantText(response));
   }
 
-  private async generateCheckpointSummary(input: {
-    sessionId: string;
-    reason: 'manual' | 'new_session' | 'turn_limit' | 'idle';
-    history: Array<{ role: 'user' | 'assistant' | 'error'; content: string; ts: string }>;
-    config: AgentConfig;
-  }): Promise<string | undefined> {
-    if (this.options.checkpointSummaryGenerator) {
-      return this.normalizeCheckpointSummary(
-        await this.options.checkpointSummaryGenerator(input),
-      );
-    }
-
-    return undefined;
-  }
-
-  private createFallbackCheckpointSummary(
-    history: Array<{ role: 'user' | 'assistant' | 'error'; content: string; ts: string }>,
-  ): string | undefined {
-    const normalized = history
-      .map((entry) => {
-        const content = entry.content.replace(/\s+/g, ' ').trim();
-
-        if (!content) {
-          return undefined;
-        }
-
-        const prefix =
-          entry.role === 'user'
-            ? 'User'
-            : entry.role === 'assistant'
-              ? 'Agent'
-              : 'Error';
-
-        return `${prefix}: ${content}`;
-      })
-      .filter((entry): entry is string => Boolean(entry));
-
-    if (normalized.length === 0) {
-      return undefined;
-    }
-
-    return normalized.slice(-4).join(' | ').slice(0, 400);
-  }
-
-  private normalizeCheckpointSummary(value: string | undefined): string | undefined {
-    if (!value) {
-      return undefined;
-    }
-
-    const normalized = value.replace(/\s+/g, ' ').trim();
-    return normalized.length > 0 ? normalized : undefined;
-  }
-
-  private async generateSessionWorkingMemory(input: {
-    sessionId: string;
-    previousWorkingMemory: string | undefined;
-    checkpointSummary: string;
-    reason: 'manual' | 'new_session' | 'turn_limit' | 'idle';
-    config: AgentConfig;
-  }): Promise<string | undefined> {
-    if (this.options.sessionWorkingMemoryGenerator) {
-      return this.normalizeSessionWorkingMemory(
-        await this.options.sessionWorkingMemoryGenerator(input),
-      );
-    }
-
-    return undefined;
-  }
-
-  private createFallbackSessionWorkingMemory(input: {
-    sessionId: string;
-    previousWorkingMemory: string | undefined;
-    checkpointSummary: string;
-    reason: 'manual' | 'new_session' | 'turn_limit' | 'idle';
-  }): string {
-    const previous = input.previousWorkingMemory?.trim();
-
-    return [
-      '# Session Working Memory',
-      '',
-      `Session: ${input.sessionId}`,
-      `Last update reason: ${input.reason}`,
-      '',
-      '## Current Context',
-      input.checkpointSummary,
-      '',
-      '## Previous Working Memory',
-      previous && previous.length > 0 ? previous : '(none)',
-    ].join('\n');
-  }
-
-  private normalizeSessionWorkingMemory(value: string | undefined): string | undefined {
-    if (!value) {
-      return undefined;
-    }
-
-    const normalized = value.trim();
-    return normalized.length > 0 ? normalized : undefined;
-  }
-
-  private async generateCheckpointArtifacts(input: {
-    sessionId: string;
-    reason: 'manual' | 'new_session' | 'turn_limit' | 'idle';
-    history: Array<{ role: 'user' | 'assistant' | 'error'; content: string; ts: string }>;
-    previousWorkingMemory: string | undefined;
-    config: AgentConfig;
-  }): Promise<{
-    summary: string | undefined;
-    sessionWorkingMemory: string | undefined;
-  }> {
-    const summaryOverride = await this.generateCheckpointSummary({
-      sessionId: input.sessionId,
-      reason: input.reason,
-      history: input.history,
-      config: input.config,
-    });
-
-    const workingOverride = summaryOverride
-      ? await this.generateSessionWorkingMemory({
-          sessionId: input.sessionId,
-          previousWorkingMemory: input.previousWorkingMemory,
-          checkpointSummary: summaryOverride,
-          reason: input.reason,
-          config: input.config,
-        })
-      : undefined;
-
-    if (summaryOverride && workingOverride) {
-      return {
-        summary: summaryOverride,
-        sessionWorkingMemory: workingOverride,
-      };
-    }
-
-    const internalArtifacts = await this.runInternalCheckpointTurn(input);
-    const summary =
-      summaryOverride
-      ?? internalArtifacts?.summary
-      ?? this.createFallbackCheckpointSummary(input.history);
-
-    const sessionWorkingMemory =
-      workingOverride
-      ?? internalArtifacts?.sessionWorkingMemory
-      ?? this.createFallbackSessionWorkingMemory({
-        sessionId: input.sessionId,
-        previousWorkingMemory: input.previousWorkingMemory,
-        checkpointSummary: summary ?? '',
-        reason: input.reason,
-      });
-
-    return {
-      summary: this.normalizeCheckpointSummary(summary),
-      sessionWorkingMemory: this.normalizeSessionWorkingMemory(sessionWorkingMemory),
-    };
-  }
-
-  private async runInternalCheckpointTurn(input: {
-    sessionId: string;
-    reason: 'manual' | 'new_session' | 'turn_limit' | 'idle';
-    history: Array<{ role: 'user' | 'assistant' | 'error'; content: string; ts: string }>;
-    previousWorkingMemory: string | undefined;
-    config: AgentConfig;
-  }): Promise<{
-    summary: string | undefined;
-    sessionWorkingMemory: string | undefined;
-  } | undefined> {
-    if (!this.options.streamFn) {
-      const apiKey = this.resolveApiKey(input.config.model.provider);
-
-      if (!apiKey) {
-        return undefined;
-      }
-    }
-
-    const checkpointAgent = await this.createConfiguredAgent({
-      config: input.config,
-      agentSessionId: `${input.sessionId}:checkpoint`,
-      contextSessionId: input.sessionId,
-      langfuseRequest: {
-        name: 'openhermit.session_checkpoint',
-        metadata: {
-          requestKind: 'session-checkpoint',
-          checkpointReason: input.reason,
-        },
-      },
-      extraSystemPrompt: [
-        'Internal checkpoint turn:',
-        '- This is an internal self-introspection turn, not a user-facing reply.',
-        '- Reflect on the session activity since the last checkpoint.',
-        '- Return JSON only with keys "summary" and "sessionWorkingMemory".',
-        '- "summary" should be concise episodic memory for future retrieval.',
-        '- "sessionWorkingMemory" should be concise markdown for the session-local working memory.',
-        '- Do not call tools.',
-        '- Do not wrap the JSON in markdown fences.',
-      ].join('\n'),
-      tools: [],
-    });
-
-    const transcript = input.history
-      .map((entry) => `${entry.role.toUpperCase()}: ${entry.content}`)
-      .join('\n\n')
-      .slice(0, 16_000);
-
-    await checkpointAgent.prompt({
-      role: 'user',
-      content: [
-        {
-          type: 'text',
-          text: [
-            `Session: ${input.sessionId}`,
-            `Reason: ${input.reason}`,
-            'New transcript since the last checkpoint:',
-            transcript,
-            'Previous session-local working memory:',
-            input.previousWorkingMemory?.trim() || '(none)',
-          ].join('\n\n'),
-        },
-      ],
-      timestamp: Date.now(),
-    });
-    await checkpointAgent.waitForIdle();
-
-    const assistantMessage = [...checkpointAgent.state.messages]
-      .reverse()
-      .find((message) => message.role === 'assistant');
-    const responseText = assistantMessage
-      ? extractAssistantText(assistantMessage)
-      : undefined;
-    const parsed = this.parseInternalCheckpointResponse(responseText);
-
-    if (!parsed) {
-      return undefined;
-    }
-
-    return {
-      summary: this.normalizeCheckpointSummary(parsed.summary),
-      sessionWorkingMemory: this.normalizeSessionWorkingMemory(
-        parsed.sessionWorkingMemory,
-      ),
-    };
-  }
-
-  private parseInternalCheckpointResponse(
-    text: string | undefined,
-  ): { summary?: string; sessionWorkingMemory?: string } | undefined {
-    if (!text) {
-      return undefined;
-    }
-
-    const trimmed = text.trim();
-    const jsonText = trimmed.startsWith('```')
-      ? trimmed
-          .replace(/^```(?:json)?\s*/i, '')
-          .replace(/\s*```$/, '')
-          .trim()
-      : trimmed;
-
-    try {
-      const parsed = JSON.parse(jsonText) as {
-        summary?: unknown;
-        sessionWorkingMemory?: unknown;
-      };
-
-      return {
-        ...(typeof parsed.summary === 'string' ? { summary: parsed.summary } : {}),
-        ...(typeof parsed.sessionWorkingMemory === 'string'
-          ? { sessionWorkingMemory: parsed.sessionWorkingMemory }
-          : {}),
-      };
-    } catch {
-      return undefined;
-    }
-  }
 }

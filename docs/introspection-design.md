@@ -199,7 +199,7 @@ This means:
 - No need for a "pre-compaction memory pass" — introspection has already done the work
 - The two systems remain completely independent: different triggers, different purposes, no sequencing dependencies
 
-The default `memory.checkpoint_turn_interval` should be tuned so that introspection fires well before context pressure builds. For typical usage, every 3-5 turns is a reasonable starting point (compared to compaction which may not fire until 20+ turns on large context models).
+The default `introspection.turn_interval` (5 turns) should be tuned so that introspection fires well before context pressure builds. For typical usage, every 3-5 turns is a reasonable starting point (compared to compaction which may not fire until 20+ turns on large context models).
 
 ### Memory Tools on Main Agent vs Introspection
 

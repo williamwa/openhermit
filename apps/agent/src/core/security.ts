@@ -31,9 +31,7 @@ const DEFAULT_RUNTIME_CONFIG: AgentRuntimeConfig = {
   http_api: {
     preferred_port: 3000,
   },
-  memory: {
-    checkpoint_turn_interval: 50,
-  },
+  memory: {},
 };
 
 const ensureJsonFile = async (

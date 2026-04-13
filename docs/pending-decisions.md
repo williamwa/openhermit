@@ -74,13 +74,9 @@ Open questions and issues that need discussion before implementation.
 - Should the turn interval be token-based rather than turn-based? A turn with a massive tool result is very different from a turn with a short chat message.
 - Should introspection be skipped if the conversation was trivial? (e.g., user only said "hi" and agent responded with a greeting)
 
-## 8. Legacy Checkpoint Removal Timeline
+## 8. ~~Legacy Checkpoint Removal Timeline~~ — RESOLVED
 
-**Current state:** The legacy checkpoint path (`runLegacyCheckpoint`) is preserved as a fallback when `introspection.enabled: false`. The `episodic_checkpoints` table has been dropped (v12 migration).
-
-**Question:** When should we remove the legacy code entirely? It still references `generateCheckpointArtifacts`, `runInternalCheckpointTurn`, `parseInternalCheckpointResponse`, `createFallbackCheckpointSummary`, `createFallbackSessionWorkingMemory`, and the external `checkpointSummaryGenerator`/`sessionWorkingMemoryGenerator` hooks.
-
-**Consideration:** Removing it simplifies the codebase significantly, but we should be confident introspection works reliably first.
+**Resolution:** Legacy checkpoint code has been fully removed. All legacy methods (`runLegacyCheckpoint`, `generateCheckpointArtifacts`, `runInternalCheckpointTurn`, `parseInternalCheckpointResponse`, `createFallbackCheckpointSummary`, `createFallbackSessionWorkingMemory`, etc.) and external hooks (`checkpointSummaryGenerator`, `sessionWorkingMemoryGenerator`) have been deleted. The `episodic_checkpoints` table was already dropped in v12 migration. `runSessionCheckpoint` now always uses introspection.
 
 ## 9. Session Description After Introspection
 
