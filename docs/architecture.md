@@ -51,9 +51,8 @@ Examples:
 
 - session metadata
 - session messages and events
-- episodic checkpoints
 - session-local working memory
-- memories (via MemoryProvider)
+- long-term memories (via MemoryProvider)
 - instructions
 - container runtime inventory
 - runtime discovery metadata
@@ -111,7 +110,7 @@ Internal state lives under:
 
 Current responsibilities:
 
-- `config.json`: runtime-owned configuration such as model selection, identity file list, checkpoint cadence, and preferred local API port
+- `config.json`: runtime-owned configuration such as model selection, identity file list, introspection settings, and preferred local API port
 - `security.json`: autonomy and approval policy
 - `secrets.json`: provider and integration secrets
 - `runtime.json`: live local discovery metadata for the agent-local API
@@ -191,7 +190,7 @@ Important rules:
 - sessions do not have a permanent `closed` state
 - any old session can be resumed later
 - adapter binding decides which session a user is currently talking to
-- long-running sessions will eventually need compaction in addition to checkpointing
+- long-running sessions use compaction for context limits and introspection for memory maintenance
 
 Current execution states:
 
@@ -228,18 +227,19 @@ Containers are split into three categories:
 - `service` — long-running daemons (databases, web servers)
 - `workspace` — persistent container with workspace mounted at `/workspace`, used for `exec`
 
-## Checkpointing vs. Compaction
+## Introspection vs. Compaction
 
-OpenHermit should treat checkpointing and compaction as separate runtime mechanisms.
+OpenHermit treats introspection and compaction as separate runtime mechanisms.
 
-### Checkpointing
+### Introspection
 
-Checkpointing exists to update memory:
+Introspection exists to update memory:
 
-- episodic checkpoints
+- long-term memory (via memory tools)
 - session-local working memory
+- session description
 
-Checkpoint turns are internal agent turns triggered by the runtime.
+Introspection is a lightweight agent turn triggered by the runtime with memory-only tools.
 The periodic turn interval counts completed agent runs, not intermediate assistant messages inside one run.
 
 ### Compaction
@@ -280,20 +280,19 @@ Boundary:
 
 ## Memory
 
-OpenHermit uses three logical memory layers:
+OpenHermit uses two logical memory layers:
 
-- episodic memory — checkpoint summaries
 - working memory — session-local active state
 - long-term memory — durable knowledge via MemoryProvider
 
 Current direction:
 
-- raw session history, episodic checkpoints, and memories live in `state.sqlite`
+- raw session history and memories live in `state.sqlite`
 - long-term memories are managed through a pluggable `MemoryProvider` interface (default: `SqliteMemoryProvider`)
 - the MemoryProvider exposes `getContextBlock()` to inject relevant memory into each turn's context
 - user-authored knowledge should remain external and searchable as normal files
-- checkpoints should be executed as internal agent turns rather than external bare summaries
-- durable memory should be updated through idle consolidation and explicit user instruction
+- memory is maintained by periodic introspection turns (lightweight agent with memory tools)
+- durable memory is also updated through explicit user instruction ("remember this")
 
 See:
 

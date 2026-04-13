@@ -56,10 +56,9 @@ Open questions and issues that need discussion before implementation.
 
 ## 6. Working Memory Ownership
 
-**Current state:** Working memory can be written by three paths:
+**Current state:** Working memory can be written by two paths:
 1. Introspection agent (via `working_memory_update` tool)
 2. Main agent (via `working_memory_update` tool)
-3. Legacy checkpoint (via `updateSessionWorkingMemory`)
 
 **Question:** Should the main agent have the `working_memory_update` tool at all? Or should working memory be exclusively managed by introspection (the reliable path)?
 

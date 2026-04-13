@@ -124,51 +124,42 @@ Current contents include:
 - supports CLI, web, and IM channels uniformly
 - keeps `/new` and resume semantics at the adapter level
 
-## ADR-009: Episodic memory is checkpoint-based
+## ADR-009: ~~Episodic memory is checkpoint-based~~ — SUPERSEDED
 
-**Decision**: Episodic memory stores checkpoint summaries, not a raw mirror of session events.
-
-Current storage:
-
-- `episodic_checkpoints` in `state.sqlite`
-
-**Rationale**:
-
-- avoids duplicating full session history
-- keeps episodic memory retrieval-oriented
-- provides a clean bridge from transcript to higher-level memory
+**Superseded by:** Introspection system. The `episodic_checkpoints` table has been dropped (v12 migration). Long-term memory is now maintained by the introspection agent using memory tools directly. There is no separate episodic memory layer.
 
 ## ADR-010: Program drives memory lifecycle
 
-**Decision**: Memory lifecycle is program-driven, while summary content is agent-generated.
+**Decision**: Memory lifecycle is program-driven, while memory content is agent-generated.
 
 Program responsibilities:
 
-- when to checkpoint
-- what transcript range to summarize
-- when to refresh working memory
-- where to store results
+- when to run introspection
+- what transcript range the introspection agent sees
+- when to run compaction
+- where results are stored
 
-Agent responsibilities:
+Agent responsibilities (introspection agent):
 
-- generate checkpoint summaries
-- rewrite working memory
-- generate promoted long-term memory content
+- decide what to store in long-term memory
+- update or delete existing memory entries
+- refresh working memory
+- update session description
 
 Operational model:
 
-- checkpoint triggers are program-driven, but checkpoint content is produced by the agent itself
-- `memory.checkpoint_turn_interval` remains the trigger configuration for periodic checkpoint turns in the internal runtime config
-- long-term consolidation runs separately during idle / low-activity periods
+- introspection triggers are program-driven, but memory content is produced by the introspection agent using real tool calls
+- `memory.introspection` configures turn interval, idle timeout, max tool calls, and model override
 
-## ADR-011: Checkpointing and compaction are separate mechanisms
+## ADR-011: Introspection and compaction are separate mechanisms
 
-**Decision**: Checkpointing and compaction must remain separate.
+**Decision**: Introspection and compaction must remain separate.
 
-**Checkpointing exists to update memory**:
+**Introspection exists to update memory**:
 
-- episodic checkpoints
+- long-term memory (via memory tools)
 - session-local working memory
+- session description
 
 **Compaction exists to keep long-running sessions within model context limits**:
 

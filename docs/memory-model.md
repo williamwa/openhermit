@@ -149,12 +149,14 @@ A lightweight introspection agent is given:
 
 - memory tools: `memory_recall`, `memory_add`, `memory_update`, `memory_delete`
 - working memory tool: `working_memory_update`
+- session description tool: `session_description_update`
 
 Its purpose is:
 
 - reflect on conversation activity since the last introspection
 - update long-term memory for information with durable value
 - refresh session-local working memory with current state
+- update the session description (title) when it becomes stale or is missing
 
 This turn is program-triggered, not user-triggered.
 
@@ -333,8 +335,7 @@ Compaction should:
 
 - operate on session history
 - be triggered by context-window pressure rather than by normal memory cadence
-- cooperate with checkpoint outputs and working memory
-- not replace episodic checkpoints or long-term memory
+- not replace long-term memory or working memory
 
 ## Summary
 

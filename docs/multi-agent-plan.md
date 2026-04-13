@@ -35,7 +35,7 @@ packages/store/
     sqlite/
       index.ts                  — SqliteInternalStateStore
       session-store.ts          — extracted from SessionIndexStore
-      message-store.ts          — extracted from SessionLogWriter (log/checkpoint/history methods)
+      message-store.ts          — extracted from SessionLogWriter (log/history methods)
       memory-provider.ts        — SqliteMemoryProvider (implements MemoryProvider)
       container-store.ts        — extracted from ContainerRegistryStore
       instruction-store.ts      — SqliteInstructionStore
@@ -108,7 +108,6 @@ Add `agent_id TEXT NOT NULL DEFAULT '__standalone__'` to:
 - `sessions`
 - `session_messages`
 - `session_events`
-- `episodic_checkpoints`
 - `memories`
 - `container_runtime_entries`
 
