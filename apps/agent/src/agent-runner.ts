@@ -710,9 +710,17 @@ export class AgentRunner implements SessionRuntime {
         ...(input.onToolRequested ? { onToolRequested: input.onToolRequested } : {}),
         ...(input.onToolStarted ? { onToolStarted: input.onToolStarted } : {}),
       });
+    const toolNames = new Set(tools.map((t) => t.name));
     const baseSystemPrompt = await buildSystemPrompt(
       input.config,
       this.options.security,
+      {
+        hasMemoryTools: toolNames.has('memory_add'),
+        hasInstructionTools: toolNames.has('instruction_read'),
+        hasExecTool: toolNames.has('exec'),
+        hasContainerTools: toolNames.has('container_start'),
+        hasWebTools: toolNames.has('web_search'),
+      },
       {
         instructionStore: this.store.instructions,
         storeScope: this.scope,
