@@ -1227,39 +1227,6 @@ test('AgentRunner injects session resumption context when reopening a persisted 
   );
 });
 
-test('AgentRunner stores an AI-generated session description when available', async (t) => {
-  const { workspace, security } = await createSecurityFixture(t, {
-    secrets: {
-      ANTHROPIC_API_KEY: 'test-anthropic-key',
-    },
-  });
-  await security.load();
-
-  const runner = await AgentRunner.create({
-    workspace,
-    security,
-    sessionDescriptionGenerator: async () => 'Investigate flaky container mount retries',
-    streamFn: createSequentialStreamFn([
-      () => createTextResponseStream('I inspected the mount failure and found the root cause.'),
-    ]),
-  });
-
-  await runner.openSession({
-    sessionId: 'cli:described-session',
-    source: {
-      kind: 'cli',
-      interactive: true,
-    },
-  });
-  await runner.postMessage('cli:described-session', {
-    text: 'Please debug why the container mount keeps failing.',
-  });
-  await runner.waitForSessionIdle('cli:described-session');
-
-  const sessions = await runner.listSessions({ kind: 'cli' });
-  assert.equal(sessions[0]?.description, 'Investigate flaky container mount retries');
-});
-
 test('AgentRunner emits Langfuse traces for LLM steps', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: {

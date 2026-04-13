@@ -78,14 +78,9 @@ Open questions and issues that need discussion before implementation.
 
 **Resolution:** Legacy checkpoint code has been fully removed. All legacy methods (`runLegacyCheckpoint`, `generateCheckpointArtifacts`, `runInternalCheckpointTurn`, `parseInternalCheckpointResponse`, `createFallbackCheckpointSummary`, `createFallbackSessionWorkingMemory`, etc.) and external hooks (`checkpointSummaryGenerator`, `sessionWorkingMemoryGenerator`) have been deleted. The `episodic_checkpoints` table was already dropped in v12 migration. `runSessionCheckpoint` now always uses introspection.
 
-## 9. Session Description After Introspection
+## 9. ~~Session Description After Introspection~~ — RESOLVED
 
-**Current state:** The legacy checkpoint generates a session description from the checkpoint summary (`updateSessionDescriptionFromSummary`). The new introspection path does not generate session descriptions.
-
-**Question:** How should session descriptions be maintained with introspection? Options:
-- A. Introspection agent also generates a description (add a `session_description_update` tool?)
-- B. Generate description from the introspection_end summary
-- C. Keep the existing per-turn description generation (from user's first message) and don't change it
+**Resolution:** Option A implemented. The introspection agent now has a `session_description_update` tool. The per-turn AI description generation from the main agent has been removed. Fallback description (from user's first message) is still created immediately. The introspection agent updates it to an AI-quality title when it has enough context.
 
 ## 10. Letta Sleep-Time Agent Pattern
 

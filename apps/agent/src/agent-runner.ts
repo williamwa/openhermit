@@ -34,10 +34,8 @@ import {
 } from './agent-runner/message-utils.js';
 import {
   createFallbackDescription,
-  normalizeGeneratedDescription,
 } from './session-utils.js';
 import {
-  completeWithLangfuseTrace,
   createLangfuseTracedStreamFn,
 } from './langfuse.js';
 import { type SessionDescriptor, SessionEventBroker, type SessionRuntime } from './runtime.js';
@@ -445,6 +443,7 @@ export class AgentRunner implements SessionRuntime {
       security: this.options.security,
       history: newHistory,
       previousWorkingMemory,
+      currentDescription: session.description,
       lastSummarizedHistoryCount: session.lastSummarizedHistoryCount,
       completedTurnCount: session.completedTurnCount,
       lastSummarizedTurnCount: session.lastSummarizedTurnCount,
@@ -457,6 +456,16 @@ export class AgentRunner implements SessionRuntime {
     session.lastSummarizedHistoryCount = chronologicalHistory.length;
     session.lastSummarizedTurnCount = session.completedTurnCount;
     session.lastSummarizedAt = ts;
+
+    // Sync description back from store if introspection updated it
+    if (result.descriptionUpdated) {
+      const persisted = await this.store.sessions.get(this.scope, session.spec.sessionId);
+      if (persisted?.description) {
+        session.description = persisted.description;
+        session.descriptionSource = 'ai';
+      }
+    }
+
     await this.persistSessionIndex(session);
 
     this.logRuntime(`introspection: ${reason} — ${result.toolCallCount} tool calls, success=${result.success}`);
@@ -1197,12 +1206,6 @@ export class AgentRunner implements SessionRuntime {
             await this.runSessionCheckpoint(session, 'turn_limit');
           }
 
-          if (lastUserMessageText) {
-            await this.maybeGenerateSessionDescription(session, {
-              userText: lastUserMessageText,
-              ...(finalText ? { assistantText: finalText } : {}),
-            });
-          }
         });
 
         void (async () => {
@@ -1323,102 +1326,5 @@ export class AgentRunner implements SessionRuntime {
     return this.store.messages.listSessionEntries(this.scope,sessionId);
   }
 
-  private static readonly SESSION_DESCRIPTION_MIN_TURNS = 3;
-
-  private async maybeGenerateSessionDescription(
-    session: RunnerSession,
-    input: {
-      userText: string;
-      assistantText?: string;
-    },
-  ): Promise<void> {
-    if (session.descriptionSource === 'ai') {
-      return;
-    }
-
-    // Defer AI description until enough turns have accumulated for meaningful context.
-    if (session.completedTurnCount < AgentRunner.SESSION_DESCRIPTION_MIN_TURNS) {
-      return;
-    }
-
-    const config = await this.options.security.readConfig();
-    const description = await this.generateSessionDescription({
-      sessionId: session.spec.sessionId,
-      ...input,
-      config,
-    });
-
-    if (!description) {
-      return;
-    }
-
-    session.description = description;
-    session.descriptionSource = 'ai';
-    await this.persistSessionIndex(session);
-  }
-
-  private async generateSessionDescription(input: {
-    sessionId: string;
-    userText: string;
-    assistantText?: string;
-    config: AgentConfig;
-  }): Promise<string | undefined> {
-    if (this.options.sessionDescriptionGenerator) {
-      return normalizeGeneratedDescription(
-        await this.options.sessionDescriptionGenerator(input),
-      );
-    }
-
-    if (this.options.streamFn) {
-      return undefined;
-    }
-
-    const apiKey = this.resolveApiKey(input.config.model.provider);
-
-    if (!apiKey) {
-      return undefined;
-    }
-
-    const response = await completeWithLangfuseTrace(
-      this.options.langfuse,
-      resolveModel(input.config),
-      {
-        systemPrompt: [
-          'Generate a short session title for retrieval.',
-          'Return plain text only.',
-          'Do not use quotes, markdown, or trailing punctuation.',
-          'Keep it under 10 words.',
-        ].join(' '),
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: [
-                  `User message: ${input.userText}`,
-                  input.assistantText
-                    ? `Assistant reply: ${input.assistantText}`
-                    : 'Assistant reply: (none yet)',
-                ].join('\n'),
-              },
-            ],
-            timestamp: Date.now(),
-          },
-        ],
-      },
-      { apiKey },
-      {
-        name: 'openhermit.session_description',
-        sessionId: input.sessionId,
-        agentSessionId: input.sessionId,
-        metadata: {
-          requestKind: 'session-description',
-        },
-      },
-    );
-
-    return normalizeGeneratedDescription(extractAssistantText(response));
-  }
 
 }

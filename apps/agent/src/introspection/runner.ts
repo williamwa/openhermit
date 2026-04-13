@@ -20,6 +20,7 @@ export interface IntrospectionInput {
   /** History entries new since last introspection. */
   history: Array<{ role: 'user' | 'assistant' | 'error'; content: string; ts: string }>;
   previousWorkingMemory: string | undefined;
+  currentDescription: string | undefined;
   lastSummarizedHistoryCount: number;
   completedTurnCount: number;
   lastSummarizedTurnCount: number;
@@ -43,6 +44,7 @@ export interface IntrospectionResult {
   memoriesUpdated: number;
   memoriesDeleted: number;
   workingMemoryUpdated: boolean;
+  descriptionUpdated: boolean;
 }
 
 export const resolveIntrospectionConfig = (config: AgentConfig): IntrospectionConfig => ({
@@ -61,6 +63,7 @@ export async function runIntrospection(input: IntrospectionInput): Promise<Intro
     memoriesUpdated: 0,
     memoriesDeleted: 0,
     workingMemoryUpdated: false,
+    descriptionUpdated: false,
   };
 
   const turnsSinceLast = input.completedTurnCount - input.lastSummarizedTurnCount;
@@ -87,6 +90,7 @@ export async function runIntrospection(input: IntrospectionInput): Promise<Intro
       containerManager: undefined as any, // not used by memory tools
       memoryProvider: input.store.memories,
       messageStore: input.store.messages,
+      sessionStore: input.store.sessions,
       sessionId: input.sessionId,
       storeScope: input.scope,
     };
@@ -132,6 +136,7 @@ export async function runIntrospection(input: IntrospectionInput): Promise<Intro
         if (event.toolName === 'memory_update') result.memoriesUpdated++;
         if (event.toolName === 'memory_delete') result.memoriesDeleted++;
         if (event.toolName === 'working_memory_update') result.workingMemoryUpdated = true;
+        if (event.toolName === 'session_description_update') result.descriptionUpdated = true;
 
         // Write tool_result event
         void input.store.messages.appendLogEntry(input.scope, input.sessionId, {
@@ -159,6 +164,7 @@ export async function runIntrospection(input: IntrospectionInput): Promise<Intro
       turnsSinceLast,
       transcript,
       currentWorkingMemory: input.previousWorkingMemory,
+      currentDescription: input.currentDescription,
     });
 
     await agent.prompt({
@@ -180,6 +186,7 @@ export async function runIntrospection(input: IntrospectionInput): Promise<Intro
   if (result.memoriesUpdated > 0) summaryParts.push(`updated ${result.memoriesUpdated} memory(s)`);
   if (result.memoriesDeleted > 0) summaryParts.push(`deleted ${result.memoriesDeleted} memory(s)`);
   if (result.workingMemoryUpdated) summaryParts.push('refreshed working memory');
+  if (result.descriptionUpdated) summaryParts.push('updated session description');
   if (summaryParts.length === 0) summaryParts.push('no changes');
 
   // Write introspection_end event
@@ -194,6 +201,7 @@ export async function runIntrospection(input: IntrospectionInput): Promise<Intro
     memoriesUpdated: result.memoriesUpdated,
     memoriesDeleted: result.memoriesDeleted,
     workingMemoryUpdated: result.workingMemoryUpdated,
+    descriptionUpdated: result.descriptionUpdated,
     success: result.success,
   });
 

@@ -85,6 +85,16 @@ export class SqliteSessionStore implements SessionStore {
     });
   }
 
+  async updateDescription(scope: StoreScope, sessionId: string, description: string, source: 'fallback' | 'ai'): Promise<void> {
+    await this.enqueueWrite(async () => {
+      this.database
+        .prepare(
+          `UPDATE sessions SET description = ?, description_source = ? WHERE agent_id = ? AND session_id = ?`,
+        )
+        .run(description, source, scope.agentId, sessionId);
+    });
+  }
+
   private async enqueueWrite(work: () => Promise<void>): Promise<void> {
     const run = this.writeQueue.then(work, work);
     this.writeQueue = run.catch(() => undefined);
