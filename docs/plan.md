@@ -86,7 +86,10 @@ There are also several active design drafts that are intentionally not yet imple
 ### Tooling
 
 - `exec` (shell command execution)
-- `web_fetch`
+- pluggable WebProvider abstraction with `web_search` and `web_fetch` tools
+  - three backends: `defuddle` (default, no API key), `exa`, `tavily`
+  - configured via `config.json` `web.provider` + `secrets.json` for API keys
+  - tools conditionally included only when webProvider is available
 - container tools (`container_start`, `container_stop`, `container_exec`, `container_run`, `container_status`)
 - configurable container `mount_target`
 - instruction tools (`instruction_read`, `instruction_update`)
