@@ -6,7 +6,8 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
   "references": [
-    { "path": "../../../packages/sdk" }
+    { "path": "../../../packages/sdk" },
+    { "path": "../../../packages/shared" }
   ],
   "include": [
     "src"

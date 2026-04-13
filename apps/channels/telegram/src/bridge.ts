@@ -1,0 +1,324 @@
+/**
+ * Bridge between Telegram messages and the OpenHermit agent API.
+ * Translates Telegram updates into agent session interactions.
+ */
+
+import { AgentLocalClient } from '@openhermit/sdk';
+
+import type { TelegramApi, TelegramMessage } from './telegram-api.js';
+import { formatAgentResponse } from './formatting.js';
+
+/** SSE frame parsed from the agent event stream. */
+interface SseFrame {
+  id?: number;
+  event: string;
+  data: string;
+}
+
+const parseSseFrames = (
+  buffer: string,
+): { frames: SseFrame[]; remainder: string } => {
+  const normalized = buffer.replace(/\r\n/g, '\n');
+  const segments = normalized.split('\n\n');
+  const remainder = segments.pop() ?? '';
+  const frames: SseFrame[] = [];
+
+  for (const segment of segments) {
+    const lines = segment.split('\n');
+    let event = 'message';
+    let data = '';
+    let id: number | undefined;
+
+    for (const line of lines) {
+      if (line.startsWith('event:')) {
+        event = line.slice(6).trim();
+      } else if (line.startsWith('data:')) {
+        data += `${line.slice(5).trim()}\n`;
+      } else if (line.startsWith('id:')) {
+        const parsed = Number.parseInt(line.slice(3).trim(), 10);
+        if (!Number.isNaN(parsed)) {
+          id = parsed;
+        }
+      }
+    }
+
+    frames.push({
+      ...(id !== undefined ? { id } : {}),
+      event,
+      data: data.replace(/\n$/, ''),
+    });
+  }
+
+  return { frames, remainder };
+};
+
+/** Collected result of an agent turn. */
+interface TurnResult {
+  text: string | undefined;
+  error: string | undefined;
+}
+
+export class TelegramBridge {
+  private readonly client: AgentLocalClient;
+  private readonly clientToken: string;
+  private readonly log: (message: string) => void;
+  /** Tracks last event ID per session for SSE deduplication. */
+  private readonly lastEventIds = new Map<string, number>();
+
+  constructor(
+    private readonly telegram: TelegramApi,
+    clientOptions: { baseUrl: string; token: string },
+    logger?: (message: string) => void,
+  ) {
+    this.client = new AgentLocalClient(clientOptions);
+    this.clientToken = clientOptions.token;
+    this.log = logger ?? ((msg: string) => console.log(`[telegram-bridge] ${msg}`));
+  }
+
+  /** Handle an incoming Telegram message. */
+  async handleMessage(message: TelegramMessage): Promise<void> {
+    const chatId = message.chat.id;
+    const text = message.text?.trim();
+
+    if (!text) {
+      return; // Ignore non-text messages for now.
+    }
+
+    const sessionId = `tg:${chatId}`;
+
+    // Handle commands.
+    if (text === '/start') {
+      await this.handleStart(chatId, sessionId, message);
+      return;
+    }
+
+    if (text === '/new') {
+      await this.handleNew(chatId, sessionId);
+      return;
+    }
+
+    // Regular message — send to agent.
+    await this.sendToAgent(chatId, sessionId, text, message);
+  }
+
+  private async handleStart(
+    chatId: number,
+    sessionId: string,
+    message: TelegramMessage,
+  ): Promise<void> {
+    const displayName =
+      message.from?.first_name ?? message.from?.username ?? 'there';
+
+    await this.ensureSession(sessionId);
+    await this.telegram.sendMessage(
+      chatId,
+      `Hello ${displayName}! I'm ready. Send me a message to get started.\n\nUse /new to start a fresh conversation.`,
+    );
+  }
+
+  private async handleNew(
+    chatId: number,
+    sessionId: string,
+  ): Promise<void> {
+    try {
+      await this.client.checkpointSession(sessionId, { reason: 'new_session' });
+    } catch {
+      // Session may not exist yet — that's fine.
+    }
+    this.lastEventIds.delete(sessionId);
+    await this.telegram.sendMessage(chatId, 'New conversation started.');
+  }
+
+  private async sendToAgent(
+    chatId: number,
+    sessionId: string,
+    text: string,
+    message: TelegramMessage,
+  ): Promise<void> {
+    // Show typing indicator.
+    void this.telegram.sendChatAction(chatId).catch(() => undefined);
+
+    // Ensure session exists.
+    await this.ensureSession(sessionId, message);
+
+    // Post message to agent.
+    await this.client.postMessage(sessionId, { text });
+
+    // Consume SSE stream for the agent's response.
+    const result = await this.waitForAgentResponse(sessionId, chatId);
+
+    // Send response back to Telegram.
+    if (result.error && !result.text) {
+      await this.telegram.sendMessage(chatId, `Error: ${result.error}`);
+    } else if (result.text) {
+      const chunks = formatAgentResponse(result.text);
+      for (const chunk of chunks) {
+        await this.telegram.sendMessage(chatId, chunk);
+      }
+    }
+  }
+
+  private async ensureSession(
+    sessionId: string,
+    message?: TelegramMessage,
+  ): Promise<void> {
+    await this.client.openSession({
+      sessionId,
+      source: {
+        kind: 'im',
+        interactive: true,
+        platform: 'telegram',
+      },
+      ...(message?.from
+        ? {
+            metadata: {
+              telegram_chat_id: message.chat.id,
+              ...(message.from.username
+                ? { telegram_username: message.from.username }
+                : {}),
+              ...(message.from.first_name
+                ? { telegram_first_name: message.from.first_name }
+                : {}),
+            },
+          }
+        : {}),
+    });
+  }
+
+  /**
+   * Open the SSE event stream and collect the agent's response for one turn.
+   * Supports streaming edits: sends an initial message on first text_delta,
+   * then periodically edits it as more text arrives.
+   */
+  private async waitForAgentResponse(
+    sessionId: string,
+    chatId: number,
+  ): Promise<TurnResult> {
+    const eventsUrl = this.client.buildEventsUrl(sessionId);
+    const lastEventId = this.lastEventIds.get(sessionId) ?? 0;
+
+    const response = await fetch(eventsUrl, {
+      headers: { authorization: `Bearer ${this.clientToken}` },
+    });
+
+    if (!response.ok || !response.body) {
+      return {
+        text: undefined,
+        error: `Failed to open event stream (${response.status})`,
+      };
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let nextLastEventId = lastEventId;
+    let accumulatedText = '';
+    let finalText: string | undefined;
+    let error: string | undefined;
+
+    // Streaming edit state.
+    let sentMessageId: number | undefined;
+    let lastEditTime = 0;
+    const EDIT_THROTTLE_MS = 1500;
+
+    // Keep typing indicator alive.
+    const typingInterval = setInterval(() => {
+      void this.telegram.sendChatAction(chatId).catch(() => undefined);
+    }, 4_000);
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const parsed = parseSseFrames(buffer);
+        buffer = parsed.remainder;
+        let sawAgentEnd = false;
+
+        for (const frame of parsed.frames) {
+          if (frame.id !== undefined && frame.id <= nextLastEventId) {
+            continue;
+          }
+          if (frame.id !== undefined) {
+            nextLastEventId = frame.id;
+          }
+
+          if (frame.event === 'ready' || frame.event === 'ping') {
+            continue;
+          }
+
+          const payload =
+            frame.data.length > 0
+              ? (JSON.parse(frame.data) as Record<string, unknown>)
+              : {};
+
+          if (frame.event === 'text_delta') {
+            accumulatedText += String(payload.text ?? '');
+
+            // Streaming edit: send initial message or throttled edits.
+            const now = Date.now();
+            if (!sentMessageId && accumulatedText.length > 0) {
+              try {
+                const sent = await this.telegram.sendMessage(
+                  chatId,
+                  accumulatedText + ' ...',
+                );
+                sentMessageId = sent.message_id;
+                lastEditTime = now;
+              } catch {
+                // If send fails, we'll send the final text at the end.
+              }
+            } else if (
+              sentMessageId &&
+              now - lastEditTime >= EDIT_THROTTLE_MS
+            ) {
+              void this.telegram
+                .editMessageText(chatId, sentMessageId, accumulatedText + ' ...')
+                .catch(() => undefined);
+              lastEditTime = now;
+            }
+            continue;
+          }
+
+          if (frame.event === 'text_final') {
+            finalText = String(payload.text ?? '').trim();
+            continue;
+          }
+
+          if (frame.event === 'error') {
+            error = String(payload.message ?? 'Unknown error');
+            continue;
+          }
+
+          if (frame.event === 'agent_end') {
+            sawAgentEnd = true;
+            continue;
+          }
+
+          // tool_requested, tool_started, tool_result — skip for now.
+        }
+
+        if (sawAgentEnd) break;
+      }
+    } finally {
+      clearInterval(typingInterval);
+      await reader.cancel().catch(() => undefined);
+    }
+
+    this.lastEventIds.set(sessionId, nextLastEventId);
+
+    // Final edit to show complete text (remove trailing " ...").
+    const responseText = finalText ?? (accumulatedText.trim() || undefined);
+    if (sentMessageId && responseText) {
+      void this.telegram
+        .editMessageText(chatId, sentMessageId, responseText)
+        .catch(() => undefined);
+    }
+
+    return {
+      text: sentMessageId ? undefined : responseText, // If we already streamed, don't send again.
+      error,
+    };
+  }
+}
