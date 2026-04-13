@@ -96,6 +96,17 @@ There are also several active design drafts that are intentionally not yet imple
 
 ## Remaining Major Work
 
+### Memory Reliability
+
+- ~~**memory_recall search quality**~~ ✅ Fixed — SqliteMemoryProvider now uses FTS5 full-text search with porter stemming and BM25 ranking (schema v13)
+- **introspection model quality** — small models ignore prompt constraints (store browsed content, record article summaries in working memory); need either a minimum model floor or structured extraction pipeline
+- **working memory ownership** — both main agent and introspection agent can write working memory; introspection overwrites entirely, losing anything the main agent wrote between cycles
+
+### Runtime Gaps
+
+- **approval gate test reliability** — polling loop hangs without timeout
+- **context compaction test coverage** — compaction module extracted but test coverage is thin
+
 ## Draft Design Tracks
 
 These tracks are being explored in documentation but are not yet committed implementation directions.
@@ -184,11 +195,12 @@ These tracks are being explored in documentation but are not yet committed imple
 
 ## Phase 4 — Identity + Knowledge Maturity
 
+- ✅ InstructionStore entries composed into dynamic system prompt
+- ✅ dynamic system prompt — sections conditionally included based on available tools
 - refine how user-authored knowledge is organized in the external workspace
-- improve how instructions are loaded, composed, and validated from the InstructionStore
 - improve the agent's use of memory tools (`memory_add`, `memory_get`, `memory_recall`, `memory_update`, `memory_delete`)
 - add explicit “remember this” behavior on top of the MemoryProvider
-- ensure InstructionStore entries are properly composed into the system prompt
+- ✅ `memory_recall` search quality fixed with FTS5 full-text search (schema v13)
 
 ## Phase 5 — Web + Channel Maturity
 
@@ -205,15 +217,13 @@ These tracks are being explored in documentation but are not yet committed imple
 
 ## Immediate Implementation Order
 
-1. refine instruction loading and composition from InstructionStore
-2. define the durable-memory vs user-knowledge boundary more tightly
-3. continue design work on:
-   - participant model
-   - sandbox model
-   - storage abstraction
-4. implement idle / sleep-time long-term consolidation
-5. design and implement the scheduler
-6. fix approval gate tests (polling loop hangs without timeout)
+1. ~~fix `memory_recall` search quality~~ ✅ FTS5 with porter stemming (schema v13)
+2. decide on introspection model quality strategy (minimum model floor vs structured pipeline)
+3. resolve working memory ownership (introspection-only vs shared with main agent)
+4. fix approval gate tests (polling loop hangs without timeout)
+5. define the durable-memory vs user-knowledge boundary more tightly
+6. implement idle / sleep-time long-term consolidation
+7. design and implement the scheduler
 
 ## Design Constraints
 

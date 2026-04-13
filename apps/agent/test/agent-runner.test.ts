@@ -261,7 +261,7 @@ test('AgentRunner publishes SSE text events and writes minimal logs', async (t) 
   );
 });
 
-test('AgentRunner injects runtime mission and container guidance into the system prompt', async (t) => {
+test('AgentRunner builds dynamic system prompt based on available tools', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: {
       ANTHROPIC_API_KEY: 'test-anthropic-key',
@@ -293,17 +293,27 @@ test('AgentRunner injects runtime mission and container guidance into the system
   });
   await runner.waitForSessionIdle('cli:prompt-guidance');
 
+  // Preamble always present
   assert.match(capturedSystemPrompt, /You are a pragmatic AI agent operating inside a dedicated workspace/);
   assert.match(capturedSystemPrompt, /Your primary job is to help the user accomplish real tasks safely and effectively/);
+
+  // Instruction section present (instructionStore is always provided)
   assert.match(capturedSystemPrompt, /Your specific identity, role, style, and priorities are defined by the instruction entries below/);
   assert.match(capturedSystemPrompt, /use the `instruction_update` tool to persist the change/);
-  assert.match(capturedSystemPrompt, /Built-in tools are execution primitives, not product goals/);
-  assert.match(capturedSystemPrompt, /## Execution/);
-  assert.match(capturedSystemPrompt, /Use `exec` to run any shell command/);
+
+  // Container section present (container tools are always included)
   assert.match(capturedSystemPrompt, /Service Containers/);
   assert.match(capturedSystemPrompt, /Ephemeral Containers.*container_run/);
   assert.match(capturedSystemPrompt, /Mounting files into service containers/);
   assert.match(capturedSystemPrompt, /containers\/<name>\/data/);
+  assert.match(capturedSystemPrompt, /Built-in tools are execution primitives, not product goals/);
+
+  // Exec section absent (no workspace_container configured in test fixture)
+  assert.doesNotMatch(capturedSystemPrompt, /## Execution/);
+
+  // Memory section present (memoryProvider is always provided)
+  assert.match(capturedSystemPrompt, /memory_add/);
+  assert.match(capturedSystemPrompt, /memory_recall/);
 });
 
 test('AgentRunner injects session working memory and long-term memory context', async (t) => {

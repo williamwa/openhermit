@@ -75,7 +75,7 @@ Storage:
 
 ## 2. Long-Term Memory
 
-Long-term memory is managed through the `MemoryProvider` interface. The default implementation is `SqliteMemoryProvider`, which stores memories in `state.sqlite`.
+Long-term memory is managed through the `MemoryProvider` interface. The default implementation is `SqliteMemoryProvider`, which stores memories in `state.sqlite` with FTS5 full-text search (porter stemming, BM25 ranking).
 
 ### MemoryProvider Interface
 

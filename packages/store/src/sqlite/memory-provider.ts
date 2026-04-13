@@ -33,6 +33,14 @@ export class SqliteMemoryProvider implements MemoryProvider {
       )
       .run(scope.agentId, id, input.content, metadataJson, now, now);
 
+    // Keep FTS index in sync — delete old row (if any) then insert fresh.
+    this.database
+      .prepare(`DELETE FROM memories_fts WHERE agent_id = ? AND memory_key = ?`)
+      .run(scope.agentId, id);
+    this.database
+      .prepare(`INSERT INTO memories_fts(agent_id, memory_key, content) VALUES (?, ?, ?)`)
+      .run(scope.agentId, id, input.content);
+
     return {
       id,
       content: input.content,
@@ -44,36 +52,69 @@ export class SqliteMemoryProvider implements MemoryProvider {
 
   async search(scope: StoreScope, query: string, options?: MemorySearchOptions): Promise<MemoryEntry[]> {
     const limit = Math.max(1, Math.min(50, options?.limit ?? 10));
-    const term = `%${query.trim().toLowerCase()}%`;
+    const trimmed = query.trim();
+    if (!trimmed) return [];
 
-    const rows = this.database
-      .prepare(
-        `SELECT memory_key, content, metadata_json, created_at, updated_at
-         FROM memories
-         WHERE agent_id = ?
-           AND (
-             lower(memory_key) LIKE ?
-             OR lower(content) LIKE ?
-             OR lower(COALESCE(json_extract(metadata_json, '$.title'), '')) LIKE ?
-           )
-         ORDER BY updated_at DESC, memory_key ASC
-         LIMIT ?`,
-      )
-      .all(scope.agentId, term, term, term, limit) as Array<{
-      memory_key: string;
-      content: string;
-      metadata_json: string;
-      created_at: string;
-      updated_at: string;
-    }>;
+    // Tokenize query into words and build FTS5 match expression.
+    // Each word is quoted to avoid FTS5 syntax issues, joined with implicit AND.
+    const words = trimmed.split(/\s+/).filter(Boolean);
+    const ftsQuery = words.map((w) => `"${w.replace(/"/g, '""')}"`).join(' ');
 
-    return rows.map((row) => ({
-      id: row.memory_key,
-      content: row.content,
-      metadata: JSON.parse(row.metadata_json || '{}') as Record<string, unknown>,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }));
+    try {
+      // Use FTS5 full-text search with porter stemming and BM25 ranking.
+      const rows = this.database
+        .prepare(
+          `SELECT m.memory_key, m.content, m.metadata_json, m.created_at, m.updated_at
+           FROM memories_fts f
+           JOIN memories m ON m.agent_id = f.agent_id AND m.memory_key = f.memory_key
+           WHERE memories_fts MATCH ?
+             AND f.agent_id = ?
+           ORDER BY f.rank
+           LIMIT ?`,
+        )
+        .all(ftsQuery, scope.agentId, limit) as Array<{
+        memory_key: string;
+        content: string;
+        metadata_json: string;
+        created_at: string;
+        updated_at: string;
+      }>;
+
+      return rows.map((row) => ({
+        id: row.memory_key,
+        content: row.content,
+        metadata: JSON.parse(row.metadata_json || '{}') as Record<string, unknown>,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }));
+    } catch {
+      // FTS table may not exist yet (pre-v13 database). Fall back to LIKE matching.
+      const term = `%${trimmed.toLowerCase()}%`;
+      const rows = this.database
+        .prepare(
+          `SELECT memory_key, content, metadata_json, created_at, updated_at
+           FROM memories
+           WHERE agent_id = ?
+             AND (lower(memory_key) LIKE ? OR lower(content) LIKE ?)
+           ORDER BY updated_at DESC
+           LIMIT ?`,
+        )
+        .all(scope.agentId, term, term, limit) as Array<{
+        memory_key: string;
+        content: string;
+        metadata_json: string;
+        created_at: string;
+        updated_at: string;
+      }>;
+
+      return rows.map((row) => ({
+        id: row.memory_key,
+        content: row.content,
+        metadata: JSON.parse(row.metadata_json || '{}') as Record<string, unknown>,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }));
+    }
   }
 
   async get(scope: StoreScope, id: string): Promise<MemoryEntry | undefined> {
@@ -124,6 +165,14 @@ export class SqliteMemoryProvider implements MemoryProvider {
       )
       .run(content, JSON.stringify(metadata ?? {}), now, scope.agentId, id);
 
+    // Keep FTS index in sync.
+    this.database
+      .prepare(`DELETE FROM memories_fts WHERE agent_id = ? AND memory_key = ?`)
+      .run(scope.agentId, id);
+    this.database
+      .prepare(`INSERT INTO memories_fts(agent_id, memory_key, content) VALUES (?, ?, ?)`)
+      .run(scope.agentId, id, content);
+
     return {
       id,
       content,
@@ -136,6 +185,9 @@ export class SqliteMemoryProvider implements MemoryProvider {
   async delete(scope: StoreScope, id: string): Promise<void> {
     this.database
       .prepare(`DELETE FROM memories WHERE agent_id = ? AND memory_key = ?`)
+      .run(scope.agentId, id);
+    this.database
+      .prepare(`DELETE FROM memories_fts WHERE agent_id = ? AND memory_key = ?`)
       .run(scope.agentId, id);
   }
 

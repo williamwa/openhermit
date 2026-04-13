@@ -83,6 +83,10 @@ const schemaStatements = [
     updated_at TEXT NOT NULL,
     PRIMARY KEY (agent_id, key)
   ) STRICT;`,
+  `CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+    agent_id, memory_key, content,
+    tokenize='porter unicode61'
+  );`,
 ] as const;
 
 const migrationStatements = [
@@ -102,9 +106,16 @@ const migrationStatements = [
   `ALTER TABLE memories DROP COLUMN memory_kind;`,
   // v12: drop episodic_checkpoints table — replaced by introspection events in session_events
   `DROP TABLE IF EXISTS episodic_checkpoints;`,
+  // v13: add FTS5 index for memory search
+  `CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+    agent_id, memory_key, content,
+    tokenize='porter unicode61'
+  );`,
+  `INSERT INTO memories_fts(agent_id, memory_key, content)
+   SELECT agent_id, memory_key, content FROM memories;`,
 ] as const;
 
-export const CURRENT_SCHEMA_VERSION = 12;
+export const CURRENT_SCHEMA_VERSION = 13;
 
 const ensureMetaTable = (database: DatabaseSync): void => {
   database.exec(

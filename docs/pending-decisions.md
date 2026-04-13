@@ -16,13 +16,9 @@ Open questions and issues that need discussion before implementation.
 - B. Switch to a program-driven pipeline approach (like Mem0) that doesn't depend on model judgment
 - C. Hybrid: use a structured extraction pipeline for the decision of "should I store this?", then use the agent for the actual content
 
-## 2. memory_recall Search Quality
+## 2. ~~memory_recall Search Quality~~ — RESOLVED
 
-**Problem:** `memory_recall` (semantic search) returns empty results even when relevant memories exist. In testing, searching "anthropic quota crisis" found nothing despite `incident/anthropic-quota-2026-03` being stored.
-
-**Impact:** The introspection agent cannot check for existing memories before adding new ones, leading to duplicates or unnecessary add-delete-add cycles.
-
-**Investigation needed:** Is the SqliteMemoryProvider using keyword matching or vector similarity? Is the index being updated after writes?
+**Resolution:** SqliteMemoryProvider now uses FTS5 full-text search with porter stemming and BM25 ranking (schema v13). The old implementation used naive `LIKE '%query%'` matching which required the exact substring in sequence. The new implementation tokenizes queries into individual words, matches them via FTS5 with porter stemming (so "runs" matches "running"), and ranks by BM25 relevance. FTS index is kept in sync on add, update, and delete operations, with a fallback to LIKE matching for pre-v13 databases.
 
 ## 3. Introspection vs Per-Turn Memory (Letta/ChatGPT Pattern)
 

@@ -32,4 +32,5 @@ export {
   SqliteContainerStore,
   SqliteInstructionStore,
   CURRENT_SCHEMA_VERSION,
+  bootstrapDatabase,
 } from './sqlite/index.js';
