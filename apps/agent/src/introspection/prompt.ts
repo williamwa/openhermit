@@ -26,6 +26,7 @@ export const INTROSPECTION_SYSTEM_PROMPT = [
   '',
   '## Step 2: Consider working memory',
   '',
+  'You are the sole owner of working memory. The main agent cannot write it.',
   'Working memory is a scratchpad for the current session.',
   'Update ONLY if the session state has meaningfully changed.',
   '',

@@ -100,7 +100,7 @@ There are also several active design drafts that are intentionally not yet imple
 
 - ~~**memory_recall search quality**~~ ✅ Fixed — SqliteMemoryProvider now uses FTS5 full-text search with porter stemming and BM25 ranking (schema v13)
 - **introspection model quality** — small models ignore prompt constraints (store browsed content, record article summaries in working memory); need either a minimum model floor or structured extraction pipeline
-- **working memory ownership** — both main agent and introspection agent can write working memory; introspection overwrites entirely, losing anything the main agent wrote between cycles
+- ~~**working memory ownership**~~ ✅ Resolved — `working_memory_update` now exclusive to introspection agent; main agent no longer has access
 
 ### Runtime Gaps
 
@@ -219,7 +219,7 @@ These tracks are being explored in documentation but are not yet committed imple
 
 1. ~~fix `memory_recall` search quality~~ ✅ FTS5 with porter stemming (schema v13)
 2. decide on introspection model quality strategy (minimum model floor vs structured pipeline)
-3. resolve working memory ownership (introspection-only vs shared with main agent)
+3. ~~resolve working memory ownership~~ ✅ introspection-only
 4. fix approval gate tests (polling loop hangs without timeout)
 5. define the durable-memory vs user-knowledge boundary more tightly
 6. implement idle / sleep-time long-term consolidation

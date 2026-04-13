@@ -212,10 +212,9 @@ This path is responsive but not reliable — the agent may forget to use it.
 
 ## Memory Tools
 
-### Working memory tool
+### Working memory ownership
 
-The agent has a `working_memory_update` tool to explicitly update its session-local scratchpad.
-This is available as a convenience — introspection also maintains working memory automatically.
+Working memory is exclusively managed by the introspection agent via the `working_memory_update` tool. The main agent does not have access to this tool. This prevents overwrite conflicts where introspection would replace working memory entirely, losing anything the main agent wrote between introspection cycles.
 
 ### Long-term memory tools
 

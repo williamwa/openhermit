@@ -50,15 +50,9 @@ Open questions and issues that need discussion before implementation.
 
 **Related:** How should introspection events appear after compaction? Currently they would be part of the compaction summary. Is that sufficient?
 
-## 6. Working Memory Ownership
+## 6. ~~Working Memory Ownership~~ — RESOLVED
 
-**Current state:** Working memory can be written by two paths:
-1. Introspection agent (via `working_memory_update` tool)
-2. Main agent (via `working_memory_update` tool)
-
-**Question:** Should the main agent have the `working_memory_update` tool at all? Or should working memory be exclusively managed by introspection (the reliable path)?
-
-**Risk:** If both write, they may overwrite each other's content. Introspection replaces working memory entirely, so anything the main agent wrote between introspections gets lost.
+**Resolution:** `working_memory_update` is now exclusive to the introspection agent. The main agent no longer has access to this tool. This eliminates the overwrite conflict where introspection would replace working memory entirely, losing anything the main agent wrote between cycles. The introspection agent's prompt now explicitly states it is the sole owner of working memory.
 
 ## 7. Introspection Trigger Tuning
 
