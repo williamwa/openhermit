@@ -66,13 +66,17 @@ export interface MemoryConfig {
   introspection?: IntrospectionConfig | undefined;
 }
 
-export interface TelegramBridgeConfig {
+export interface TelegramChannelConfig {
   enabled: boolean;
-  allowed_chat_ids: string[];
+  bot_token: string;
+  mode?: 'polling' | 'webhook';
+  webhook_url?: string;
+  webhook_port?: number;
+  allowed_chat_ids?: string[];
 }
 
 export interface ChannelsConfig {
-  telegram_bridge: TelegramBridgeConfig;
+  telegram?: TelegramChannelConfig;
 }
 
 export type WorkspaceContainerStartPolicy = 'session' | 'ondemand';
@@ -104,13 +108,13 @@ export interface AgentRuntimeConfig {
   memory: MemoryConfig;
   workspace_container?: WorkspaceContainerConfig;
   web?: WebConfig;
+  channels?: ChannelsConfig;
 }
 
 export type AgentConfig = AgentRuntimeConfig;
 
 export interface WorkspaceConfig {
   plugins?: string[];
-  channels: ChannelsConfig;
 }
 
 export interface SecurityPolicy {

@@ -9,7 +9,8 @@
     { "path": "../../packages/protocol" },
     { "path": "../../packages/sdk" },
     { "path": "../../packages/shared" },
-    { "path": "../../packages/store" }
+    { "path": "../../packages/store" },
+    { "path": "../channels/telegram" }
   ],
   "include": [
     "src"

@@ -13,6 +13,7 @@ import type { RuntimeStateFile } from '@openhermit/shared';
 import { AgentRunner } from './agent-runner.js';
 import { parseAgentCliArgs } from './args.js';
 import { createAgentApp } from './app.js';
+import { startChannels, stopChannels } from './channels.js';
 import { AgentSecurity, AgentWorkspace } from './core/index.js';
 import {
   createLangfuseClientFromEnv,
@@ -208,10 +209,13 @@ export const main = async (): Promise<void> => {
   const app = createAgentApp(runner, { apiToken });
   const { server, info, usedFallback } = await listen(app.fetch, preferredPort);
 
+  let activeChannelHandles: Awaited<ReturnType<typeof startChannels>> = [];
+
   const shutdownHandler = createSignalShutdownHandler({
     server,
     shutdownLangfuse,
     cleanup: async () => {
+      await stopChannels(activeChannelHandles);
       await runner.stopWorkspaceContainerIfSessionPolicy();
       await fs.rm(security.runtimeFilePath, { force: true });
     },
@@ -241,6 +245,17 @@ export const main = async (): Promise<void> => {
     }`,
   );
   logStartup(`token written to runtime.json`);
+
+  // Start configured channel adapters.
+  activeChannelHandles = await startChannels(config.channels, {
+    agentBaseUrl: `http://localhost:${info.port}`,
+    agentToken: apiToken,
+    logger: logStartup,
+  });
+
+  if (activeChannelHandles.length > 0) {
+    logStartup(`started ${activeChannelHandles.length} channel(s): ${activeChannelHandles.map((h) => h.name).join(', ')}`);
+  }
 };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

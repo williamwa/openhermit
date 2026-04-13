@@ -64,14 +64,7 @@ const parseJsonFile = <T>(content: string, filePath: string): T => {
   }
 };
 
-export const createDefaultWorkspaceConfig = (): WorkspaceConfig => ({
-  channels: {
-    telegram_bridge: {
-      enabled: false,
-      allowed_chat_ids: [],
-    },
-  },
-});
+export const createDefaultWorkspaceConfig = (): WorkspaceConfig => ({});
 
 export class AgentWorkspace {
   constructor(public readonly root: string) {}

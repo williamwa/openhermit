@@ -22,5 +22,8 @@
     "hono": "^4.7.2",
     "jsdom": "^24.0.0",
     "langfuse": "^3.38.6"
+  },
+  "optionalDependencies": {
+    "@openhermit/channel-telegram": "0.1.0"
   }
 }
