@@ -1,4 +1,4 @@
 export { runIntrospection, resolveIntrospectionConfig } from './runner.js';
 export type { IntrospectionInput, IntrospectionResult } from './runner.js';
 export { createIntrospectionTools } from './tools.js';
-export { buildIntrospectionSystemPrompt, buildIntrospectionUserMessage } from './prompt.js';
+export { INTROSPECTION_SYSTEM_PROMPT, buildIntrospectionUserMessage } from './prompt.js';

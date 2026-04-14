@@ -483,13 +483,6 @@ export class AgentRunner implements SessionRuntime {
       history: newHistory,
       previousWorkingMemory,
       currentDescription: session.description,
-      ...(session.resolvedUserId ? {
-        currentUser: {
-          userId: session.resolvedUserId,
-          role: session.resolvedUserRole ?? 'guest',
-          ...(session.resolvedUserName ? { name: session.resolvedUserName } : {}),
-        },
-      } : {}),
       completedTurnCount: session.completedTurnCount,
       lastSummarizedTurnCount: session.lastSummarizedTurnCount,
       createAgent: (input) => this.createConfiguredAgent(input),

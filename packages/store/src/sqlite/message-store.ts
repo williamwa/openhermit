@@ -164,7 +164,7 @@ export class SqliteMessageStore implements MessageStore {
   async listMessagesSinceEvent(scope: StoreScope, sessionId: string, afterEventId: number): Promise<MessageRow[]> {
     const rows = this.database
       .prepare(
-        `SELECT ts, event_type AS role, content
+        `SELECT ts, event_type AS role, content, user_id
          FROM session_events
          WHERE agent_id = ? AND session_id = ? AND id > ? AND event_type IN ('user', 'assistant', 'error')
          ORDER BY id ASC`,
@@ -173,12 +173,14 @@ export class SqliteMessageStore implements MessageStore {
       ts: string;
       role: 'user' | 'assistant' | 'error';
       content: string;
+      user_id: string | null;
     }>;
 
     return rows.map((row) => ({
       ts: row.ts,
       role: row.role,
       content: row.content,
+      ...(row.user_id ? { userId: row.user_id } : {}),
     }));
   }
 

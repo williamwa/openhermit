@@ -7,7 +7,7 @@ import { DEFAULT_INTROSPECTION_CONFIG } from '../core/types.js';
 import type { LangfuseClientLike, LangfuseTurnContext } from '../langfuse.js';
 import { endTurnTrace } from '../langfuse.js';
 import { createIntrospectionTools } from './tools.js';
-import { buildIntrospectionSystemPrompt, buildIntrospectionUserMessage } from './prompt.js';
+import { INTROSPECTION_SYSTEM_PROMPT, buildIntrospectionUserMessage } from './prompt.js';
 import { serializeDetails } from '../agent-runner/message-utils.js';
 import type { AgentSecurity } from '../core/index.js';
 import type { ToolContext } from '../tools/shared.js';
@@ -20,11 +20,9 @@ export interface IntrospectionInput {
   scope: StoreScope;
   security: AgentSecurity;
   /** History entries new since last introspection. */
-  history: Array<{ role: 'user' | 'assistant' | 'error'; content: string; ts: string }>;
+  history: Array<{ role: 'user' | 'assistant' | 'error'; content: string; ts: string; userId?: string }>;
   previousWorkingMemory: string | undefined;
   currentDescription: string | undefined;
-  /** Current conversation partner context for memory key namespacing. */
-  currentUser?: { userId: string; role: string; name?: string };
   completedTurnCount: number;
   lastSummarizedTurnCount: number;
 
@@ -96,7 +94,12 @@ export async function runIntrospection(input: IntrospectionInput): Promise<Intro
   try {
     // Build transcript from history
     const transcript = input.history
-      .map((entry) => `${entry.role.toUpperCase()}: ${entry.content}`)
+      .map((entry) => {
+        const label = entry.role === 'user' && entry.userId
+          ? `USER [${entry.userId}]`
+          : entry.role.toUpperCase();
+        return `${label}: ${entry.content}`;
+      })
       .join('\n\n')
       .slice(0, 32_000);
 
@@ -118,7 +121,7 @@ export async function runIntrospection(input: IntrospectionInput): Promise<Intro
       config: input.config,
       agentSessionId: `${input.sessionId}:introspection`,
       contextSessionId: input.sessionId,
-      extraSystemPrompt: buildIntrospectionSystemPrompt(input.currentUser),
+      extraSystemPrompt: INTROSPECTION_SYSTEM_PROMPT,
       tools,
       ...(langfuseTurnContext ? { langfuseTurnContext } : {}),
     });

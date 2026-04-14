@@ -92,6 +92,7 @@ export type MessageRow = {
   role: 'user' | 'assistant' | 'error';
   content: string;
   ts: string;
+  userId?: string;
 };
 
 export interface InstructionEntry {
