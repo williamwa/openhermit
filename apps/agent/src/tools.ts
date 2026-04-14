@@ -57,11 +57,12 @@ export const createBuiltInTools = (
           createWebFetchTool(context),
         ]
       : []),
-    createContainerRunTool(context),
-    createContainerStatusTool(context),
-    createContainerStartTool(context),
-    createContainerStopTool(context),
-    createContainerExecTool(context),
+    // TODO: Re-enable container tools once container support is prioritized.
+    // createContainerRunTool(context),
+    // createContainerStatusTool(context),
+    // createContainerStartTool(context),
+    // createContainerStopTool(context),
+    // createContainerExecTool(context),
     ...(context.agentId ? [createWorkspaceExecTool(context)] : []),
     ...(context.userStore
       ? [
