@@ -337,7 +337,7 @@ test('AgentRunner builds dynamic system prompt based on available tools', async 
   assert.match(capturedSystemPrompt, /memory_recall/);
 });
 
-test('AgentRunner injects session working memory and long-term memory context', async (t) => {
+test('AgentRunner injects session working memory but not long-term memory', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: {
       ANTHROPIC_API_KEY: 'test-anthropic-key',
@@ -381,16 +381,15 @@ test('AgentRunner injects session working memory and long-term memory context', 
   });
   await runner.waitForSessionIdle('cli:working-context');
 
+  // Session working memory is injected as context.
   assert.equal(capturedMessages[0]?.role, 'user');
   assert.match(
     JSON.stringify(capturedMessages[0]?.content ?? ''),
     /Session-local working memory/,
   );
-  assert.equal(capturedMessages[1]?.role, 'user');
-  assert.match(
-    JSON.stringify(capturedMessages[1]?.content ?? ''),
-    /Long-term memory/,
-  );
+  // Long-term memory is NOT auto-injected; the agent uses memory_recall instead.
+  const allContent = JSON.stringify(capturedMessages);
+  assert.ok(!allContent.includes('Long-term memory'));
 });
 
 test('AgentRunner compacts older context when the estimated prompt budget is exceeded', async (t) => {

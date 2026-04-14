@@ -4,6 +4,8 @@ import type { InternalStateStore, StoreScope } from '@openhermit/store';
 
 import type { AgentConfig, IntrospectionConfig } from '../core/types.js';
 import { DEFAULT_INTROSPECTION_CONFIG } from '../core/types.js';
+import type { LangfuseClientLike, LangfuseTurnContext } from '../langfuse.js';
+import { endTurnTrace } from '../langfuse.js';
 import { createIntrospectionTools } from './tools.js';
 import { INTROSPECTION_SYSTEM_PROMPT, buildIntrospectionUserMessage } from './prompt.js';
 import { serializeDetails } from '../agent-runner/message-utils.js';
@@ -31,9 +33,10 @@ export interface IntrospectionInput {
     contextSessionId: string;
     extraSystemPrompt?: string;
     tools?: any[];
-    langfuseFallbackTraceName?: string;
+    langfuseTurnContext?: LangfuseTurnContext;
   }) => Promise<Agent>;
 
+  langfuse?: LangfuseClientLike;
   logRuntime: (message: string) => void;
 }
 
@@ -77,6 +80,18 @@ export async function runIntrospection(input: IntrospectionInput): Promise<Intro
     turnsSinceLast,
   });
 
+  // Create a Langfuse trace for the entire introspection run so that
+  // all LLM calls (including tool-loop iterations) are grouped together.
+  const langfuseTurnContext: LangfuseTurnContext | undefined = input.langfuse
+    ? {
+        currentTrace: input.langfuse.trace({
+          name: 'openhermit.introspection',
+          sessionId: input.sessionId,
+          metadata: { reason: input.reason },
+        }),
+      }
+    : undefined;
+
   try {
     // Build transcript from history
     const transcript = input.history
@@ -104,7 +119,7 @@ export async function runIntrospection(input: IntrospectionInput): Promise<Intro
       contextSessionId: input.sessionId,
       extraSystemPrompt: INTROSPECTION_SYSTEM_PROMPT,
       tools,
-      langfuseFallbackTraceName: 'openhermit.introspection',
+      ...(langfuseTurnContext ? { langfuseTurnContext } : {}),
     });
 
     // Track tool calls via subscription
@@ -169,8 +184,17 @@ export async function runIntrospection(input: IntrospectionInput): Promise<Intro
     await agent.waitForIdle();
     unsub();
 
+    if (input.langfuse && langfuseTurnContext) {
+      void endTurnTrace(input.langfuse, langfuseTurnContext);
+    }
+
     result.success = true;
   } catch (error) {
+    if (input.langfuse && langfuseTurnContext) {
+      void endTurnTrace(input.langfuse, langfuseTurnContext, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     input.logRuntime(`introspection failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 

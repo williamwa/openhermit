@@ -455,6 +455,7 @@ export class AgentRunner implements SessionRuntime {
       completedTurnCount: session.completedTurnCount,
       lastSummarizedTurnCount: session.lastSummarizedTurnCount,
       createAgent: (input) => this.createConfiguredAgent(input),
+      ...(this.options.langfuse ? { langfuse: this.options.langfuse } : {}),
       logRuntime: (msg) => this.logRuntime(msg),
     });
 
@@ -701,7 +702,6 @@ export class AgentRunner implements SessionRuntime {
     extraSystemPrompt?: string;
     tools?: ReturnType<typeof createBuiltInTools>;
     langfuseTurnContext?: LangfuseTurnContext;
-    langfuseFallbackTraceName?: string;
   }): Promise<Agent> {
     const webProvider = this.resolveWebProvider(input.config);
 
@@ -749,7 +749,6 @@ export class AgentRunner implements SessionRuntime {
       this.options.langfuse,
       this.options.streamFn,
       input.langfuseTurnContext ?? { currentTrace: undefined },
-      input.langfuseFallbackTraceName,
     );
 
     return new Agent({
@@ -911,10 +910,6 @@ export class AgentRunner implements SessionRuntime {
     const config = await this.options.security.readConfig();
     const sessionWorking =
       (await this.store.messages.getSessionWorkingMemory(this.scope, sessionId)) ?? '';
-    const memoryContext =
-      (await this.store.memories.getContextBlock(this.scope, {
-        limit: config.memory.context_entry_limit,
-      })) ?? '';
 
     const contextBlocks: AgentMessage[] = [];
 
@@ -936,19 +931,6 @@ export class AgentRunner implements SessionRuntime {
           {
             type: 'text',
             text: `Session-local working memory (read-only context):\n\n${sessionWorking}`,
-          },
-        ],
-        timestamp: Date.now(),
-      });
-    }
-
-    if (memoryContext.trim()) {
-      contextBlocks.push({
-        role: 'user',
-        content: [
-          {
-            type: 'text',
-            text: `Long-term memory (read-only context):\n\n${memoryContext}`,
           },
         ],
         timestamp: Date.now(),
@@ -1006,6 +988,15 @@ export class AgentRunner implements SessionRuntime {
   }
 
   private async createCompactionAgent(sessionId: string, config: AgentConfig): Promise<Agent> {
+    const langfuseTurnContext: LangfuseTurnContext | undefined = this.options.langfuse
+      ? {
+          currentTrace: this.options.langfuse.trace({
+            name: 'openhermit.compaction',
+            sessionId,
+          }),
+        }
+      : undefined;
+
     return this.createConfiguredAgent({
       config,
       agentSessionId: `${sessionId}:compaction`,
@@ -1021,7 +1012,7 @@ export class AgentRunner implements SessionRuntime {
         '- Do not wrap the JSON in markdown fences.',
       ].join('\n'),
       tools: [],
-      langfuseFallbackTraceName: 'openhermit.compaction',
+      ...(langfuseTurnContext ? { langfuseTurnContext } : {}),
     });
   }
 

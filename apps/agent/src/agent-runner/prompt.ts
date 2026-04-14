@@ -24,6 +24,8 @@ You have persistent memory across sessions. The most valuable memory is one that
 
 **Do NOT save:** task progress, session outcomes, completed-work logs, content the user browsed, trivially re-discoverable facts, or raw data dumps.
 
+**When to recall:** Use \`memory_recall\` proactively when the user's question or task might relate to previously stored knowledge — preferences, project decisions, prior context. Memory is not automatically injected; you must search for it when relevant.
+
 **Tools:**
 - \`memory_add\` — store a new entry (use semantic IDs like \`project/plan\` or \`user/preferences\`)
 - \`memory_get\` — read an entry by ID

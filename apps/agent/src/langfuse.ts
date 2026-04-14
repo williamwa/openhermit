@@ -211,7 +211,7 @@ const startLangfuseGeneration = (
     metadata,
   });
   const generation = trace.generation({
-    name: request.name,
+    name: 'llm_call',
     model: model.id,
     input: sanitizeContext(context),
     metadata,
@@ -362,7 +362,6 @@ export const createLangfuseTracedStreamFn = (
   langfuse: LangfuseClientLike | undefined,
   baseStreamFn: StreamFn | undefined,
   turnContext: LangfuseTurnContext,
-  fallbackTraceName?: string,
 ): StreamFn | undefined => {
   if (!langfuse) {
     return baseStreamFn;
@@ -378,7 +377,7 @@ export const createLangfuseTracedStreamFn = (
     const { trace, generation, metadata } = turnContext.currentTrace
       ? startGenerationOnTrace(turnContext.currentTrace, model, context, options)
       : startLangfuseGeneration(langfuse, model, context, options, {
-          name: fallbackTraceName ?? 'openhermit.llm_step',
+          name: 'openhermit.llm_step',
         });
 
     let finalized: Promise<AssistantMessage> | undefined;
