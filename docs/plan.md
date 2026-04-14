@@ -16,7 +16,9 @@ OpenHermit already has a working single-agent runtime with:
 - CLI client
 - local web client
 - approval gate
-- exec, web, memory, instruction, and container tools
+- exec, web, memory, instruction tools (container tools disabled by default)
+- user model with identity resolution, role-based access control, and user management tools
+- Telegram channel adapter with identity extraction and auto-guest creation
 
 The main architectural direction is now stable:
 
@@ -30,7 +32,7 @@ The main architectural direction is now stable:
 
 There are also several active design drafts that are intentionally not yet implemented as architecture commitments:
 
-- participant / role model
+- ~~participant / role model~~ → superseded by `user-model.md` (Phase 1 implemented)
 - sandbox model
 - storage abstraction model
 
@@ -90,9 +92,27 @@ There are also several active design drafts that are intentionally not yet imple
   - three backends: `defuddle` (default, no API key), `exa`, `tavily`
   - configured via `config.json` `web.provider` + `secrets.json` for API keys
   - tools conditionally included only when webProvider is available
-- container tools (`container_start`, `container_stop`, `container_exec`, `container_run`, `container_status`)
+- container tools (`container_start`, `container_stop`, `container_exec`, `container_run`, `container_status`) — implemented but disabled by default
 - configurable container `mount_target`
 - instruction tools (`instruction_read`, `instruction_update`)
+- user management tools (`user_list`, `user_identity_link`, `user_identity_unlink`, `user_role_set`, `user_merge`) — owner-only
+
+### User Model
+
+- `users` and `user_identities` tables (schema v14)
+- `SqliteUserStore` with resolve, link, merge, scope isolation
+- per-session identity resolution with auto-guest creation for unknown users
+- owner auto-bootstrap on first CLI/web connection
+- three-tier role model: owner / user / guest
+- role-based tool filtering (per-session and per-turn via `refreshAgentConfiguration`)
+- multi-user system prompt: agent identity awareness, current user context, per-user memory namespacing (`user/{userId}/…`, `agent/…`, `project/…`)
+
+### Channel Adapters
+
+- Telegram adapter with identity extraction (chat_id, username, first_name)
+- auto-launch via `config.json` channel configuration
+- session-per-chat routing (`tg:{chatId}`)
+- `/start` and `/new` commands
 
 ## Remaining Major Work
 
@@ -119,15 +139,9 @@ There are also several active design drafts that are intentionally not yet imple
 
 These tracks are being explored in documentation but are not yet committed implementation directions.
 
-### Participant Model Draft
+### ~~Participant Model Draft~~ → User Model ✅ Implemented
 
-- separate:
-  - connection role
-  - participant identity
-  - relationship / access
-  - session routing
-- define the minimum participant context needed before pair and channel work lands
-- keep participant-scoped memory separate from agent identity files
+See `docs/user-model.md`. Phase 1 (core tables, identity resolution, role-based access, management tools, Telegram integration) is complete. Remaining: session management tools, configurable unknown-user policy, end-to-end identity linking/merge flow.
 
 ### Sandbox Model
 
@@ -156,10 +170,10 @@ These tracks are being explored in documentation but are not yet committed imple
 - finalize the boundary between:
   - system memory (via MemoryProvider)
   - user-authored knowledge (workspace files)
-- formalize structured key conventions such as:
-  - `project/...`
-  - `user/preferences/...`
-  - `ops/...`
+- ✅ formalized structured key conventions:
+  - `agent/…` — agent identity and configuration
+  - `user/{userId}/…` — per-user data (strict: never bare `user/` without userId)
+  - `project/…` — project-wide knowledge
 - ~~refine `getContextBlock()` retrieval strategy beyond "most recent 5"~~ — now configurable, default 10
 - explore relevance-based or key-prefix-prioritized retrieval
 - define when idle consolidation may promote transient knowledge into long-term memory
@@ -213,7 +227,7 @@ These tracks are being explored in documentation but are not yet committed imple
 ## Phase 5 — Web + Channel Maturity
 
 - improve web UX on top of the existing client
-- add Telegram as the first real channel adapter
+- ✅ Telegram as the first real channel adapter (with identity resolution and auto-guest)
 - make adapter/session binding first-class across channels
 
 ## Phase 6 — Gateway / Multi-Agent

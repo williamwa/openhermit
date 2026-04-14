@@ -322,23 +322,29 @@ interface InternalStateStore {
 }
 ```
 
-## Implementation Order
+## Implementation Status
 
-### Phase 1: Core (single-user with identity foundation)
+### Phase 1: Core ✅ Completed
 
-1. **Schema migration** — add `users` and `user_identities` tables with `merged_into` column (migration 14)
-2. **UserStore** — implement `SqliteUserStore` with resolve, link, merge operations
-3. **Wire into InternalStateStore** — add `users` field
-4. **Identity resolution in agent runtime** — resolve userId per-session, attach to session context
-5. **Tool filtering by role** — filter tool set based on resolved user's role
-6. **CLI/web bootstrap** — auto-create owner on first connection
-7. **Management tools** — user tools (`user_list`, `user_identity_link`, `user_identity_unlink`, `user_role_set`, `user_merge`) + session tools (`session_list`, `session_read`, `session_summary`), all owner-only
+1. ✅ **Schema migration** — `users` and `user_identities` tables with `merged_into` column (migration 14)
+2. ✅ **UserStore** — `SqliteUserStore` with resolve, link, merge operations
+3. ✅ **Wire into InternalStateStore** — `users` field added
+4. ✅ **Identity resolution in agent runtime** — resolve userId per-session (including existing sessions on re-open), attach to session context
+5. ✅ **Tool filtering by role** — filter tool set based on resolved user's role; `refreshAgentConfiguration` also respects role
+6. ✅ **CLI/web bootstrap** — auto-create owner on first connection (using OS username as identity)
+7. ✅ **User management tools** — `user_list`, `user_identity_link`, `user_identity_unlink`, `user_role_set`, `user_merge` (owner-only)
+8. ✅ **System prompt** — multi-user aware preamble; per-user memory namespacing (`user/{userId}/…`); current user context section; agent identity under `agent/…`
+9. ✅ **Telegram identity** — Telegram bridge passes metadata (chat_id, username, first_name) on all session opens including `/start`; auto-guest creation for unknown Telegram users
+
+### Phase 1b: Remaining
+
+- **Session management tools** — `session_list`, `session_read`, `session_summary` (owner-only, not yet implemented)
+- **Unknown user policy config** — `auto_guest` is hardcoded; `reject` and `require_approval` policies not yet configurable
 
 ### Phase 2: Multi-channel
 
-9. **Channel adapter integration** — Telegram adapter extracts identity and passes through
-10. **Identity linking flow** — owner links identities through conversation, merge semantics
-11. **DM pairing** — code-based approval flow for `require_approval` unknown user policy (inspired by Hermes)
+- **Identity linking flow** — owner links identities through conversation, merge semantics (tools exist, flow not yet tested end-to-end)
+- **DM pairing** — code-based approval flow for `require_approval` unknown user policy (inspired by Hermes)
 
 ### Long-Term Roadmap
 
