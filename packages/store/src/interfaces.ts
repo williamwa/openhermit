@@ -27,7 +27,7 @@ export interface MessageStore {
   appendLogEntry(scope: StoreScope, sessionId: string, entry: SessionLogEntry): Promise<void>;
   writeSessionStarted(scope: StoreScope, spec: SessionSpec, model: { provider: string; model: string }): Promise<void>;
   listHistoryMessages(scope: StoreScope, sessionId: string): Promise<SessionHistoryMessage[]>;
-  listAllMessages(scope: StoreScope, sessionId: string): Promise<MessageRow[]>;
+  countMessages(scope: StoreScope, sessionId: string): Promise<number>;
   listSessionEntries(scope: StoreScope, sessionId: string): Promise<SessionLogEntry[]>;
   getSessionWorkingMemory(scope: StoreScope, sessionId: string): Promise<string | undefined>;
   setSessionWorkingMemory(scope: StoreScope, sessionId: string, content: string, updatedAt: string): Promise<void>;

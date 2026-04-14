@@ -440,17 +440,26 @@ export class AgentRunner implements SessionRuntime {
       await session.queue;
       await session.sideEffects;
 
-      const chronologicalHistory = await this.store.messages.listAllMessages(this.scope,
-        session.spec.sessionId,
-      );
-      const newHistory = chronologicalHistory.slice(session.lastSummarizedHistoryCount);
+      const totalCount = await this.store.messages.countMessages(this.scope, session.spec.sessionId);
+      const newCount = totalCount - session.lastSummarizedHistoryCount;
 
-      if (newHistory.length === 0) {
+      if (newCount <= 0) {
+        return false;
+      }
+
+      // Load only unsummarized messages (from the end, offset by 0, limit to newCount)
+      const unsummarized = await this.store.messages.listRecentMessages(
+        this.scope,
+        session.spec.sessionId,
+        newCount,
+      );
+
+      if (unsummarized.length === 0) {
         return false;
       }
 
       const config = await this.options.security.readConfig();
-      return await this.runIntrospection(session, reason, config, chronologicalHistory, newHistory);
+      return await this.runIntrospection(session, reason, config, totalCount, unsummarized);
     } finally {
       session.checkpointInProgress = false;
     }
@@ -460,7 +469,7 @@ export class AgentRunner implements SessionRuntime {
     session: RunnerSession,
     reason: 'manual' | 'new_session' | 'turn_limit' | 'idle',
     config: AgentConfig,
-    chronologicalHistory: Array<{ role: 'user' | 'assistant' | 'error'; content: string; ts: string }>,
+    totalMessageCount: number,
     newHistory: Array<{ role: 'user' | 'assistant' | 'error'; content: string; ts: string }>,
   ): Promise<boolean> {
     const previousWorkingMemory = await this.store.messages.getSessionWorkingMemory(this.scope,
@@ -487,7 +496,7 @@ export class AgentRunner implements SessionRuntime {
 
     // Update session index
     const ts = new Date().toISOString();
-    session.lastSummarizedHistoryCount = chronologicalHistory.length;
+    session.lastSummarizedHistoryCount = totalMessageCount;
     session.lastSummarizedTurnCount = session.completedTurnCount;
     session.lastSummarizedAt = ts;
 

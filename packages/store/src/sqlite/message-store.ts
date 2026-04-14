@@ -161,28 +161,16 @@ export class SqliteMessageStore implements MessageStore {
     return rows.map(mapEventRowToHistoryMessage);
   }
 
-  async listAllMessages(
-    scope: StoreScope,
-    sessionId: string,
-  ): Promise<MessageRow[]> {
-    const rows = this.database
+  async countMessages(scope: StoreScope, sessionId: string): Promise<number> {
+    const row = this.database
       .prepare(
-        `SELECT ts, event_type AS role, content
+        `SELECT COUNT(*) AS cnt
          FROM session_events
-         WHERE agent_id = ? AND session_id = ? AND event_type IN ('user', 'assistant', 'error')
-         ORDER BY ts ASC, id ASC`,
+         WHERE agent_id = ? AND session_id = ? AND event_type IN ('user', 'assistant', 'error')`,
       )
-      .all(scope.agentId, sessionId) as Array<{
-      ts: string;
-      role: 'user' | 'assistant' | 'error';
-      content: string;
-    }>;
+      .get(scope.agentId, sessionId) as { cnt: number } | undefined;
 
-    return rows.map((row) => ({
-      ts: row.ts,
-      role: row.role,
-      content: row.content,
-    }));
+    return row?.cnt ?? 0;
   }
 
   async listSessionEntries(scope: StoreScope, sessionId: string): Promise<SessionLogEntry[]> {
