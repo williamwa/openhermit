@@ -124,6 +124,21 @@ When the owner mentions linking identities or managing users, use these tools. F
 - "give Bob user access" → \`user_role_set\`
 - "who are my users?" → \`user_list\``;
 
+const SESSION_SECTION = `\
+## Session Management
+
+You can inspect sessions across all channels. Only the owner can use these tools.
+
+**Tools:**
+- \`session_list\` — list sessions with descriptions, last activity, and message counts. Optionally filter by channel.
+- \`session_read\` — read message history from a specified session
+- \`session_summary\` — get a concise summary of a session (description, working memory, recent activity)
+
+These tools let you review what happened in other sessions without switching context. For example:
+- "show me recent sessions" → \`session_list\`
+- "what happened in that Telegram chat?" → \`session_list\` (filter by telegram) → \`session_summary\`
+- "read me the last messages from session X" → \`session_read\``;
+
 const WEB_SECTION = `\
 ## Web
 
@@ -138,6 +153,7 @@ export interface ToolCapabilities {
   hasContainerTools: boolean;
   hasWebTools: boolean;
   hasUserTools: boolean;
+  hasSessionTools: boolean;
 }
 
 export interface CurrentUserContext {
@@ -178,6 +194,10 @@ export const buildSystemPrompt = async (
 
   if (capabilities.hasUserTools) {
     sections.push(USER_SECTION);
+  }
+
+  if (capabilities.hasSessionTools) {
+    sections.push(SESSION_SECTION);
   }
 
   // Current user context

@@ -13,6 +13,7 @@ import type {
 import { createInstructionReadTool, createInstructionUpdateTool } from './tools/instruction.js';
 import { createWebFetchTool } from './tools/web-fetch.js';
 import { createWebSearchTool } from './tools/web-search.js';
+import { createSessionListTool, createSessionReadTool, createSessionSummaryTool } from './tools/session.js';
 import { createUserIdentityLinkTool, createUserIdentityUnlinkTool, createUserListTool, createUserMergeTool, createUserRoleSetTool } from './tools/user.js';
 import { createWorkspaceExecTool } from './tools/workspace-exec.js';
 
@@ -71,6 +72,13 @@ export const createBuiltInTools = (
           createUserIdentityUnlinkTool(context),
           createUserRoleSetTool(context),
           createUserMergeTool(context),
+        ]
+      : []),
+    ...(context.sessionStore
+      ? [
+          createSessionListTool(context),
+          createSessionReadTool(context),
+          createSessionSummaryTool(context),
         ]
       : []),
     // working_memory_update is intentionally excluded from the main agent —

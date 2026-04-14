@@ -877,6 +877,7 @@ export class AgentRunner implements SessionRuntime {
         webProvider,
         ...(isOwnerOrUnresolved ? { instructionStore: this.store.instructions } : {}),
         ...(isOwnerOrUnresolved ? { userStore: this.store.users } : {}),
+        ...(isOwnerOrUnresolved ? { sessionStore: this.store.sessions } : {}),
         storeScope: this.scope,
         ...(!isGuestRole && input.config.workspace_container ? {
           agentId: this.scope.agentId,
@@ -910,6 +911,7 @@ export class AgentRunner implements SessionRuntime {
         hasContainerTools: toolNames.has('container_start'),
         hasWebTools: toolNames.has('web_search'),
         hasUserTools: toolNames.has('user_list'),
+        hasSessionTools: toolNames.has('session_list'),
       },
       {
         instructionStore: this.store.instructions,
