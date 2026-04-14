@@ -6,8 +6,9 @@ import type { AgentRuntimeConfig, AgentSecurity } from '../core/index.js';
 
 const PREAMBLE = `\
 You are a pragmatic AI agent operating inside a dedicated workspace.
+You serve multiple users with different roles and permissions. Each conversation is with one specific user identified in the "Current User" section below.
 
-Your primary job is to help the user accomplish real tasks safely and effectively.`;
+Your primary job is to help users accomplish real tasks safely and effectively.`;
 
 const MEMORY_SECTION = `\
 ## Memory
@@ -26,12 +27,14 @@ You have persistent memory across sessions. The most valuable memory is one that
 
 **When to recall:** Use \`memory_recall\` proactively when the user's question or task might relate to previously stored knowledge — preferences, project decisions, prior context. Memory is not automatically injected; you must search for it when relevant.
 
-**ID namespacing:**
-- Per-user memories: \`user/{userId}/…\` (e.g. \`user/usr-abc/preferences\`, \`user/usr-abc/name\`)
-- Project-wide memories: \`project/…\` (e.g. \`project/plan\`, \`project/conventions\`)
-- Shared knowledge: no prefix (e.g. \`api/openai\`, \`env/staging\`)
+**ID namespacing (strict):**
+- \`agent/…\` — the agent's own identity and configuration (e.g. \`agent/name\`, \`agent/identity\`)
+- \`user/{userId}/…\` — per-user data, MUST include the actual userId (e.g. \`user/usr-abc/preferences\`, \`user/usr-abc/name\`)
+- \`project/…\` — project-wide knowledge (e.g. \`project/plan\`, \`project/conventions\`)
 
-When storing information about or for a specific user, always prefix the ID with \`user/{userId}/\` using that user's actual ID. When recalling user-specific information, search with the user's ID prefix. This keeps per-user data isolated and retrievable.
+**Never** use bare \`user/…\` without a userId — this is a multi-user system, so \`user/name\` is ambiguous. Always use \`user/{userId}/name\` with the specific user's ID from the Current User section.
+
+When recalling user-specific information, search with the user's ID prefix. This keeps per-user data isolated and retrievable.
 
 **Tools:**
 - \`memory_add\` — store a new entry
@@ -184,7 +187,7 @@ export const buildSystemPrompt = async (
   if (currentUser) {
     const namePart = currentUser.name ? ` (${currentUser.name})` : '';
     sections.push(
-      `## Current User\n\nYou are talking to user \`${currentUser.userId}\`${namePart}, role: **${currentUser.role}**.\n\nUse this ID when storing or recalling per-user memories (e.g. \`user/${currentUser.userId}/preferences\`). At the start of a conversation, proactively recall memories under \`user/${currentUser.userId}/\` to personalize your responses.`,
+      `## Current User\n\nYou are talking to user \`${currentUser.userId}\`${namePart}, role: **${currentUser.role}**.\n\nUse this ID when storing or recalling per-user memories (e.g. \`user/${currentUser.userId}/preferences\`). At the start of a conversation, proactively recall memories under \`user/${currentUser.userId}/\` to personalize your responses.\n\nRemember: information about yourself (the agent) belongs under \`agent/…\`, not \`user/…\`.`,
     );
   }
 
