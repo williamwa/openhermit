@@ -42,6 +42,10 @@ export interface LangfuseRequestOptions {
   metadata?: Record<string, unknown>;
 }
 
+export interface LangfuseTurnContext {
+  currentTrace: LangfuseTraceLike | undefined;
+}
+
 type LangfuseStreamMetadataOptions = {
   transport?: string;
   sessionId?: string;
@@ -221,6 +225,35 @@ const startLangfuseGeneration = (
   };
 };
 
+export const startTurnTrace = (
+  langfuse: LangfuseClientLike,
+  turnContext: LangfuseTurnContext,
+  sessionId: string,
+  turnNumber: number,
+  userMessage?: string,
+): void => {
+  turnContext.currentTrace = langfuse.trace({
+    name: 'openhermit.turn',
+    sessionId,
+    ...(userMessage ? { input: { text: userMessage } } : {}),
+    metadata: { turnNumber },
+  });
+};
+
+export const endTurnTrace = async (
+  langfuse: LangfuseClientLike,
+  turnContext: LangfuseTurnContext,
+  output?: { text?: string; error?: string },
+): Promise<void> => {
+  if (turnContext.currentTrace) {
+    turnContext.currentTrace.update({
+      ...(output ? { output } : {}),
+    });
+    turnContext.currentTrace = undefined;
+    await flushLangfuse(langfuse);
+  }
+};
+
 export const createLangfuseClientFromEnv = (options: {
   env?: NodeJS.ProcessEnv;
   logger?: (message: string) => void;
@@ -301,10 +334,35 @@ export const completeWithLangfuseTrace = async (
   }
 };
 
+const startGenerationOnTrace = (
+  trace: LangfuseTraceLike,
+  model: Model<any>,
+  context: Context,
+  options: LangfuseStreamMetadataOptions | undefined,
+) => {
+  const metadata: Record<string, unknown> = {
+    provider: model.provider,
+    model: model.id,
+    api: model.api,
+    ...(options?.transport ? { transport: options.transport } : {}),
+    ...(options?.sessionId ? { providerSessionId: options.sessionId } : {}),
+  };
+  const generation = trace.generation({
+    name: 'llm_call',
+    model: model.id,
+    input: sanitizeContext(context),
+    metadata,
+    startTime: new Date(),
+  });
+
+  return { trace, generation, metadata };
+};
+
 export const createLangfuseTracedStreamFn = (
   langfuse: LangfuseClientLike | undefined,
   baseStreamFn: StreamFn | undefined,
-  request: LangfuseRequestOptions,
+  turnContext: LangfuseTurnContext,
+  fallbackTraceName?: string,
 ): StreamFn | undefined => {
   if (!langfuse) {
     return baseStreamFn;
@@ -314,13 +372,14 @@ export const createLangfuseTracedStreamFn = (
 
   return async (model, context, options) => {
     const original = await Promise.resolve(nextStreamFn(model, context, options));
-    const { trace, generation, metadata } = startLangfuseGeneration(
-      langfuse,
-      model,
-      context,
-      options,
-      request,
-    );
+
+    // If inside a turn, create generation as child of the turn trace.
+    // Otherwise fall back to a standalone trace+generation.
+    const { trace, generation, metadata } = turnContext.currentTrace
+      ? startGenerationOnTrace(turnContext.currentTrace, model, context, options)
+      : startLangfuseGeneration(langfuse, model, context, options, {
+          name: fallbackTraceName ?? 'openhermit.llm_step',
+        });
 
     let finalized: Promise<AssistantMessage> | undefined;
     const finalize = () => {

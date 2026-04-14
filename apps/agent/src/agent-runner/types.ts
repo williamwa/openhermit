@@ -2,7 +2,7 @@ import type { Agent, StreamFn } from '@mariozechner/pi-agent-core';
 import type { SessionStatus } from '@openhermit/protocol';
 import type { InternalStateStore } from '@openhermit/store';
 
-import type { LangfuseClientLike } from '../langfuse.js';
+import type { LangfuseClientLike, LangfuseTurnContext } from '../langfuse.js';
 import type { SessionDescriptor } from '../runtime.js';
 import type { ApprovalGate } from './approval-gate.js';
 
@@ -26,6 +26,7 @@ export interface RunnerSession extends SessionDescriptor {
   descriptionSource?: 'fallback' | 'ai';
   lastMessagePreview?: string;
   resumed: boolean;
+  langfuseTurnContext?: LangfuseTurnContext;
 }
 
 export interface AgentRunnerOptions {

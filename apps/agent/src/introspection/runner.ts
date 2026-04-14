@@ -31,7 +31,7 @@ export interface IntrospectionInput {
     contextSessionId: string;
     extraSystemPrompt?: string;
     tools?: any[];
-    langfuseRequest?: { name: string; metadata?: Record<string, unknown> };
+    langfuseFallbackTraceName?: string;
   }) => Promise<Agent>;
 
   logRuntime: (message: string) => void;
@@ -104,13 +104,7 @@ export async function runIntrospection(input: IntrospectionInput): Promise<Intro
       contextSessionId: input.sessionId,
       extraSystemPrompt: INTROSPECTION_SYSTEM_PROMPT,
       tools,
-      langfuseRequest: {
-        name: 'openhermit.session_introspection',
-        metadata: {
-          requestKind: 'session-introspection',
-          introspectionReason: input.reason,
-        },
-      },
+      langfuseFallbackTraceName: 'openhermit.introspection',
     });
 
     // Track tool calls via subscription

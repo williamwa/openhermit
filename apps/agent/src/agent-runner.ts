@@ -37,6 +37,9 @@ import {
 } from './session-utils.js';
 import {
   createLangfuseTracedStreamFn,
+  endTurnTrace,
+  type LangfuseTurnContext,
+  startTurnTrace,
 } from './langfuse.js';
 import { type SessionDescriptor, SessionEventBroker, type SessionRuntime } from './runtime.js';
 import {
@@ -207,6 +210,8 @@ export class AgentRunner implements SessionRuntime {
     const approvalCallback = effectiveSpec.source.interactive
       ? this.makeApprovalCallback(effectiveSpec.sessionId, approvalGate)
       : undefined;
+    const langfuseTurnContext: LangfuseTurnContext | undefined =
+      this.options.langfuse ? { currentTrace: undefined } : undefined;
     let session: RunnerSession | undefined;
     const agent = await this.createAgent(
       effectiveSpec,
@@ -227,6 +232,7 @@ export class AgentRunner implements SessionRuntime {
         return this.makeToolStartedCallback(session)(...args);
       },
       approvedCache,
+      langfuseTurnContext,
     );
     session = {
       spec: effectiveSpec,
@@ -256,6 +262,7 @@ export class AgentRunner implements SessionRuntime {
         ? { lastMessagePreview: persisted.lastMessagePreview }
         : {}),
       resumed: Boolean(persisted),
+      ...(langfuseTurnContext ? { langfuseTurnContext } : {}),
     };
 
     agent.subscribe((event) => {
@@ -509,6 +516,15 @@ export class AgentRunner implements SessionRuntime {
       try {
         await this.refreshAgentConfiguration(session);
         session.latestAssistantText = undefined;
+        if (this.options.langfuse && session.langfuseTurnContext) {
+          startTurnTrace(
+            this.options.langfuse,
+            session.langfuseTurnContext,
+            session.spec.sessionId,
+            session.completedTurnCount + 1,
+            message.text,
+          );
+        }
         await session.agent.prompt(createUserMessage(message));
       } catch (error) {
         await this.handleRunError(session, error);
@@ -660,6 +676,7 @@ export class AgentRunner implements SessionRuntime {
     onToolRequested?: ToolRequestedCallback,
     onToolStarted?: ToolStartedCallback,
     approvedCache?: Set<string>,
+    langfuseTurnContext?: LangfuseTurnContext,
   ): Promise<Agent> {
     return this.createConfiguredAgent({
       config,
@@ -669,6 +686,7 @@ export class AgentRunner implements SessionRuntime {
       ...(onToolRequested ? { onToolRequested } : {}),
       ...(onToolStarted ? { onToolStarted } : {}),
       ...(approvedCache ? { approvedCache } : {}),
+      ...(langfuseTurnContext ? { langfuseTurnContext } : {}),
     });
   }
 
@@ -682,10 +700,8 @@ export class AgentRunner implements SessionRuntime {
     onToolStarted?: ToolStartedCallback;
     extraSystemPrompt?: string;
     tools?: ReturnType<typeof createBuiltInTools>;
-    langfuseRequest?: {
-      name: string;
-      metadata?: Record<string, unknown>;
-    };
+    langfuseTurnContext?: LangfuseTurnContext;
+    langfuseFallbackTraceName?: string;
   }): Promise<Agent> {
     const webProvider = this.resolveWebProvider(input.config);
 
@@ -732,15 +748,8 @@ export class AgentRunner implements SessionRuntime {
     const streamFn = createLangfuseTracedStreamFn(
       this.options.langfuse,
       this.options.streamFn,
-      {
-        name: input.langfuseRequest?.name ?? 'openhermit.llm_step',
-        sessionId: input.contextSessionId,
-        agentSessionId: input.agentSessionId,
-        metadata: {
-          requestKind: 'llm-step',
-          ...(input.langfuseRequest?.metadata ?? {}),
-        },
-      },
+      input.langfuseTurnContext ?? { currentTrace: undefined },
+      input.langfuseFallbackTraceName,
     );
 
     return new Agent({
@@ -1001,10 +1010,6 @@ export class AgentRunner implements SessionRuntime {
       config,
       agentSessionId: `${sessionId}:compaction`,
       contextSessionId: sessionId,
-      langfuseRequest: {
-        name: 'openhermit.context_compaction',
-        metadata: { requestKind: 'context-compaction' },
-      },
       extraSystemPrompt: [
         'Internal compaction turn:',
         '- This is an internal runtime turn, not a user-facing reply.',
@@ -1016,6 +1021,7 @@ export class AgentRunner implements SessionRuntime {
         '- Do not wrap the JSON in markdown fences.',
       ].join('\n'),
       tools: [],
+      langfuseFallbackTraceName: 'openhermit.compaction',
     });
   }
 
@@ -1231,6 +1237,12 @@ export class AgentRunner implements SessionRuntime {
           });
         })();
 
+        if (this.options.langfuse && session.langfuseTurnContext) {
+          void endTurnTrace(this.options.langfuse, session.langfuseTurnContext, {
+            ...(finalText ? { text: finalText } : {}),
+          });
+        }
+
         session.latestAssistantText = undefined;
         void this.queueSideEffect(session, async () => {
           await this.store.messages.appendLogEntry(this.scope,session.spec.sessionId, {
@@ -1257,6 +1269,12 @@ export class AgentRunner implements SessionRuntime {
     session.updatedAt = ts;
     session.status = 'idle';
     await this.persistSessionIndex(session);
+
+    if (this.options.langfuse && session.langfuseTurnContext) {
+      void endTurnTrace(this.options.langfuse, session.langfuseTurnContext, {
+        error: message,
+      });
+    }
 
     try {
       await this.events.publish({

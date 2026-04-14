@@ -1244,17 +1244,19 @@ test('AgentRunner emits Langfuse traces for LLM steps', async (t) => {
   });
   await runner.waitForSessionIdle('cli:langfuse-session');
 
+  // Turn trace is created by startTurnTrace; LLM generation is a child of it.
   assert.equal(langfuse.traces.length, 1);
-  assert.equal(langfuse.traces[0]?.body.name, 'openhermit.llm_step');
+  assert.equal(langfuse.traces[0]?.body.name, 'openhermit.turn');
   assert.equal(langfuse.traces[0]?.body.sessionId, 'cli:langfuse-session');
+  assert.equal((langfuse.traces[0]?.body.metadata as Record<string, unknown>)?.turnNumber, 1);
   assert.equal(langfuse.traces[0]?.client.generations.length, 1);
+  assert.equal(
+    langfuse.traces[0]?.client.generations[0]?.body.name,
+    'llm_call',
+  );
   assert.equal(
     langfuse.traces[0]?.client.generations[0]?.body.model,
     'claude-opus-4-5',
-  );
-  assert.equal(
-    (langfuse.traces[0]?.client.generations[0]?.body.metadata as Record<string, unknown>)?.requestKind,
-    'llm-step',
   );
   assert.equal(
     ((langfuse.traces[0]?.client.generations[0]?.body.input as Record<string, unknown>)?.messages as Array<Record<string, unknown>>)[0]?.role,
@@ -1268,6 +1270,8 @@ test('AgentRunner emits Langfuse traces for LLM steps', async (t) => {
     (((langfuse.traces[0]?.client.generations[0]?.client.ended[0]?.output as Record<string, unknown>)?.content as Array<Record<string, unknown>>)[0]?.text),
     'hello with trace',
   );
+  // Turn trace is updated with output when turn ends
+  assert.ok(langfuse.traces[0]?.client.updates.length > 0);
 });
 
 test('AgentRunner uses a dedicated Langfuse trace name for internal checkpoints', async (t) => {
@@ -1308,14 +1312,12 @@ test('AgentRunner uses a dedicated Langfuse trace name for internal checkpoints'
   await runner.waitForSessionIdle('cli:checkpoint-trace');
   await runner.checkpointSession('cli:checkpoint-trace', 'manual');
 
-  assert.equal(langfuse.traces[0]?.body.name, 'openhermit.llm_step');
-  assert.equal(langfuse.traces[1]?.body.name, 'openhermit.session_introspection');
-  assert.equal(
-    (langfuse.traces[1]?.body.metadata as Record<string, unknown>)?.requestKind,
-    'session-introspection',
-  );
-  assert.equal(
-    (langfuse.traces[1]?.body.metadata as Record<string, unknown>)?.introspectionReason,
-    'manual',
-  );
+  // First trace: the user turn (postMessage creates a turn trace)
+  assert.equal(langfuse.traces[0]?.body.name, 'openhermit.turn');
+  assert.equal(langfuse.traces[0]?.body.sessionId, 'cli:checkpoint-trace');
+  // The LLM call for "first reply" is a generation on the turn trace, not a separate trace
+  assert.equal(langfuse.traces[0]?.client.generations.length, 1);
+
+  // Second trace: standalone trace from the introspection agent's LLM call
+  assert.equal(langfuse.traces[1]?.body.name, 'openhermit.introspection');
 });
