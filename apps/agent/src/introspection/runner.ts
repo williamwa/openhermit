@@ -7,7 +7,7 @@ import { DEFAULT_INTROSPECTION_CONFIG } from '../core/types.js';
 import type { LangfuseClientLike, LangfuseTurnContext } from '../langfuse.js';
 import { endTurnTrace } from '../langfuse.js';
 import { createIntrospectionTools } from './tools.js';
-import { INTROSPECTION_SYSTEM_PROMPT, buildIntrospectionUserMessage } from './prompt.js';
+import { buildIntrospectionSystemPrompt, buildIntrospectionUserMessage } from './prompt.js';
 import { serializeDetails } from '../agent-runner/message-utils.js';
 import type { AgentSecurity } from '../core/index.js';
 import type { ToolContext } from '../tools/shared.js';
@@ -23,6 +23,8 @@ export interface IntrospectionInput {
   history: Array<{ role: 'user' | 'assistant' | 'error'; content: string; ts: string }>;
   previousWorkingMemory: string | undefined;
   currentDescription: string | undefined;
+  /** Current conversation partner context for memory key namespacing. */
+  currentUser?: { userId: string; role: string; name?: string };
   completedTurnCount: number;
   lastSummarizedTurnCount: number;
 
@@ -116,7 +118,7 @@ export async function runIntrospection(input: IntrospectionInput): Promise<Intro
       config: input.config,
       agentSessionId: `${input.sessionId}:introspection`,
       contextSessionId: input.sessionId,
-      extraSystemPrompt: INTROSPECTION_SYSTEM_PROMPT,
+      extraSystemPrompt: buildIntrospectionSystemPrompt(input.currentUser),
       tools,
       ...(langfuseTurnContext ? { langfuseTurnContext } : {}),
     });
