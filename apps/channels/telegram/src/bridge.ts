@@ -109,7 +109,7 @@ export class TelegramBridge {
     const displayName =
       message.from?.first_name ?? message.from?.username ?? 'there';
 
-    await this.ensureSession(sessionId);
+    await this.ensureSession(sessionId, message);
     await this.telegram.sendMessage(
       chatId,
       `Hello ${displayName}! I'm ready. Send me a message to get started.\n\nUse /new to start a fresh conversation.`,

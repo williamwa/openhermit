@@ -11,6 +11,8 @@ import type {
   PersistedSessionIndexEntry,
   SessionLogEntry,
   StoreScope,
+  UserIdentity,
+  UserRecord,
 } from './types.js';
 
 export interface SessionStore {
@@ -60,11 +62,41 @@ export interface InstructionStore {
   set(scope: StoreScope, key: string, content: string, updatedAt: string): Promise<void>;
 }
 
+export interface UserStore {
+  /** Create or update a user record. */
+  upsert(scope: StoreScope, user: UserRecord): Promise<void>;
+
+  /** Get a user by ID. Returns undefined if not found or if merged. */
+  get(scope: StoreScope, userId: string): Promise<UserRecord | undefined>;
+
+  /** List all active users (excludes merged records). */
+  list(scope: StoreScope): Promise<UserRecord[]>;
+
+  /** Link a channel identity to a user. */
+  linkIdentity(scope: StoreScope, identity: UserIdentity): Promise<void>;
+
+  /** Resolve a channel identity to a user ID. Follows merged_into if needed. */
+  resolve(scope: StoreScope, channel: string, channelUserId: string): Promise<string | undefined>;
+
+  /** Remove a channel identity link. */
+  unlinkIdentity(scope: StoreScope, channel: string, channelUserId: string): Promise<void>;
+
+  /** List identities for a given user. */
+  listIdentities(scope: StoreScope, userId: string): Promise<UserIdentity[]>;
+
+  /** Mark a user as merged into another. Re-links all identities to the target. */
+  merge(scope: StoreScope, fromUserId: string, intoUserId: string): Promise<void>;
+
+  /** Delete a user and all their identities. */
+  delete(scope: StoreScope, userId: string): Promise<void>;
+}
+
 export interface InternalStateStore {
   sessions: SessionStore;
   messages: MessageStore;
   memories: MemoryProvider;
   containers: ContainerStore;
   instructions: InstructionStore;
+  users: UserStore;
   close(): void;
 }

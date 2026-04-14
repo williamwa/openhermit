@@ -26,8 +26,15 @@ You have persistent memory across sessions. The most valuable memory is one that
 
 **When to recall:** Use \`memory_recall\` proactively when the user's question or task might relate to previously stored knowledge — preferences, project decisions, prior context. Memory is not automatically injected; you must search for it when relevant.
 
+**ID namespacing:**
+- Per-user memories: \`user/{userId}/…\` (e.g. \`user/usr-abc/preferences\`, \`user/usr-abc/name\`)
+- Project-wide memories: \`project/…\` (e.g. \`project/plan\`, \`project/conventions\`)
+- Shared knowledge: no prefix (e.g. \`api/openai\`, \`env/staging\`)
+
+When storing information about or for a specific user, always prefix the ID with \`user/{userId}/\` using that user's actual ID. When recalling user-specific information, search with the user's ID prefix. This keeps per-user data isolated and retrievable.
+
 **Tools:**
-- \`memory_add\` — store a new entry (use semantic IDs like \`project/plan\` or \`user/preferences\`)
+- \`memory_add\` — store a new entry
 - \`memory_get\` — read an entry by ID
 - \`memory_recall\` — search by keyword or phrase
 - \`memory_update\` — update an existing entry (read with \`memory_get\` first)
@@ -96,6 +103,23 @@ One-off, disposable containers for isolated tasks. Use them only when you need a
 
 Ephemeral containers are automatically removed after execution.`;
 
+const USER_SECTION = `\
+## User Management
+
+You can manage users and their cross-channel identities. Only the owner can use these tools.
+
+**Tools:**
+- \`user_list\` — list all users with their identities and roles
+- \`user_identity_link\` — link a channel identity (e.g. telegram:12345) to a user
+- \`user_identity_unlink\` — remove a channel identity link
+- \`user_role_set\` — change a user's role (owner, user, or guest)
+- \`user_merge\` — merge one user into another (transfers all identities)
+
+When the owner mentions linking identities or managing users, use these tools. For example:
+- "that Telegram user is me" → find the user, then \`user_identity_link\` to your own user ID
+- "give Bob user access" → \`user_role_set\`
+- "who are my users?" → \`user_list\``;
+
 const WEB_SECTION = `\
 ## Web
 
@@ -109,6 +133,13 @@ export interface ToolCapabilities {
   hasExecTool: boolean;
   hasContainerTools: boolean;
   hasWebTools: boolean;
+  hasUserTools: boolean;
+}
+
+export interface CurrentUserContext {
+  userId: string;
+  role: import('@openhermit/store').UserRole;
+  name?: string;
 }
 
 export interface InstructionSource {
@@ -121,6 +152,7 @@ export const buildSystemPrompt = async (
   security: AgentSecurity,
   capabilities: ToolCapabilities,
   instructionSource?: InstructionSource,
+  currentUser?: CurrentUserContext,
 ): Promise<string> => {
   const sections: string[] = [PREAMBLE];
 
@@ -142,6 +174,18 @@ export const buildSystemPrompt = async (
 
   if (capabilities.hasWebTools) {
     sections.push(WEB_SECTION);
+  }
+
+  if (capabilities.hasUserTools) {
+    sections.push(USER_SECTION);
+  }
+
+  // Current user context
+  if (currentUser) {
+    const namePart = currentUser.name ? ` (${currentUser.name})` : '';
+    sections.push(
+      `## Current User\n\nYou are talking to user \`${currentUser.userId}\`${namePart}, role: **${currentUser.role}**.\n\nUse this ID when storing or recalling per-user memories (e.g. \`user/${currentUser.userId}/preferences\`). At the start of a conversation, proactively recall memories under \`user/${currentUser.userId}/\` to personalize your responses.`,
+    );
   }
 
   // Built-in tools note (only if any tools besides memory exist)

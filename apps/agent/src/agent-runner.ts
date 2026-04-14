@@ -1,9 +1,12 @@
+import { userInfo } from 'node:os';
+
 import { Agent, type AgentEvent, type AgentMessage } from '@mariozechner/pi-agent-core';
 import type { SessionHistoryMessage, SessionListQuery, SessionMessage, SessionSpec, SessionSummary } from '@openhermit/protocol';
 import { NotFoundError, ValidationError, getErrorMessage } from '@openhermit/shared';
 import {
   type InternalStateStore,
   type StoreScope,
+  type UserRole,
   SqliteInternalStateStore,
 } from '@openhermit/store';
 
@@ -166,6 +169,16 @@ export class AgentRunner implements SessionRuntime {
       };
       existing.updatedAt = now;
       existing.status = 'idle';
+
+      // Resolve user identity if not already resolved for this session
+      if (!existing.resolvedUserId) {
+        await this.ensureOwnerBootstrap(existing.spec, now);
+        const { userId, role, userName } = await this.resolveSessionUser(existing.spec, now);
+        if (userId) existing.resolvedUserId = userId;
+        if (role) existing.resolvedUserRole = role;
+        if (userName) existing.resolvedUserName = userName;
+      }
+
       await this.persistSessionIndex(existing);
 
       return {
@@ -193,6 +206,13 @@ export class AgentRunner implements SessionRuntime {
     const createdAt = persisted?.createdAt ?? now;
 
     const config = await this.options.security.readConfig();
+
+    // Bootstrap owner on first connection from CLI or web
+    await this.ensureOwnerBootstrap(effectiveSpec, now);
+
+    // Resolve user identity for this session
+    const { userId: resolvedUserId, role: resolvedUserRole, userName: resolvedUserName } =
+      await this.resolveSessionUser(effectiveSpec, now);
 
     if (
       config.workspace_container &&
@@ -233,6 +253,9 @@ export class AgentRunner implements SessionRuntime {
       },
       approvedCache,
       langfuseTurnContext,
+      resolvedUserRole,
+      resolvedUserId,
+      resolvedUserName,
     );
     session = {
       spec: effectiveSpec,
@@ -262,6 +285,9 @@ export class AgentRunner implements SessionRuntime {
         ? { lastMessagePreview: persisted.lastMessagePreview }
         : {}),
       resumed: Boolean(persisted),
+      ...(resolvedUserId ? { resolvedUserId } : {}),
+      ...(resolvedUserRole ? { resolvedUserRole } : {}),
+      ...(resolvedUserName ? { resolvedUserName } : {}),
       ...(langfuseTurnContext ? { langfuseTurnContext } : {}),
     };
 
@@ -670,6 +696,123 @@ export class AgentRunner implements SessionRuntime {
     });
   }
 
+  /**
+   * Bootstrap the owner user on first connection.
+   * If no users exist and the session is from CLI or web, create the owner
+   * and link the channel identity.
+   */
+  private async ensureOwnerBootstrap(spec: SessionSpec, now: string): Promise<void> {
+    const kind = spec.source.kind;
+    if (kind !== 'cli' && kind !== 'web') return;
+
+    const users = await this.store.users.list(this.scope);
+    if (users.length > 0) return;
+
+    const userId = `usr-owner`;
+    const name = spec.metadata?.telegram_first_name
+      ? String(spec.metadata.telegram_first_name)
+      : undefined;
+
+    await this.store.users.upsert(this.scope, {
+      userId,
+      role: 'owner',
+      ...(name ? { name } : {}),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // Link the channel identity if we can derive one
+    const channelUserId = this.deriveChannelUserId(spec);
+    if (channelUserId) {
+      await this.store.users.linkIdentity(this.scope, {
+        userId,
+        channel: kind,
+        channelUserId,
+        createdAt: now,
+      });
+    }
+
+    this.logRuntime(`owner user bootstrapped: ${userId}${channelUserId ? ` (${kind}:${channelUserId})` : ''}`);
+  }
+
+  /**
+   * Resolve the user for a session based on channel identity.
+   * If the identity is unknown, applies auto_guest policy: creates a guest user.
+   * Returns the resolved userId and role, or undefined if no identity is available.
+   */
+  private async resolveSessionUser(
+    spec: SessionSpec,
+    now: string,
+  ): Promise<{ userId?: string; role?: UserRole; userName?: string }> {
+    const channelUserId = this.deriveChannelUserId(spec);
+    if (!channelUserId) return {};
+
+    const channel = spec.source.platform ?? spec.source.kind;
+
+    // Try to resolve existing identity
+    const existingUserId = await this.store.users.resolve(this.scope, channel, channelUserId);
+    if (existingUserId) {
+      const user = await this.store.users.get(this.scope, existingUserId);
+      if (user) {
+        return { userId: user.userId, role: user.role, ...(user.name ? { userName: user.name } : {}) };
+      }
+    }
+
+    // Unknown identity: auto-create as guest
+    const guestId = `usr-${Date.now().toString(36)}`;
+    const meta = spec.metadata;
+    const name = meta?.telegram_first_name
+      ? String(meta.telegram_first_name)
+      : meta?.telegram_username
+        ? String(meta.telegram_username)
+        : undefined;
+
+    await this.store.users.upsert(this.scope, {
+      userId: guestId,
+      role: 'guest',
+      ...(name ? { name } : {}),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await this.store.users.linkIdentity(this.scope, {
+      userId: guestId,
+      channel,
+      channelUserId,
+      createdAt: now,
+    });
+
+    this.logRuntime(`auto-created guest user ${guestId} for ${channel}:${channelUserId}`);
+    return { userId: guestId, role: 'guest' as const, ...(name ? { userName: name } : {}) };
+  }
+
+  /**
+   * Derive a channel user ID from a session spec's metadata and source.
+   * Returns undefined if no identity can be extracted.
+   */
+  private deriveChannelUserId(spec: SessionSpec): string | undefined {
+    const meta = spec.metadata;
+
+    // Telegram: use chat_id or username
+    if (spec.source.platform === 'telegram') {
+      if (meta?.telegram_chat_id) return String(meta.telegram_chat_id);
+      if (meta?.telegram_username) return String(meta.telegram_username);
+    }
+
+    // CLI / web: use explicit metadata username or OS username as fallback
+    if (meta?.username) return String(meta.username);
+
+    if (spec.source.kind === 'cli' || spec.source.kind === 'web') {
+      try {
+        return userInfo().username;
+      } catch {
+        return undefined;
+      }
+    }
+
+    return undefined;
+  }
+
   private async createAgent(
     spec: SessionSpec,
     config: AgentConfig,
@@ -678,6 +821,9 @@ export class AgentRunner implements SessionRuntime {
     onToolStarted?: ToolStartedCallback,
     approvedCache?: Set<string>,
     langfuseTurnContext?: LangfuseTurnContext,
+    userRole?: UserRole,
+    userId?: string,
+    userName?: string,
   ): Promise<Agent> {
     return this.createConfiguredAgent({
       config,
@@ -688,6 +834,9 @@ export class AgentRunner implements SessionRuntime {
       ...(onToolStarted ? { onToolStarted } : {}),
       ...(approvedCache ? { approvedCache } : {}),
       ...(langfuseTurnContext ? { langfuseTurnContext } : {}),
+      ...(userRole ? { userRole } : {}),
+      ...(userId ? { userId } : {}),
+      ...(userName ? { userName } : {}),
     });
   }
 
@@ -702,21 +851,34 @@ export class AgentRunner implements SessionRuntime {
     extraSystemPrompt?: string;
     tools?: ReturnType<typeof createBuiltInTools>;
     langfuseTurnContext?: LangfuseTurnContext;
+    userRole?: UserRole;
+    userId?: string;
+    userName?: string;
   }): Promise<Agent> {
     const webProvider = this.resolveWebProvider(input.config);
+
+    // Role-based tool filtering:
+    // - owner: all tools (memory, instructions, exec, containers, web, user management)
+    // - user: memory, exec, containers, web (no instructions, no user management)
+    // - guest: web only (no memory, no exec, no containers, no instructions, no user management)
+    // - undefined (no user resolved): all tools (backwards compatibility)
+    const role = input.userRole;
+    const isOwnerOrUnresolved = !role || role === 'owner';
+    const isGuestRole = role === 'guest';
 
     const tools =
       input.tools
       ?? createBuiltInTools({
         security: this.options.security,
         containerManager: this.containerManager,
-        memoryProvider: this.store.memories,
+        ...(!isGuestRole ? { memoryProvider: this.store.memories } : {}),
         messageStore: this.store.messages,
         sessionId: input.contextSessionId,
         webProvider,
-        instructionStore: this.store.instructions,
+        ...(isOwnerOrUnresolved ? { instructionStore: this.store.instructions } : {}),
+        ...(isOwnerOrUnresolved ? { userStore: this.store.users } : {}),
         storeScope: this.scope,
-        ...(input.config.workspace_container ? {
+        ...(!isGuestRole && input.config.workspace_container ? {
           agentId: this.scope.agentId,
           workspaceContainerConfig: input.config.workspace_container,
           onExec: () => this.resetWorkspaceIdleTimer(input.config.workspace_container!),
@@ -726,7 +888,18 @@ export class AgentRunner implements SessionRuntime {
         ...(input.onToolRequested ? { onToolRequested: input.onToolRequested } : {}),
         ...(input.onToolStarted ? { onToolStarted: input.onToolStarted } : {}),
       });
-    const toolNames = new Set(tools.map((t) => t.name));
+
+    // Guest role: strip exec and container tools
+    const GUEST_BLOCKED_TOOLS = new Set([
+      'exec', 'container_run', 'container_start', 'container_stop', 'container_exec', 'container_status',
+    ]);
+    const filteredTools = isGuestRole
+      ? tools.filter((t) => !GUEST_BLOCKED_TOOLS.has(t.name))
+      : tools;
+    const toolNames = new Set(filteredTools.map((t) => t.name));
+    const currentUser = input.userId && input.userRole
+      ? { userId: input.userId, role: input.userRole, ...(input.userName ? { name: input.userName } : {}) }
+      : undefined;
     const baseSystemPrompt = await buildSystemPrompt(
       input.config,
       this.options.security,
@@ -736,11 +909,13 @@ export class AgentRunner implements SessionRuntime {
         hasExecTool: toolNames.has('exec'),
         hasContainerTools: toolNames.has('container_start'),
         hasWebTools: toolNames.has('web_search'),
+        hasUserTools: toolNames.has('user_list'),
       },
       {
         instructionStore: this.store.instructions,
         storeScope: this.scope,
       },
+      currentUser,
     );
     const systemPrompt = input.extraSystemPrompt
       ? `${baseSystemPrompt}\n\n${input.extraSystemPrompt}`.trim()
@@ -755,7 +930,7 @@ export class AgentRunner implements SessionRuntime {
       initialState: {
         systemPrompt,
         model: resolveModel(input.config),
-        tools,
+        tools: filteredTools,
         thinkingLevel: 'off',
       },
       sessionId: input.agentSessionId,
@@ -783,6 +958,9 @@ export class AgentRunner implements SessionRuntime {
       ...(approvalCallback ? { approvalCallback } : {}),
       onToolRequested: this.makeToolRequestedCallback(session),
       onToolStarted: this.makeToolStartedCallback(session),
+      ...(session.resolvedUserRole ? { userRole: session.resolvedUserRole } : {}),
+      ...(session.resolvedUserId ? { userId: session.resolvedUserId } : {}),
+      ...(session.resolvedUserName ? { userName: session.resolvedUserName } : {}),
     });
     session.agent.setModel(resolveModel(config));
     session.agent.setSystemPrompt(refreshedAgent.state.systemPrompt);

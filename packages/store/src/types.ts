@@ -99,3 +99,21 @@ export interface InstructionEntry {
   content: string;
   updatedAt: string;
 }
+
+export type UserRole = 'owner' | 'user' | 'guest';
+
+export interface UserRecord {
+  userId: string;
+  role: UserRole;
+  name?: string;
+  mergedInto?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UserIdentity {
+  userId: string;
+  channel: string;
+  channelUserId: string;
+  createdAt: string;
+}

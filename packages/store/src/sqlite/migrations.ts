@@ -87,6 +87,29 @@ const schemaStatements = [
     agent_id, memory_key, content,
     tokenize='porter unicode61'
   );`,
+  `CREATE TABLE IF NOT EXISTS users (
+    agent_id TEXT NOT NULL DEFAULT '${STANDALONE_AGENT_ID}',
+    user_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    name TEXT,
+    merged_into TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (agent_id, user_id)
+  ) STRICT;`,
+  `CREATE INDEX IF NOT EXISTS idx_users_agent
+    ON users(agent_id, updated_at DESC);`,
+  `CREATE TABLE IF NOT EXISTS user_identities (
+    agent_id TEXT NOT NULL DEFAULT '${STANDALONE_AGENT_ID}',
+    user_id TEXT NOT NULL,
+    channel TEXT NOT NULL,
+    channel_user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (agent_id, channel, channel_user_id),
+    FOREIGN KEY(agent_id, user_id) REFERENCES users(agent_id, user_id) ON DELETE CASCADE
+  ) STRICT;`,
+  `CREATE INDEX IF NOT EXISTS idx_user_identities_user
+    ON user_identities(agent_id, user_id);`,
 ] as const;
 
 const migrationStatements = [
@@ -113,9 +136,10 @@ const migrationStatements = [
   );`,
   `INSERT INTO memories_fts(agent_id, memory_key, content)
    SELECT agent_id, memory_key, content FROM memories;`,
+  // v14: add users and user_identities tables (created by schema statements)
 ] as const;
 
-export const CURRENT_SCHEMA_VERSION = 13;
+export const CURRENT_SCHEMA_VERSION = 14;
 
 const ensureMetaTable = (database: DatabaseSync): void => {
   database.exec(

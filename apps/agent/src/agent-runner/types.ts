@@ -1,6 +1,6 @@
 import type { Agent, StreamFn } from '@mariozechner/pi-agent-core';
 import type { SessionStatus } from '@openhermit/protocol';
-import type { InternalStateStore } from '@openhermit/store';
+import type { InternalStateStore, UserRole } from '@openhermit/store';
 
 import type { LangfuseClientLike, LangfuseTurnContext } from '../langfuse.js';
 import type { SessionDescriptor } from '../runtime.js';
@@ -26,6 +26,9 @@ export interface RunnerSession extends SessionDescriptor {
   descriptionSource?: 'fallback' | 'ai';
   lastMessagePreview?: string;
   resumed: boolean;
+  resolvedUserId?: string;
+  resolvedUserRole?: UserRole;
+  resolvedUserName?: string;
   langfuseTurnContext?: LangfuseTurnContext;
 }
 

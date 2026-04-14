@@ -4,6 +4,7 @@ export type {
   MemoryProvider,
   ContainerStore,
   InstructionStore,
+  UserStore,
   InternalStateStore,
 } from './interfaces.js';
 
@@ -16,6 +17,9 @@ export type {
   MemoryUpdateInput,
   MemorySearchOptions,
   InstructionEntry,
+  UserRole,
+  UserRecord,
+  UserIdentity,
   ContainerType,
   ContainerStatus,
   ContainerRegistryEntry,
@@ -31,6 +35,7 @@ export {
   SqliteMemoryProvider,
   SqliteContainerStore,
   SqliteInstructionStore,
+  SqliteUserStore,
   CURRENT_SCHEMA_VERSION,
   bootstrapDatabase,
 } from './sqlite/index.js';

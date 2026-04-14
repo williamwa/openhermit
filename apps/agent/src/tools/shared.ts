@@ -1,5 +1,5 @@
 import { ValidationError } from '@openhermit/shared';
-import type { InstructionStore, MemoryProvider, MessageStore, SessionStore, StoreScope } from '@openhermit/store';
+import type { InstructionStore, MemoryProvider, MessageStore, SessionStore, StoreScope, UserStore } from '@openhermit/store';
 
 import { AgentSecurity, type DockerContainerManager, type WorkspaceContainerConfig } from '../core/index.js';
 import type { WebProvider } from '../web/index.js';
@@ -16,6 +16,10 @@ const READONLY_BLOCKED_TOOLS = new Set([
   'exec',
   'instruction_update',
   'session_description_update',
+  'user_identity_link',
+  'user_identity_unlink',
+  'user_role_set',
+  'user_merge',
 ]);
 
 export type ApprovalDecision = 'approved' | 'rejected' | 'timed_out' | 'cancelled';
@@ -47,6 +51,7 @@ export interface ToolContext {
   sessionId?: string | undefined;
   webProvider?: WebProvider | undefined;
   instructionStore?: InstructionStore;
+  userStore?: UserStore;
   storeScope?: StoreScope;
   agentId?: string;
   workspaceContainerConfig?: WorkspaceContainerConfig;
