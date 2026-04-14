@@ -536,6 +536,7 @@ export class AgentRunner implements SessionRuntime {
         messageId: message.messageId,
         content: message.text,
         ...(message.attachments ? { attachments: message.attachments } : {}),
+        ...(session.resolvedUserId ? { userId: session.resolvedUserId } : {}),
       });
     });
 

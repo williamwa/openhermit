@@ -34,12 +34,13 @@ test('SqliteInternalStateStore creates tables with agent_id and composite keys',
   const sessionPks = sessionColumns.filter((c) => c.pk > 0).map((c) => c.name);
   assert.deepEqual(sessionPks, ['agent_id', 'session_id']);
 
-  // Verify session_messages has agent_id column
-  const msgColumns = store.rawDatabase
-    .prepare(`PRAGMA table_info(session_messages)`)
+  // Verify session_events has content and user_id columns
+  const eventColumns = store.rawDatabase
+    .prepare(`PRAGMA table_info(session_events)`)
     .all() as Array<{ name: string }>;
-  const msgColumnNames = msgColumns.map((c) => c.name);
-  assert.ok(msgColumnNames.includes('agent_id'));
+  const eventColumnNames = eventColumns.map((c) => c.name);
+  assert.ok(eventColumnNames.includes('content'));
+  assert.ok(eventColumnNames.includes('user_id'));
 
   // Verify memories has composite PK (agent_id, memory_key)
   const memColumns = store.rawDatabase

@@ -27,18 +27,6 @@ const schemaStatements = [
   ) STRICT;`,
   `CREATE INDEX IF NOT EXISTS idx_sessions_agent
     ON sessions(agent_id, last_activity_at DESC);`,
-  `CREATE TABLE IF NOT EXISTS session_messages (
-    id INTEGER PRIMARY KEY,
-    agent_id TEXT NOT NULL DEFAULT '${STANDALONE_AGENT_ID}',
-    session_id TEXT NOT NULL,
-    ts TEXT NOT NULL,
-    role TEXT NOT NULL,
-    content TEXT NOT NULL,
-    metadata_json TEXT NOT NULL DEFAULT '{}',
-    FOREIGN KEY(agent_id, session_id) REFERENCES sessions(agent_id, session_id) ON DELETE CASCADE
-  ) STRICT;`,
-  `CREATE INDEX IF NOT EXISTS idx_session_messages_agent_session
-    ON session_messages(agent_id, session_id, ts DESC);`,
   `CREATE TABLE IF NOT EXISTS session_events (
     id INTEGER PRIMARY KEY,
     agent_id TEXT NOT NULL DEFAULT '${STANDALONE_AGENT_ID}',
@@ -46,6 +34,8 @@ const schemaStatements = [
     ts TEXT NOT NULL,
     event_type TEXT NOT NULL,
     payload_json TEXT NOT NULL,
+    content TEXT,
+    user_id TEXT,
     FOREIGN KEY(agent_id, session_id) REFERENCES sessions(agent_id, session_id) ON DELETE CASCADE
   ) STRICT;`,
   `CREATE INDEX IF NOT EXISTS idx_session_events_agent_session
@@ -137,9 +127,16 @@ const migrationStatements = [
   `INSERT INTO memories_fts(agent_id, memory_key, content)
    SELECT agent_id, memory_key, content FROM memories;`,
   // v14: add users and user_identities tables (created by schema statements)
+  // v15: merge session_messages into session_events — add content + user_id columns, backfill, drop old table
+  `ALTER TABLE session_events ADD COLUMN content TEXT;`,
+  `ALTER TABLE session_events ADD COLUMN user_id TEXT;`,
+  `UPDATE session_events SET content = json_extract(payload_json, '$.content') WHERE event_type IN ('user', 'assistant') AND json_extract(payload_json, '$.content') IS NOT NULL;`,
+  `UPDATE session_events SET content = json_extract(payload_json, '$.message') WHERE event_type = 'error' AND json_extract(payload_json, '$.message') IS NOT NULL;`,
+  `DROP INDEX IF EXISTS idx_session_messages_agent_session;`,
+  `DROP TABLE IF EXISTS session_messages;`,
 ] as const;
 
-export const CURRENT_SCHEMA_VERSION = 14;
+export const CURRENT_SCHEMA_VERSION = 15;
 
 const ensureMetaTable = (database: DatabaseSync): void => {
   database.exec(

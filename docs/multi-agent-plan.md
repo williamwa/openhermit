@@ -106,8 +106,7 @@ interface InternalStateStore {
 
 Add `agent_id TEXT NOT NULL DEFAULT '__standalone__'` to:
 - `sessions`
-- `session_messages`
-- `session_events`
+- `session_events` (formerly also `session_messages`, now merged)
 - `memories`
 - `container_runtime_entries`
 

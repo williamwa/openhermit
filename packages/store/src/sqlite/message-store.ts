@@ -11,49 +11,49 @@ import type {
 const asRecord = (value: unknown): Record<string, unknown> | undefined =>
   typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : undefined;
 
-const mapHistoryRowToMessage = (row: {
+const mapEventRowToHistoryMessage = (row: {
   ts: string;
-  role: string;
+  event_type: string;
   content: string;
-  metadata_json: string;
+  payload_json: string;
 }): SessionHistoryMessage => {
-  const metadata = asRecord(JSON.parse(row.metadata_json || '{}'));
+  const payload = asRecord(JSON.parse(row.payload_json || '{}'));
 
-  if (row.role === 'user') {
+  if (row.event_type === 'user') {
     const message: SessionHistoryMessage = {
       ts: row.ts,
       role: 'user',
       content: row.content,
     };
 
-    if (typeof metadata?.messageId === 'string') {
-      message.messageId = metadata.messageId;
+    if (typeof payload?.messageId === 'string') {
+      message.messageId = payload.messageId;
     }
 
-    if (Array.isArray(metadata?.attachments)) {
-      message.attachments = metadata.attachments as SessionAttachment[];
+    if (Array.isArray(payload?.attachments)) {
+      message.attachments = payload.attachments as SessionAttachment[];
     }
 
     return message;
   }
 
-  if (row.role === 'assistant') {
+  if (row.event_type === 'assistant') {
     const message: SessionHistoryMessage = {
       ts: row.ts,
       role: 'assistant',
       content: row.content,
     };
 
-    if (typeof metadata?.provider === 'string') {
-      message.provider = metadata.provider;
+    if (typeof payload?.provider === 'string') {
+      message.provider = payload.provider;
     }
 
-    if (typeof metadata?.model === 'string') {
-      message.model = metadata.model;
+    if (typeof payload?.model === 'string') {
+      message.model = payload.model;
     }
 
-    if (typeof metadata?.stopReason === 'string') {
-      message.stopReason = metadata.stopReason;
+    if (typeof payload?.stopReason === 'string') {
+      message.stopReason = payload.stopReason;
     }
 
     return message;
@@ -66,16 +66,33 @@ const mapHistoryRowToMessage = (row: {
   };
 };
 
+/**
+ * Derive the content column value from a SessionLogEntry.
+ * Returns the text content for user/assistant/error entries, null otherwise.
+ */
+const deriveContent = (entry: SessionLogEntry): string | null => {
+  if ((entry.role === 'user' || entry.role === 'assistant') && typeof entry.content === 'string') {
+    return entry.content;
+  }
+  if (entry.role === 'error' && typeof entry.message === 'string') {
+    return entry.message;
+  }
+  return null;
+};
+
 const insertSessionLogEntry = (
   database: DatabaseSync,
   agentId: string,
   sessionId: string,
   entry: SessionLogEntry,
 ): void => {
+  const content = deriveContent(entry);
+  const userId = typeof entry.userId === 'string' ? entry.userId : null;
+
   database
     .prepare(
-      `INSERT INTO session_events(agent_id, session_id, ts, event_type, payload_json)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO session_events(agent_id, session_id, ts, event_type, payload_json, content, user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       agentId,
@@ -83,46 +100,9 @@ const insertSessionLogEntry = (
       entry.ts,
       entry.type ?? entry.role,
       JSON.stringify(entry),
+      content,
+      userId,
     );
-
-  if (entry.role === 'user' && typeof entry.content === 'string') {
-    const metadata = {
-      ...(typeof entry.messageId === 'string' ? { messageId: entry.messageId } : {}),
-      ...(Array.isArray(entry.attachments) ? { attachments: entry.attachments } : {}),
-    };
-    database
-      .prepare(
-        `INSERT INTO session_messages(agent_id, session_id, ts, role, content, metadata_json)
-         VALUES (?, ?, ?, 'user', ?, ?)`,
-      )
-      .run(agentId, sessionId, entry.ts, entry.content, JSON.stringify(metadata));
-    return;
-  }
-
-  if (entry.role === 'assistant' && typeof entry.content === 'string') {
-    const metadata = {
-      ...(typeof entry.provider === 'string' ? { provider: entry.provider } : {}),
-      ...(typeof entry.model === 'string' ? { model: entry.model } : {}),
-      ...(entry.usage !== undefined ? { usage: entry.usage } : {}),
-      ...(typeof entry.stopReason === 'string' ? { stopReason: entry.stopReason } : {}),
-    };
-    database
-      .prepare(
-        `INSERT INTO session_messages(agent_id, session_id, ts, role, content, metadata_json)
-         VALUES (?, ?, ?, 'assistant', ?, ?)`,
-      )
-      .run(agentId, sessionId, entry.ts, entry.content, JSON.stringify(metadata));
-    return;
-  }
-
-  if (entry.role === 'error' && typeof entry.message === 'string') {
-    database
-      .prepare(
-        `INSERT INTO session_messages(agent_id, session_id, ts, role, content, metadata_json)
-         VALUES (?, ?, ?, 'error', ?, '{}')`,
-      )
-      .run(agentId, sessionId, entry.ts, entry.message);
-  }
 };
 
 const createSessionStartedEntries = (
@@ -166,19 +146,19 @@ export class SqliteMessageStore implements MessageStore {
   async listHistoryMessages(scope: StoreScope, sessionId: string): Promise<SessionHistoryMessage[]> {
     const rows = this.database
       .prepare(
-        `SELECT ts, role, content, metadata_json
-         FROM session_messages
-         WHERE agent_id = ? AND session_id = ?
+        `SELECT ts, event_type, content, payload_json
+         FROM session_events
+         WHERE agent_id = ? AND session_id = ? AND content IS NOT NULL
          ORDER BY ts DESC, id DESC`,
       )
       .all(scope.agentId, sessionId) as Array<{
       ts: string;
-      role: string;
+      event_type: string;
       content: string;
-      metadata_json: string;
+      payload_json: string;
     }>;
 
-    return rows.map(mapHistoryRowToMessage);
+    return rows.map(mapEventRowToHistoryMessage);
   }
 
   async listCheckpointHistory(
@@ -187,25 +167,22 @@ export class SqliteMessageStore implements MessageStore {
   ): Promise<CheckpointHistoryRow[]> {
     const rows = this.database
       .prepare(
-        `SELECT ts, role, content
-         FROM session_messages
-         WHERE agent_id = ? AND session_id = ?
+        `SELECT ts, event_type AS role, content
+         FROM session_events
+         WHERE agent_id = ? AND session_id = ? AND event_type IN ('user', 'assistant', 'error')
          ORDER BY ts ASC, id ASC`,
       )
-      .all(scope.agentId, sessionId) as Array<{ ts: string; role: string; content: string }>;
+      .all(scope.agentId, sessionId) as Array<{
+      ts: string;
+      role: 'user' | 'assistant' | 'error';
+      content: string;
+    }>;
 
-    return rows
-      .filter(
-        (
-          row,
-        ): row is { ts: string; role: 'user' | 'assistant' | 'error'; content: string } =>
-          row.role === 'user' || row.role === 'assistant' || row.role === 'error',
-      )
-      .map((row) => ({
-        ts: row.ts,
-        role: row.role,
-        content: row.content,
-      }));
+    return rows.map((row) => ({
+      ts: row.ts,
+      role: row.role,
+      content: row.content,
+    }));
   }
 
   async listSessionEntries(scope: StoreScope, sessionId: string): Promise<SessionLogEntry[]> {
@@ -229,28 +206,25 @@ export class SqliteMessageStore implements MessageStore {
   ): Promise<CheckpointHistoryRow[]> {
     const rows = this.database
       .prepare(
-        `SELECT ts, role, content FROM (
-           SELECT ts, role, content, id
-           FROM session_messages
-           WHERE agent_id = ? AND session_id = ?
+        `SELECT ts, event_type AS role, content FROM (
+           SELECT ts, event_type, content, id
+           FROM session_events
+           WHERE agent_id = ? AND session_id = ? AND event_type IN ('user', 'assistant', 'error')
            ORDER BY id DESC
            LIMIT ? OFFSET ?
          ) sub ORDER BY id ASC`,
       )
-      .all(scope.agentId, sessionId, limit, offset ?? 0) as Array<{ ts: string; role: string; content: string }>;
+      .all(scope.agentId, sessionId, limit, offset ?? 0) as Array<{
+      ts: string;
+      role: 'user' | 'assistant' | 'error';
+      content: string;
+    }>;
 
-    return rows
-      .filter(
-        (
-          row,
-        ): row is { ts: string; role: 'user' | 'assistant' | 'error'; content: string } =>
-          row.role === 'user' || row.role === 'assistant' || row.role === 'error',
-      )
-      .map((row) => ({
-        ts: row.ts,
-        role: row.role,
-        content: row.content,
-      }));
+    return rows.map((row) => ({
+      ts: row.ts,
+      role: row.role,
+      content: row.content,
+    }));
   }
 
   async listSessionEntriesSinceLastCompaction(
