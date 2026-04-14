@@ -176,10 +176,6 @@ export const buildSystemPrompt = async (
     sections.push(CONTAINER_SECTION);
   }
 
-  if (capabilities.hasWebTools) {
-    sections.push(WEB_SECTION);
-  }
-
   if (capabilities.hasUserTools) {
     sections.push(USER_SECTION);
   }
@@ -192,11 +188,20 @@ export const buildSystemPrompt = async (
     );
   }
 
-  // Built-in tools note (only if any tools besides memory exist)
+  // Tool usage notes
+  const toolNotes: string[] = [];
   if (capabilities.hasExecTool || capabilities.hasContainerTools || capabilities.hasWebTools) {
-    sections.push(
+    toolNotes.push(
       'Built-in tools are execution primitives, not product goals. Use them to safely accomplish user tasks rather than presenting them as standalone features.',
     );
+  }
+  if (capabilities.hasWebTools) {
+    toolNotes.push(
+      'Use `web_search` to search the web and `web_fetch` to fetch a URL and extract its content.',
+    );
+  }
+  if (toolNotes.length > 0) {
+    sections.push(`## Tool Notes\n\n${toolNotes.join('\n\n')}`);
   }
 
   // Runtime constraints
@@ -215,16 +220,6 @@ export const buildSystemPrompt = async (
     instructionSections = '(no instructions configured)';
   }
   sections.push(`## Instructions\n\n${instructionSections}`);
-
-  // Secrets
-  const secretNames = security.listSecretNames();
-  sections.push(
-    `## Secrets\n\n${
-      secretNames.length > 0
-        ? `Available secret names for tool calls: ${secretNames.join(', ')}. Secret values are never shown in the prompt.`
-        : 'No secret names are currently configured.'
-    }`,
-  );
 
   return sections.join('\n\n').trim();
 };
