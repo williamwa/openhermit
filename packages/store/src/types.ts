@@ -88,7 +88,7 @@ export interface ContainerRegistryEntry {
   removed?: string;
 }
 
-export type CheckpointHistoryRow = {
+export type MessageRow = {
   role: 'user' | 'assistant' | 'error';
   content: string;
   ts: string;

@@ -3,7 +3,7 @@ import type { SessionAttachment, SessionHistoryMessage, SessionSpec } from '@ope
 
 import type { MessageStore } from '../interfaces.js';
 import type {
-  CheckpointHistoryRow,
+  MessageRow,
   SessionLogEntry,
   StoreScope,
 } from '../types.js';
@@ -161,10 +161,10 @@ export class SqliteMessageStore implements MessageStore {
     return rows.map(mapEventRowToHistoryMessage);
   }
 
-  async listCheckpointHistory(
+  async listAllMessages(
     scope: StoreScope,
     sessionId: string,
-  ): Promise<CheckpointHistoryRow[]> {
+  ): Promise<MessageRow[]> {
     const rows = this.database
       .prepare(
         `SELECT ts, event_type AS role, content
@@ -203,7 +203,7 @@ export class SqliteMessageStore implements MessageStore {
     sessionId: string,
     limit: number,
     offset?: number,
-  ): Promise<CheckpointHistoryRow[]> {
+  ): Promise<MessageRow[]> {
     const rows = this.database
       .prepare(
         `SELECT ts, event_type AS role, content FROM (

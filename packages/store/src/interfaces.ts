@@ -1,7 +1,7 @@
 import type { SessionHistoryMessage, SessionSpec } from '@openhermit/protocol';
 
 import type {
-  CheckpointHistoryRow,
+  MessageRow,
   ContainerRegistryEntry,
   InstructionEntry,
   MemoryAddInput,
@@ -27,11 +27,11 @@ export interface MessageStore {
   appendLogEntry(scope: StoreScope, sessionId: string, entry: SessionLogEntry): Promise<void>;
   writeSessionStarted(scope: StoreScope, spec: SessionSpec, model: { provider: string; model: string }): Promise<void>;
   listHistoryMessages(scope: StoreScope, sessionId: string): Promise<SessionHistoryMessage[]>;
-  listCheckpointHistory(scope: StoreScope, sessionId: string): Promise<CheckpointHistoryRow[]>;
+  listAllMessages(scope: StoreScope, sessionId: string): Promise<MessageRow[]>;
   listSessionEntries(scope: StoreScope, sessionId: string): Promise<SessionLogEntry[]>;
   getSessionWorkingMemory(scope: StoreScope, sessionId: string): Promise<string | undefined>;
   setSessionWorkingMemory(scope: StoreScope, sessionId: string, content: string, updatedAt: string): Promise<void>;
-  listRecentMessages(scope: StoreScope, sessionId: string, limit: number, offset?: number): Promise<CheckpointHistoryRow[]>;
+  listRecentMessages(scope: StoreScope, sessionId: string, limit: number, offset?: number): Promise<MessageRow[]>;
   listSessionEntriesSinceLastCompaction(scope: StoreScope, sessionId: string): Promise<{ compactionSummary: string | undefined; entries: SessionLogEntry[] }>;
   getCompactionSummary(scope: StoreScope, sessionId: string): Promise<string | undefined>;
   setCompactionSummary(scope: StoreScope, sessionId: string, content: string, updatedAt: string): Promise<void>;

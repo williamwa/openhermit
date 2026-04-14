@@ -440,7 +440,7 @@ export class AgentRunner implements SessionRuntime {
       await session.queue;
       await session.sideEffects;
 
-      const chronologicalHistory = await this.store.messages.listCheckpointHistory(this.scope,
+      const chronologicalHistory = await this.store.messages.listAllMessages(this.scope,
         session.spec.sessionId,
       );
       const newHistory = chronologicalHistory.slice(session.lastSummarizedHistoryCount);

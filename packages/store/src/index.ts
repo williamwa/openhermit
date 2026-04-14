@@ -23,7 +23,7 @@ export type {
   ContainerType,
   ContainerStatus,
   ContainerRegistryEntry,
-  CheckpointHistoryRow,
+  MessageRow,
 } from './types.js';
 
 export { STANDALONE_AGENT_ID, standaloneScope } from './types.js';
