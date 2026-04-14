@@ -15,7 +15,7 @@ const schemaStatements = [
     description_source TEXT,
     message_count INTEGER NOT NULL DEFAULT 0,
     completed_turn_count INTEGER NOT NULL DEFAULT 0,
-    last_summarized_history_count INTEGER NOT NULL DEFAULT 0,
+    last_introspection_event_id INTEGER NOT NULL DEFAULT 0,
     last_summarized_turn_count INTEGER NOT NULL DEFAULT 0,
     last_summarized_at TEXT,
     last_message_preview TEXT,
@@ -134,9 +134,12 @@ const migrationStatements = [
   `UPDATE session_events SET content = json_extract(payload_json, '$.message') WHERE event_type = 'error' AND json_extract(payload_json, '$.message') IS NOT NULL;`,
   `DROP INDEX IF EXISTS idx_session_messages_agent_session;`,
   `DROP TABLE IF EXISTS session_messages;`,
+  // v16: replace last_summarized_history_count with last_introspection_event_id (event ID cursor)
+  `ALTER TABLE sessions ADD COLUMN last_introspection_event_id INTEGER NOT NULL DEFAULT 0;`,
+  `ALTER TABLE sessions DROP COLUMN last_summarized_history_count;`,
 ] as const;
 
-export const CURRENT_SCHEMA_VERSION = 15;
+export const CURRENT_SCHEMA_VERSION = 16;
 
 const ensureMetaTable = (database: DatabaseSync): void => {
   database.exec(

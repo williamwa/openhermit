@@ -272,7 +272,7 @@ export class AgentRunner implements SessionRuntime {
       status: 'idle',
       messageCount: persisted?.messageCount ?? 0,
       completedTurnCount: persisted?.completedTurnCount ?? 0,
-      lastSummarizedHistoryCount: persisted?.lastSummarizedHistoryCount ?? 0,
+      lastIntrospectionEventId: persisted?.lastIntrospectionEventId ?? 0,
       lastSummarizedTurnCount: persisted?.lastSummarizedTurnCount ?? 0,
       ...(persisted?.lastSummarizedAt
         ? { lastSummarizedAt: persisted.lastSummarizedAt }
@@ -440,26 +440,23 @@ export class AgentRunner implements SessionRuntime {
       await session.queue;
       await session.sideEffects;
 
-      const totalCount = await this.store.messages.countMessages(this.scope, session.spec.sessionId);
-      const newCount = totalCount - session.lastSummarizedHistoryCount;
-
-      if (newCount <= 0) {
-        return false;
-      }
-
-      // Load only unsummarized messages (from the end, offset by 0, limit to newCount)
-      const unsummarized = await this.store.messages.listRecentMessages(
+      const unsummarized = await this.store.messages.listMessagesSinceEvent(
         this.scope,
         session.spec.sessionId,
-        newCount,
+        session.lastIntrospectionEventId,
       );
 
       if (unsummarized.length === 0) {
         return false;
       }
 
+      const latestEventId = await this.store.messages.getLatestEventId(
+        this.scope,
+        session.spec.sessionId,
+      );
+
       const config = await this.options.security.readConfig();
-      return await this.runIntrospection(session, reason, config, totalCount, unsummarized);
+      return await this.runIntrospection(session, reason, config, latestEventId, unsummarized);
     } finally {
       session.checkpointInProgress = false;
     }
@@ -469,7 +466,7 @@ export class AgentRunner implements SessionRuntime {
     session: RunnerSession,
     reason: 'manual' | 'new_session' | 'turn_limit' | 'idle',
     config: AgentConfig,
-    totalMessageCount: number,
+    latestEventId: number,
     newHistory: Array<{ role: 'user' | 'assistant' | 'error'; content: string; ts: string }>,
   ): Promise<boolean> {
     const previousWorkingMemory = await this.store.messages.getSessionWorkingMemory(this.scope,
@@ -486,7 +483,6 @@ export class AgentRunner implements SessionRuntime {
       history: newHistory,
       previousWorkingMemory,
       currentDescription: session.description,
-      lastSummarizedHistoryCount: session.lastSummarizedHistoryCount,
       completedTurnCount: session.completedTurnCount,
       lastSummarizedTurnCount: session.lastSummarizedTurnCount,
       createAgent: (input) => this.createConfiguredAgent(input),
@@ -496,7 +492,7 @@ export class AgentRunner implements SessionRuntime {
 
     // Update session index
     const ts = new Date().toISOString();
-    session.lastSummarizedHistoryCount = totalMessageCount;
+    session.lastIntrospectionEventId = latestEventId;
     session.lastSummarizedTurnCount = session.completedTurnCount;
     session.lastSummarizedAt = ts;
 

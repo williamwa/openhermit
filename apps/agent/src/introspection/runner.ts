@@ -23,7 +23,6 @@ export interface IntrospectionInput {
   history: Array<{ role: 'user' | 'assistant' | 'error'; content: string; ts: string }>;
   previousWorkingMemory: string | undefined;
   currentDescription: string | undefined;
-  lastSummarizedHistoryCount: number;
   completedTurnCount: number;
   lastSummarizedTurnCount: number;
 

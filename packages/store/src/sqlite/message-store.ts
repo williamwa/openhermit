@@ -161,16 +161,37 @@ export class SqliteMessageStore implements MessageStore {
     return rows.map(mapEventRowToHistoryMessage);
   }
 
-  async countMessages(scope: StoreScope, sessionId: string): Promise<number> {
+  async listMessagesSinceEvent(scope: StoreScope, sessionId: string, afterEventId: number): Promise<MessageRow[]> {
+    const rows = this.database
+      .prepare(
+        `SELECT ts, event_type AS role, content
+         FROM session_events
+         WHERE agent_id = ? AND session_id = ? AND id > ? AND event_type IN ('user', 'assistant', 'error')
+         ORDER BY id ASC`,
+      )
+      .all(scope.agentId, sessionId, afterEventId) as Array<{
+      ts: string;
+      role: 'user' | 'assistant' | 'error';
+      content: string;
+    }>;
+
+    return rows.map((row) => ({
+      ts: row.ts,
+      role: row.role,
+      content: row.content,
+    }));
+  }
+
+  async getLatestEventId(scope: StoreScope, sessionId: string): Promise<number> {
     const row = this.database
       .prepare(
-        `SELECT COUNT(*) AS cnt
+        `SELECT MAX(id) AS max_id
          FROM session_events
-         WHERE agent_id = ? AND session_id = ? AND event_type IN ('user', 'assistant', 'error')`,
+         WHERE agent_id = ? AND session_id = ?`,
       )
-      .get(scope.agentId, sessionId) as { cnt: number } | undefined;
+      .get(scope.agentId, sessionId) as { max_id: number | null } | undefined;
 
-    return row?.cnt ?? 0;
+    return row?.max_id ?? 0;
   }
 
   async listSessionEntries(scope: StoreScope, sessionId: string): Promise<SessionLogEntry[]> {

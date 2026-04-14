@@ -194,11 +194,11 @@ Events are written to `session_events` in real time as the introspection agent r
 1. **Before agent starts:** write `introspection_start` event with reason and turn count
 2. **During agent loop:** each tool call and tool result is written as events (with `introspection: true` marker)
 3. **After agent completes:** write `introspection_end` event with a summary of changes (memories added/updated/deleted, working memory refreshed, description updated)
-4. Update session index (lastSummarizedHistoryCount, lastSummarizedTurnCount, etc.)
+4. Update session index (lastIntrospectionEventId, lastSummarizedTurnCount, etc.)
 5. If description was updated by introspection, sync it back to the runner session
 
 ### Failure Handling
 
 If the introspection agent fails (API error, timeout, etc.):
 - Log the failure
-- Do not update lastSummarizedHistoryCount — next introspection will retry with the same history range
+- Do not update lastIntrospectionEventId — next introspection will retry with the same history range

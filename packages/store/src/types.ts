@@ -20,7 +20,7 @@ export interface PersistedSessionIndexEntry {
   lastActivityAt: string;
   messageCount: number;
   completedTurnCount?: number;
-  lastSummarizedHistoryCount?: number;
+  lastIntrospectionEventId?: number;
   lastSummarizedTurnCount?: number;
   lastSummarizedAt?: string;
   description?: string;
