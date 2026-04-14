@@ -225,6 +225,7 @@ export class SqliteMessageStore implements MessageStore {
     scope: StoreScope,
     sessionId: string,
     limit: number,
+    offset?: number,
   ): Promise<CheckpointHistoryRow[]> {
     const rows = this.database
       .prepare(
@@ -233,10 +234,10 @@ export class SqliteMessageStore implements MessageStore {
            FROM session_messages
            WHERE agent_id = ? AND session_id = ?
            ORDER BY id DESC
-           LIMIT ?
+           LIMIT ? OFFSET ?
          ) sub ORDER BY id ASC`,
       )
-      .all(scope.agentId, sessionId, limit) as Array<{ ts: string; role: string; content: string }>;
+      .all(scope.agentId, sessionId, limit, offset ?? 0) as Array<{ ts: string; role: string; content: string }>;
 
     return rows
       .filter(

@@ -19,7 +19,8 @@ type SessionListArgs = Static<typeof SessionListParams>;
 
 const SessionReadParams = Type.Object({
   session_id: Type.String({ description: 'Session ID to read messages from.' }),
-  limit: Type.Optional(Type.Number({ description: 'Maximum number of recent messages to return (default 50).' })),
+  limit: Type.Optional(Type.Number({ description: 'Maximum number of messages to return (default 50).' })),
+  offset: Type.Optional(Type.Number({ description: 'Number of messages to skip from the end (0 = most recent). Use with limit to page backwards through history.' })),
 });
 
 type SessionReadArgs = Static<typeof SessionReadParams>;
@@ -98,12 +99,13 @@ export const createSessionReadTool = (context: ToolContext): AgentTool<typeof Se
     }
 
     const limit = args.limit ?? 50;
-    const messages = await context.messageStore.listRecentMessages(context.storeScope, sessionId, limit);
+    const offset = args.offset ?? 0;
+    const messages = await context.messageStore.listRecentMessages(context.storeScope, sessionId, limit, offset);
 
     if (messages.length === 0) {
       return {
-        content: asTextContent(`No messages found in session ${sessionId}.\n`),
-        details: { sessionId, count: 0 },
+        content: asTextContent(`No messages found in session ${sessionId}${offset > 0 ? ` (offset ${offset})` : ''}.\n`),
+        details: { sessionId, count: 0, offset },
       };
     }
 
@@ -114,8 +116,8 @@ export const createSessionReadTool = (context: ToolContext): AgentTool<typeof Se
     }).join('\n\n');
 
     return {
-      content: asTextContent(`Session ${sessionId} — ${messages.length} messages:\n\n${formatted}\n`),
-      details: { sessionId, count: messages.length },
+      content: asTextContent(`Session ${sessionId} — ${messages.length} messages${offset > 0 ? ` (offset ${offset})` : ''}:\n\n${formatted}\n`),
+      details: { sessionId, count: messages.length, offset },
     };
   },
 });

@@ -31,7 +31,7 @@ export interface MessageStore {
   listSessionEntries(scope: StoreScope, sessionId: string): Promise<SessionLogEntry[]>;
   getSessionWorkingMemory(scope: StoreScope, sessionId: string): Promise<string | undefined>;
   setSessionWorkingMemory(scope: StoreScope, sessionId: string, content: string, updatedAt: string): Promise<void>;
-  listRecentMessages(scope: StoreScope, sessionId: string, limit: number): Promise<CheckpointHistoryRow[]>;
+  listRecentMessages(scope: StoreScope, sessionId: string, limit: number, offset?: number): Promise<CheckpointHistoryRow[]>;
   listSessionEntriesSinceLastCompaction(scope: StoreScope, sessionId: string): Promise<{ compactionSummary: string | undefined; entries: SessionLogEntry[] }>;
   getCompactionSummary(scope: StoreScope, sessionId: string): Promise<string | undefined>;
   setCompactionSummary(scope: StoreScope, sessionId: string, content: string, updatedAt: string): Promise<void>;
