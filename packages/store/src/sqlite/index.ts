@@ -41,9 +41,11 @@ export class SqliteInternalStateStore implements InternalStateStore {
       await prisma.$connect();
 
       // Set SQLite PRAGMAs for performance and safety.
-      await prisma.$executeRawUnsafe('PRAGMA journal_mode = WAL;');
-      await prisma.$executeRawUnsafe('PRAGMA busy_timeout = 5000;');
-      await prisma.$executeRawUnsafe('PRAGMA foreign_keys = ON;');
+      // Some PRAGMAs return result sets, so use $queryRawUnsafe to avoid the
+      // "Execute returned results" error from $executeRawUnsafe.
+      await prisma.$queryRawUnsafe('PRAGMA journal_mode = WAL;');
+      await prisma.$queryRawUnsafe('PRAGMA busy_timeout = 5000;');
+      await prisma.$queryRawUnsafe('PRAGMA foreign_keys = ON;');
 
       // Create FTS5 virtual table (not supported by Prisma schema).
       await prisma.$executeRawUnsafe(

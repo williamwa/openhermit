@@ -12,7 +12,7 @@
     }
   },
   "scripts": {
-    "build": "prisma generate && tsc -b",
+    "build": "prisma generate && tsc -b && cp -r src/generated dist/",
     "prisma:generate": "prisma generate",
     "typecheck": "tsc -p tsconfig.json --pretty false --noEmit"
   },
