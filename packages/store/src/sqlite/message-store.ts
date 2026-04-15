@@ -1,5 +1,5 @@
-import type { DatabaseSync } from 'node:sqlite';
 import type { SessionAttachment, SessionHistoryMessage, SessionSpec } from '@openhermit/protocol';
+import type { PrismaClient } from '../generated/prisma/index.js';
 
 import type { MessageStore } from '../interfaces.js';
 import type {
@@ -13,17 +13,17 @@ const asRecord = (value: unknown): Record<string, unknown> | undefined =>
 
 const mapEventRowToHistoryMessage = (row: {
   ts: string;
-  event_type: string;
-  content: string;
-  payload_json: string;
+  eventType: string;
+  content: string | null;
+  payloadJson: string;
 }): SessionHistoryMessage => {
-  const payload = asRecord(JSON.parse(row.payload_json || '{}'));
+  const payload = asRecord(JSON.parse(row.payloadJson || '{}'));
 
-  if (row.event_type === 'user') {
+  if (row.eventType === 'user') {
     const message: SessionHistoryMessage = {
       ts: row.ts,
       role: 'user',
-      content: row.content,
+      content: row.content ?? '',
     };
 
     if (typeof payload?.messageId === 'string') {
@@ -37,11 +37,11 @@ const mapEventRowToHistoryMessage = (row: {
     return message;
   }
 
-  if (row.event_type === 'assistant') {
+  if (row.eventType === 'assistant') {
     const message: SessionHistoryMessage = {
       ts: row.ts,
       role: 'assistant',
-      content: row.content,
+      content: row.content ?? '',
     };
 
     if (typeof payload?.provider === 'string') {
@@ -62,7 +62,7 @@ const mapEventRowToHistoryMessage = (row: {
   return {
     ts: row.ts,
     role: 'error',
-    content: row.content,
+    content: row.content ?? '',
   };
 };
 
@@ -78,31 +78,6 @@ const deriveContent = (entry: SessionLogEntry): string | null => {
     return entry.message;
   }
   return null;
-};
-
-const insertSessionLogEntry = (
-  database: DatabaseSync,
-  agentId: string,
-  sessionId: string,
-  entry: SessionLogEntry,
-): void => {
-  const content = deriveContent(entry);
-  const userId = typeof entry.userId === 'string' ? entry.userId : null;
-
-  database
-    .prepare(
-      `INSERT INTO session_events(agent_id, session_id, ts, event_type, payload_json, content, user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      agentId,
-      sessionId,
-      entry.ts,
-      entry.type ?? entry.role,
-      JSON.stringify(entry),
-      content,
-      userId,
-    );
 };
 
 const createSessionStartedEntries = (
@@ -128,10 +103,23 @@ const parseStoredSessionLogEntry = (payloadJson: string): SessionLogEntry =>
   JSON.parse(payloadJson) as SessionLogEntry;
 
 export class SqliteMessageStore implements MessageStore {
-  constructor(private readonly database: DatabaseSync) {}
+  constructor(private readonly prisma: PrismaClient) {}
 
   async appendLogEntry(scope: StoreScope, sessionId: string, entry: SessionLogEntry): Promise<void> {
-    insertSessionLogEntry(this.database, scope.agentId, sessionId, entry);
+    const content = deriveContent(entry);
+    const userId = typeof entry.userId === 'string' ? entry.userId : null;
+
+    await this.prisma.sessionEvent.create({
+      data: {
+        agentId: scope.agentId,
+        sessionId,
+        ts: entry.ts,
+        eventType: entry.type ?? entry.role,
+        payloadJson: JSON.stringify(entry),
+        content,
+        userId,
+      },
+    });
   }
 
   async writeSessionStarted(
@@ -144,94 +132,79 @@ export class SqliteMessageStore implements MessageStore {
   }
 
   async listHistoryMessages(scope: StoreScope, sessionId: string): Promise<SessionHistoryMessage[]> {
-    const rows = this.database
-      .prepare(
-        `SELECT ts, event_type, content, payload_json
-         FROM session_events
-         WHERE agent_id = ? AND session_id = ? AND content IS NOT NULL
-         ORDER BY ts DESC, id DESC`,
-      )
-      .all(scope.agentId, sessionId) as Array<{
-      ts: string;
-      event_type: string;
-      content: string;
-      payload_json: string;
-    }>;
+    const rows = await this.prisma.sessionEvent.findMany({
+      where: {
+        agentId: scope.agentId,
+        sessionId,
+        content: { not: null },
+      },
+      orderBy: [{ ts: 'desc' }, { id: 'desc' }],
+    });
 
     return rows.map(mapEventRowToHistoryMessage);
   }
 
   async listMessagesSinceEvent(scope: StoreScope, sessionId: string, afterEventId: number): Promise<MessageRow[]> {
-    const rows = this.database
-      .prepare(
-        `SELECT ts, event_type AS role, content, user_id
-         FROM session_events
-         WHERE agent_id = ? AND session_id = ? AND id > ? AND event_type IN ('user', 'assistant', 'error')
-         ORDER BY id ASC`,
-      )
-      .all(scope.agentId, sessionId, afterEventId) as Array<{
-      ts: string;
-      role: 'user' | 'assistant' | 'error';
-      content: string;
-      user_id: string | null;
-    }>;
+    const rows = await this.prisma.sessionEvent.findMany({
+      where: {
+        agentId: scope.agentId,
+        sessionId,
+        id: { gt: afterEventId },
+        eventType: { in: ['user', 'assistant', 'error'] },
+      },
+      orderBy: { id: 'asc' },
+    });
 
     return rows.map((row) => ({
       ts: row.ts,
-      role: row.role,
-      content: row.content,
-      ...(row.user_id ? { userId: row.user_id } : {}),
+      role: row.eventType as 'user' | 'assistant' | 'error',
+      content: row.content ?? '',
+      ...(row.userId ? { userId: row.userId } : {}),
     }));
   }
 
   async getLatestEventId(scope: StoreScope, sessionId: string): Promise<number> {
-    const row = this.database
-      .prepare(
-        `SELECT MAX(id) AS max_id
-         FROM session_events
-         WHERE agent_id = ? AND session_id = ?`,
-      )
-      .get(scope.agentId, sessionId) as { max_id: number | null } | undefined;
+    const row = await this.prisma.sessionEvent.findFirst({
+      where: { agentId: scope.agentId, sessionId },
+      orderBy: { id: 'desc' },
+      select: { id: true },
+    });
 
-    return row?.max_id ?? 0;
+    return row?.id ?? 0;
   }
 
   async getLastIntrospectionEventId(scope: StoreScope, sessionId: string): Promise<number> {
-    const row = this.database
-      .prepare(
-        `SELECT MAX(id) AS max_id
-         FROM session_events
-         WHERE agent_id = ? AND session_id = ? AND event_type = 'introspection_end'`,
-      )
-      .get(scope.agentId, sessionId) as { max_id: number | null } | undefined;
+    const row = await this.prisma.sessionEvent.findFirst({
+      where: { agentId: scope.agentId, sessionId, eventType: 'introspection_end' },
+      orderBy: { id: 'desc' },
+      select: { id: true },
+    });
 
-    return row?.max_id ?? 0;
+    return row?.id ?? 0;
   }
 
   async getTurnsSinceLastIntrospection(scope: StoreScope, sessionId: string): Promise<number> {
     const lastId = await this.getLastIntrospectionEventId(scope, sessionId);
-    const row = this.database
-      .prepare(
-        `SELECT COUNT(*) AS cnt
-         FROM session_events
-         WHERE agent_id = ? AND session_id = ? AND event_type = 'agent_end' AND id > ?`,
-      )
-      .get(scope.agentId, sessionId, lastId) as { cnt: number } | undefined;
+    const count = await this.prisma.sessionEvent.count({
+      where: {
+        agentId: scope.agentId,
+        sessionId,
+        eventType: 'agent_end',
+        id: { gt: lastId },
+      },
+    });
 
-    return row?.cnt ?? 0;
+    return count;
   }
 
   async listSessionEntries(scope: StoreScope, sessionId: string): Promise<SessionLogEntry[]> {
-    const rows = this.database
-      .prepare(
-        `SELECT payload_json
-         FROM session_events
-         WHERE agent_id = ? AND session_id = ?
-         ORDER BY ts ASC, id ASC`,
-      )
-      .all(scope.agentId, sessionId) as Array<{ payload_json: string }>;
+    const rows = await this.prisma.sessionEvent.findMany({
+      where: { agentId: scope.agentId, sessionId },
+      orderBy: [{ ts: 'asc' }, { id: 'asc' }],
+      select: { payloadJson: true },
+    });
 
-    return rows.map((row) => parseStoredSessionLogEntry(row.payload_json));
+    return rows.map((row) => parseStoredSessionLogEntry(row.payloadJson));
   }
 
   async listRecentMessages(
@@ -240,25 +213,26 @@ export class SqliteMessageStore implements MessageStore {
     limit: number,
     offset?: number,
   ): Promise<MessageRow[]> {
-    const rows = this.database
-      .prepare(
-        `SELECT ts, event_type AS role, content FROM (
-           SELECT ts, event_type, content, id
-           FROM session_events
-           WHERE agent_id = ? AND session_id = ? AND event_type IN ('user', 'assistant', 'error')
-           ORDER BY id DESC
-           LIMIT ? OFFSET ?
-         ) sub ORDER BY id ASC`,
-      )
-      .all(scope.agentId, sessionId, limit, offset ?? 0) as Array<{
+    // Subquery pattern: get latest N messages then re-order ascending.
+    // Use raw query to preserve the ORDER BY DESC + LIMIT + re-order pattern.
+    const rows = await this.prisma.$queryRawUnsafe<Array<{
       ts: string;
-      role: 'user' | 'assistant' | 'error';
+      role: string;
       content: string;
-    }>;
+    }>>(
+      `SELECT ts, event_type AS role, content FROM (
+         SELECT ts, event_type, content, id
+         FROM session_events
+         WHERE agent_id = ? AND session_id = ? AND event_type IN ('user', 'assistant', 'error')
+         ORDER BY id DESC
+         LIMIT ? OFFSET ?
+       ) sub ORDER BY id ASC`,
+      scope.agentId, sessionId, limit, offset ?? 0,
+    );
 
     return rows.map((row) => ({
       ts: row.ts,
-      role: row.role,
+      role: row.role as 'user' | 'assistant' | 'error',
       content: row.content,
     }));
   }
@@ -268,47 +242,44 @@ export class SqliteMessageStore implements MessageStore {
     sessionId: string,
   ): Promise<{ compactionSummary: string | undefined; entries: SessionLogEntry[] }> {
     // Find the last compaction event.
-    const compactionRow = this.database
-      .prepare(
-        `SELECT id, payload_json FROM session_events
-         WHERE agent_id = ? AND session_id = ? AND event_type = 'context_compaction'
-         ORDER BY id DESC LIMIT 1`,
-      )
-      .get(scope.agentId, sessionId) as { id: number; payload_json: string } | undefined;
+    const compactionRow = await this.prisma.sessionEvent.findFirst({
+      where: { agentId: scope.agentId, sessionId, eventType: 'context_compaction' },
+      orderBy: { id: 'desc' },
+      select: { id: true, payloadJson: true },
+    });
 
     const afterId = compactionRow?.id ?? 0;
     let compactionSummary: string | undefined;
 
     if (compactionRow) {
-      const parsed = JSON.parse(compactionRow.payload_json) as Record<string, unknown>;
+      const parsed = JSON.parse(compactionRow.payloadJson) as Record<string, unknown>;
       compactionSummary = typeof parsed.content === 'string' ? parsed.content : undefined;
     }
 
     // Load all entries after the compaction event (or from beginning).
-    const rows = this.database
-      .prepare(
-        `SELECT payload_json FROM session_events
-         WHERE agent_id = ? AND session_id = ? AND id > ?
-         ORDER BY id ASC`,
-      )
-      .all(scope.agentId, sessionId, afterId) as Array<{ payload_json: string }>;
+    const rows = await this.prisma.sessionEvent.findMany({
+      where: {
+        agentId: scope.agentId,
+        sessionId,
+        id: { gt: afterId },
+      },
+      orderBy: { id: 'asc' },
+      select: { payloadJson: true },
+    });
 
     return {
       compactionSummary,
-      entries: rows.map((row) => parseStoredSessionLogEntry(row.payload_json)),
+      entries: rows.map((row) => parseStoredSessionLogEntry(row.payloadJson)),
     };
   }
 
   async getSessionWorkingMemory(scope: StoreScope, sessionId: string): Promise<string | undefined> {
-    const row = this.database
-      .prepare(
-        `SELECT working_memory
-         FROM sessions
-         WHERE agent_id = ? AND session_id = ?`,
-      )
-      .get(scope.agentId, sessionId) as { working_memory?: string } | undefined;
+    const row = await this.prisma.session.findUnique({
+      where: { agentId_sessionId: { agentId: scope.agentId, sessionId } },
+      select: { workingMemory: true },
+    });
 
-    return typeof row?.working_memory === 'string' ? row.working_memory : undefined;
+    return row?.workingMemory ?? undefined;
   }
 
   async setSessionWorkingMemory(
@@ -317,29 +288,22 @@ export class SqliteMessageStore implements MessageStore {
     content: string,
     updatedAt: string,
   ): Promise<void> {
-    this.database
-      .prepare(
-        `UPDATE sessions
-         SET working_memory = ?, working_memory_updated_at = ?
-         WHERE agent_id = ? AND session_id = ?`,
-      )
-      .run(content, updatedAt, scope.agentId, sessionId);
+    await this.prisma.session.update({
+      where: { agentId_sessionId: { agentId: scope.agentId, sessionId } },
+      data: { workingMemory: content, workingMemoryUpdatedAt: updatedAt },
+    });
   }
 
   async getCompactionSummary(scope: StoreScope, sessionId: string): Promise<string | undefined> {
-    const row = this.database
-      .prepare(
-        `SELECT payload_json FROM session_events
-         WHERE agent_id = ? AND session_id = ? AND event_type = 'context_compaction'
-         ORDER BY id DESC LIMIT 1`,
-      )
-      .get(scope.agentId, sessionId) as { payload_json: string } | undefined;
+    const row = await this.prisma.sessionEvent.findFirst({
+      where: { agentId: scope.agentId, sessionId, eventType: 'context_compaction' },
+      orderBy: { id: 'desc' },
+      select: { payloadJson: true },
+    });
 
-    if (!row) {
-      return undefined;
-    }
+    if (!row) return undefined;
 
-    const parsed = JSON.parse(row.payload_json) as Record<string, unknown>;
+    const parsed = JSON.parse(row.payloadJson) as Record<string, unknown>;
     return typeof parsed.content === 'string' ? parsed.content : undefined;
   }
 
@@ -349,7 +313,7 @@ export class SqliteMessageStore implements MessageStore {
     content: string,
     updatedAt: string,
   ): Promise<void> {
-    insertSessionLogEntry(this.database, scope.agentId, sessionId, {
+    await this.appendLogEntry(scope, sessionId, {
       ts: updatedAt,
       role: 'system',
       type: 'context_compaction',

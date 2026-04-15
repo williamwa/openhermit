@@ -1,21 +1,23 @@
 import assert from 'node:assert/strict';
-import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 
-import { SqliteMemoryProvider, bootstrapDatabase } from '@openhermit/store';
-import type { StoreScope } from '@openhermit/store';
+import { SqliteInternalStateStore } from '@openhermit/store';
+import type { StoreScope, MemoryProvider } from '@openhermit/store';
 
-function createTestDb(): DatabaseSync {
-  const db = new DatabaseSync(':memory:');
-  bootstrapDatabase(db);
-  return db;
+import { createTempDir } from './helpers.js';
+
+async function createTestStore(t: Parameters<typeof test>[0] extends (...args: infer A) => unknown ? A extends [infer _, infer T] ? T : never : never) {
+  const dir = await createTempDir(t as import('node:test').TestContext, 'memory-search-');
+  const store = await SqliteInternalStateStore.open(`${dir}/test.sqlite`);
+  return store;
 }
 
 const scope: StoreScope = { agentId: 'test-agent' };
 
-test('memory search: multi-word query matches across key and content', async () => {
-  const db = createTestDb();
-  const provider = new SqliteMemoryProvider(db);
+test('memory search: multi-word query matches across key and content', async (t) => {
+  const store = await createTestStore(t);
+  t.after(() => store.close());
+  const provider = store.memories;
 
   await provider.add(scope, {
     id: 'incident/anthropic-quota-2026-03',
@@ -25,13 +27,12 @@ test('memory search: multi-word query matches across key and content', async () 
   const results = await provider.search(scope, 'anthropic quota');
   assert.equal(results.length, 1);
   assert.equal(results[0].id, 'incident/anthropic-quota-2026-03');
-
-  db.close();
 });
 
-test('memory search: individual words match even when not adjacent', async () => {
-  const db = createTestDb();
-  const provider = new SqliteMemoryProvider(db);
+test('memory search: individual words match even when not adjacent', async (t) => {
+  const store = await createTestStore(t);
+  t.after(() => store.close());
+  const provider = store.memories;
 
   await provider.add(scope, {
     id: 'project/api-redesign',
@@ -43,13 +44,12 @@ test('memory search: individual words match even when not adjacent', async () =>
 
   const results2 = await provider.search(scope, 'backend v2');
   assert.equal(results2.length, 1);
-
-  db.close();
 });
 
-test('memory search: porter stemming matches word variants', async () => {
-  const db = createTestDb();
-  const provider = new SqliteMemoryProvider(db);
+test('memory search: porter stemming matches word variants', async (t) => {
+  const store = await createTestStore(t);
+  t.after(() => store.close());
+  const provider = store.memories;
 
   await provider.add(scope, {
     id: 'note/running',
@@ -59,13 +59,12 @@ test('memory search: porter stemming matches word variants', async () => {
   // "runs" should match "running" via porter stemming
   const results = await provider.search(scope, 'runs');
   assert.equal(results.length, 1);
-
-  db.close();
 });
 
-test('memory search: scoped to agent_id', async () => {
-  const db = createTestDb();
-  const provider = new SqliteMemoryProvider(db);
+test('memory search: scoped to agent_id', async (t) => {
+  const store = await createTestStore(t);
+  t.after(() => store.close());
+  const provider = store.memories;
 
   const scope2: StoreScope = { agentId: 'other-agent' };
 
@@ -75,13 +74,12 @@ test('memory search: scoped to agent_id', async () => {
   const results = await provider.search(scope, 'deployment');
   assert.equal(results.length, 1);
   assert.equal(results[0].content, 'Agent 1 memory about deployment.');
-
-  db.close();
 });
 
-test('memory search: updated content is searchable', async () => {
-  const db = createTestDb();
-  const provider = new SqliteMemoryProvider(db);
+test('memory search: updated content is searchable', async (t) => {
+  const store = await createTestStore(t);
+  t.after(() => store.close());
+  const provider = store.memories;
 
   await provider.add(scope, { id: 'evolving', content: 'Original content about databases.' });
 
@@ -95,13 +93,12 @@ test('memory search: updated content is searchable', async () => {
   // New content should match
   const fresh = await provider.search(scope, 'kubernetes');
   assert.equal(fresh.length, 1);
-
-  db.close();
 });
 
-test('memory search: deleted entries are not searchable', async () => {
-  const db = createTestDb();
-  const provider = new SqliteMemoryProvider(db);
+test('memory search: deleted entries are not searchable', async (t) => {
+  const store = await createTestStore(t);
+  t.after(() => store.close());
+  const provider = store.memories;
 
   await provider.add(scope, { id: 'temporary', content: 'This will be deleted soon.' });
 
@@ -112,25 +109,23 @@ test('memory search: deleted entries are not searchable', async () => {
 
   results = await provider.search(scope, 'deleted');
   assert.equal(results.length, 0);
-
-  db.close();
 });
 
-test('memory search: empty query returns empty results', async () => {
-  const db = createTestDb();
-  const provider = new SqliteMemoryProvider(db);
+test('memory search: empty query returns empty results', async (t) => {
+  const store = await createTestStore(t);
+  t.after(() => store.close());
+  const provider = store.memories;
 
   await provider.add(scope, { id: 'test', content: 'Some content.' });
 
   const results = await provider.search(scope, '   ');
   assert.equal(results.length, 0);
-
-  db.close();
 });
 
-test('memory search: matches key tokens like slash-separated paths', async () => {
-  const db = createTestDb();
-  const provider = new SqliteMemoryProvider(db);
+test('memory search: matches key tokens like slash-separated paths', async (t) => {
+  const store = await createTestStore(t);
+  t.after(() => store.close());
+  const provider = store.memories;
 
   await provider.add(scope, {
     id: 'user/preferences/editor',
@@ -142,13 +137,12 @@ test('memory search: matches key tokens like slash-separated paths', async () =>
 
   const results2 = await provider.search(scope, 'user preferences');
   assert.equal(results2.length, 1);
-
-  db.close();
 });
 
-test('memory search: respects limit parameter', async () => {
-  const db = createTestDb();
-  const provider = new SqliteMemoryProvider(db);
+test('memory search: respects limit parameter', async (t) => {
+  const store = await createTestStore(t);
+  t.after(() => store.close());
+  const provider = store.memories;
 
   for (let i = 0; i < 5; i++) {
     await provider.add(scope, { id: `note-${i}`, content: `Important note number ${i} about deployment.` });
@@ -156,13 +150,12 @@ test('memory search: respects limit parameter', async () => {
 
   const results = await provider.search(scope, 'deployment', { limit: 2 });
   assert.equal(results.length, 2);
-
-  db.close();
 });
 
-test('memory search: re-add (upsert) updates FTS index', async () => {
-  const db = createTestDb();
-  const provider = new SqliteMemoryProvider(db);
+test('memory search: re-add (upsert) updates FTS index', async (t) => {
+  const store = await createTestStore(t);
+  t.after(() => store.close());
+  const provider = store.memories;
 
   await provider.add(scope, { id: 'reused-key', content: 'Original about python.' });
   await provider.add(scope, { id: 'reused-key', content: 'Replaced with content about rust.' });
@@ -172,6 +165,4 @@ test('memory search: re-add (upsert) updates FTS index', async () => {
 
   const fresh = await provider.search(scope, 'rust');
   assert.equal(fresh.length, 1);
-
-  db.close();
 });

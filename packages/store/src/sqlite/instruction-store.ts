@@ -1,53 +1,35 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { PrismaClient } from '../generated/prisma/index.js';
 
 import type { InstructionStore } from '../interfaces.js';
 import type { InstructionEntry, StoreScope } from '../types.js';
 
 export class SqliteInstructionStore implements InstructionStore {
-  constructor(private readonly database: DatabaseSync) {}
+  constructor(private readonly prisma: PrismaClient) {}
 
   async get(scope: StoreScope, key: string): Promise<InstructionEntry | undefined> {
-    const row = this.database
-      .prepare(
-        `SELECT key, content, updated_at
-         FROM instructions
-         WHERE agent_id = ? AND key = ?`,
-      )
-      .get(scope.agentId, key) as {
-      key: string;
-      content: string;
-      updated_at: string;
-    } | undefined;
+    const row = await this.prisma.instruction.findUnique({
+      where: { agentId_key: { agentId: scope.agentId, key } },
+    });
 
-    if (!row) {
-      return undefined;
-    }
+    if (!row) return undefined;
 
     return {
       key: row.key,
       content: row.content,
-      updatedAt: row.updated_at,
+      updatedAt: row.updatedAt,
     };
   }
 
   async getAll(scope: StoreScope): Promise<InstructionEntry[]> {
-    const rows = this.database
-      .prepare(
-        `SELECT key, content, updated_at
-         FROM instructions
-         WHERE agent_id = ?
-         ORDER BY key ASC`,
-      )
-      .all(scope.agentId) as Array<{
-      key: string;
-      content: string;
-      updated_at: string;
-    }>;
+    const rows = await this.prisma.instruction.findMany({
+      where: { agentId: scope.agentId },
+      orderBy: { key: 'asc' },
+    });
 
     return rows.map((row) => ({
       key: row.key,
       content: row.content,
-      updatedAt: row.updated_at,
+      updatedAt: row.updatedAt,
     }));
   }
 
@@ -57,14 +39,10 @@ export class SqliteInstructionStore implements InstructionStore {
     content: string,
     updatedAt: string,
   ): Promise<void> {
-    this.database
-      .prepare(
-        `INSERT INTO instructions(agent_id, key, content, updated_at)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(agent_id, key) DO UPDATE SET
-           content = excluded.content,
-           updated_at = excluded.updated_at`,
-      )
-      .run(scope.agentId, key, content, updatedAt);
+    await this.prisma.instruction.upsert({
+      where: { agentId_key: { agentId: scope.agentId, key } },
+      create: { agentId: scope.agentId, key, content, updatedAt },
+      update: { content, updatedAt },
+    });
   }
 }

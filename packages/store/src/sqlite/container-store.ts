@@ -1,4 +1,4 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { PrismaClient } from '../generated/prisma/index.js';
 import { NotFoundError } from '@openhermit/shared';
 
 import type { ContainerStore } from '../interfaces.js';
@@ -10,7 +10,7 @@ import type {
 } from '../types.js';
 
 export class SqliteContainerStore implements ContainerStore {
-  constructor(private readonly database: DatabaseSync) {}
+  constructor(private readonly prisma: PrismaClient) {}
 
   private serializeMetadata(entry: ContainerRegistryEntry): string {
     return JSON.stringify({
@@ -29,26 +29,24 @@ export class SqliteContainerStore implements ContainerStore {
     });
   }
 
-  private mapRow(
-    row: {
-      container_name: string;
-      container_type: string;
-      image: string;
-      status: string;
-      description: string | null;
-      metadata_json: string;
-    },
-  ): ContainerRegistryEntry {
-    const metadata = JSON.parse(row.metadata_json || '{}') as Record<string, unknown>;
+  private mapRow(row: {
+    containerName: string;
+    containerType: string;
+    image: string;
+    status: string;
+    description: string | null;
+    metadataJson: string;
+  }): ContainerRegistryEntry {
+    const metadata = JSON.parse(row.metadataJson || '{}') as Record<string, unknown>;
 
     return {
       id:
         typeof metadata.id === 'string'
           ? metadata.id
-          : row.container_name,
-      name: row.container_name,
+          : row.containerName,
+      name: row.containerName,
       image: row.image,
-      type: row.container_type as ContainerType,
+      type: row.containerType as ContainerType,
       status: row.status as ContainerStatus,
       ...(row.description ? { description: row.description } : {}),
       ...(typeof metadata.command === 'string' ? { command: metadata.command } : {}),
@@ -73,62 +71,47 @@ export class SqliteContainerStore implements ContainerStore {
   }
 
   async readAll(scope: StoreScope): Promise<ContainerRegistryEntry[]> {
-    const rows = this.database
-      .prepare(
-        `SELECT container_name, container_type, image, status, description, metadata_json
-         FROM containers
-         WHERE agent_id = ?
-         ORDER BY json_extract(metadata_json, '$.created') ASC, container_name ASC`,
-      )
-      .all(scope.agentId) as Array<{
-      container_name: string;
-      container_type: string;
-      image: string;
-      status: string;
-      description: string | null;
-      metadata_json: string;
-    }>;
+    const rows = await this.prisma.container.findMany({
+      where: { agentId: scope.agentId },
+    });
 
-    return rows.map((row) => this.mapRow(row));
+    // Sort by created timestamp extracted from metadata, then by name
+    const entries = rows.map((row) => this.mapRow(row));
+    entries.sort((a, b) => {
+      const cmp = a.created.localeCompare(b.created);
+      return cmp !== 0 ? cmp : a.name.localeCompare(b.name);
+    });
+    return entries;
   }
 
   async findByName(scope: StoreScope, name: string): Promise<ContainerRegistryEntry | undefined> {
-    const entries = await this.readAll(scope);
-    return entries.find((entry) => entry.name === name);
+    const row = await this.prisma.container.findUnique({
+      where: { agentId_containerName: { agentId: scope.agentId, containerName: name } },
+    });
+
+    if (!row) return undefined;
+    return this.mapRow(row);
   }
 
   async upsert(scope: StoreScope, entry: ContainerRegistryEntry): Promise<void> {
-    this.database
-      .prepare(
-        `INSERT INTO containers(
-          agent_id,
-          container_name,
-          container_type,
-          image,
-          status,
-          description,
-          metadata_json,
-          updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(agent_id, container_name) DO UPDATE SET
-          container_type = excluded.container_type,
-          image = excluded.image,
-          status = excluded.status,
-          description = excluded.description,
-          metadata_json = excluded.metadata_json,
-          updated_at = excluded.updated_at`,
-      )
-      .run(
-        scope.agentId,
-        entry.name,
-        entry.type,
-        entry.image,
-        entry.status,
-        entry.description ?? null,
-        this.serializeMetadata(entry),
-        new Date().toISOString(),
-      );
+    const data = {
+      containerType: entry.type,
+      image: entry.image,
+      status: entry.status,
+      description: entry.description ?? null,
+      metadataJson: this.serializeMetadata(entry),
+      updatedAt: new Date().toISOString(),
+    };
+
+    await this.prisma.container.upsert({
+      where: { agentId_containerName: { agentId: scope.agentId, containerName: entry.name } },
+      create: {
+        agentId: scope.agentId,
+        containerName: entry.name,
+        ...data,
+      },
+      update: data,
+    });
   }
 
   async updateByName(
@@ -136,8 +119,7 @@ export class SqliteContainerStore implements ContainerStore {
     name: string,
     update: (entry: ContainerRegistryEntry) => ContainerRegistryEntry,
   ): Promise<ContainerRegistryEntry> {
-    const entries = await this.readAll(scope);
-    const currentEntry = entries.find((entry) => entry.name === name);
+    const currentEntry = await this.findByName(scope, name);
 
     if (!currentEntry) {
       throw new NotFoundError(`Container not found in registry: ${name}`);

@@ -1,182 +1,159 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { PrismaClient } from '../generated/prisma/index.js';
 
 import type { UserStore } from '../interfaces.js';
 import type { StoreScope, UserIdentity, UserRecord } from '../types.js';
 
 export class SqliteUserStore implements UserStore {
-  private writeQueue = Promise.resolve();
-
-  constructor(private readonly database: DatabaseSync) {}
+  constructor(private readonly prisma: PrismaClient) {}
 
   async upsert(scope: StoreScope, user: UserRecord): Promise<void> {
-    await this.enqueueWrite(async () => {
-      this.database
-        .prepare(
-          `INSERT INTO users(agent_id, user_id, role, name, merged_into, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(agent_id, user_id) DO UPDATE SET
-             role = excluded.role,
-             name = excluded.name,
-             merged_into = excluded.merged_into,
-             updated_at = excluded.updated_at`,
-        )
-        .run(
-          scope.agentId,
-          user.userId,
-          user.role,
-          user.name ?? null,
-          user.mergedInto ?? null,
-          user.createdAt,
-          user.updatedAt,
-        );
+    await this.prisma.user.upsert({
+      where: { agentId_userId: { agentId: scope.agentId, userId: user.userId } },
+      create: {
+        agentId: scope.agentId,
+        userId: user.userId,
+        role: user.role,
+        name: user.name ?? null,
+        mergedInto: user.mergedInto ?? null,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      },
+      update: {
+        role: user.role,
+        name: user.name ?? null,
+        mergedInto: user.mergedInto ?? null,
+        updatedAt: user.updatedAt,
+      },
     });
   }
 
   async get(scope: StoreScope, userId: string): Promise<UserRecord | undefined> {
-    const row = this.database
-      .prepare(
-        `SELECT user_id, role, name, merged_into, created_at, updated_at
-         FROM users
-         WHERE agent_id = ? AND user_id = ? AND merged_into IS NULL`,
-      )
-      .get(scope.agentId, userId) as Record<string, unknown> | undefined;
+    const row = await this.prisma.user.findFirst({
+      where: { agentId: scope.agentId, userId, mergedInto: null },
+    });
 
     if (!row) return undefined;
     return this.rowToUserRecord(row);
   }
 
   async list(scope: StoreScope): Promise<UserRecord[]> {
-    const rows = this.database
-      .prepare(
-        `SELECT user_id, role, name, merged_into, created_at, updated_at
-         FROM users
-         WHERE agent_id = ? AND merged_into IS NULL
-         ORDER BY created_at ASC`,
-      )
-      .all(scope.agentId) as Array<Record<string, unknown>>;
+    const rows = await this.prisma.user.findMany({
+      where: { agentId: scope.agentId, mergedInto: null },
+      orderBy: { createdAt: 'asc' },
+    });
 
     return rows.map((row) => this.rowToUserRecord(row));
   }
 
   async linkIdentity(scope: StoreScope, identity: UserIdentity): Promise<void> {
-    await this.enqueueWrite(async () => {
-      this.database
-        .prepare(
-          `INSERT INTO user_identities(agent_id, user_id, channel, channel_user_id, created_at)
-           VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT(agent_id, channel, channel_user_id) DO UPDATE SET
-             user_id = excluded.user_id`,
-        )
-        .run(
-          scope.agentId,
-          identity.userId,
-          identity.channel,
-          identity.channelUserId,
-          identity.createdAt,
-        );
+    await this.prisma.userIdentity.upsert({
+      where: {
+        agentId_channel_channelUserId: {
+          agentId: scope.agentId,
+          channel: identity.channel,
+          channelUserId: identity.channelUserId,
+        },
+      },
+      create: {
+        agentId: scope.agentId,
+        userId: identity.userId,
+        channel: identity.channel,
+        channelUserId: identity.channelUserId,
+        createdAt: identity.createdAt,
+      },
+      update: {
+        userId: identity.userId,
+      },
     });
   }
 
   async resolve(scope: StoreScope, channel: string, channelUserId: string): Promise<string | undefined> {
-    const row = this.database
-      .prepare(
-        `SELECT ui.user_id, u.merged_into
-         FROM user_identities ui
-         JOIN users u ON u.agent_id = ui.agent_id AND u.user_id = ui.user_id
-         WHERE ui.agent_id = ? AND ui.channel = ? AND ui.channel_user_id = ?`,
-      )
-      .get(scope.agentId, channel, channelUserId) as Record<string, unknown> | undefined;
+    const identity = await this.prisma.userIdentity.findUnique({
+      where: {
+        agentId_channel_channelUserId: {
+          agentId: scope.agentId,
+          channel,
+          channelUserId,
+        },
+      },
+      include: { user: true },
+    });
 
-    if (!row) return undefined;
+    if (!identity) return undefined;
 
     // Follow merged_into chain (at most one hop in practice)
-    const mergedInto = row.merged_into;
-    if (typeof mergedInto === 'string') {
-      return mergedInto;
+    if (typeof identity.user.mergedInto === 'string') {
+      return identity.user.mergedInto;
     }
 
-    return String(row.user_id);
+    return identity.userId;
   }
 
   async unlinkIdentity(scope: StoreScope, channel: string, channelUserId: string): Promise<void> {
-    await this.enqueueWrite(async () => {
-      this.database
-        .prepare(
-          `DELETE FROM user_identities
-           WHERE agent_id = ? AND channel = ? AND channel_user_id = ?`,
-        )
-        .run(scope.agentId, channel, channelUserId);
+    await this.prisma.userIdentity.deleteMany({
+      where: { agentId: scope.agentId, channel, channelUserId },
     });
   }
 
   async listIdentities(scope: StoreScope, userId: string): Promise<UserIdentity[]> {
-    const rows = this.database
-      .prepare(
-        `SELECT user_id, channel, channel_user_id, created_at
-         FROM user_identities
-         WHERE agent_id = ? AND user_id = ?
-         ORDER BY created_at ASC`,
-      )
-      .all(scope.agentId, userId) as Array<Record<string, unknown>>;
+    const rows = await this.prisma.userIdentity.findMany({
+      where: { agentId: scope.agentId, userId },
+      orderBy: { createdAt: 'asc' },
+    });
 
     return rows.map((row) => ({
-      userId: String(row.user_id),
-      channel: String(row.channel),
-      channelUserId: String(row.channel_user_id),
-      createdAt: String(row.created_at),
+      userId: row.userId,
+      channel: row.channel,
+      channelUserId: row.channelUserId,
+      createdAt: row.createdAt,
     }));
   }
 
   async merge(scope: StoreScope, fromUserId: string, intoUserId: string): Promise<void> {
-    await this.enqueueWrite(async () => {
+    await this.prisma.$transaction(async (tx) => {
       // Re-link all identities from source to target
-      this.database
-        .prepare(
-          `UPDATE user_identities SET user_id = ?
-           WHERE agent_id = ? AND user_id = ?`,
-        )
-        .run(intoUserId, scope.agentId, fromUserId);
+      await tx.userIdentity.updateMany({
+        where: { agentId: scope.agentId, userId: fromUserId },
+        data: { userId: intoUserId },
+      });
 
       // Mark source as merged
       const now = new Date().toISOString();
-      this.database
-        .prepare(
-          `UPDATE users SET merged_into = ?, updated_at = ?
-           WHERE agent_id = ? AND user_id = ?`,
-        )
-        .run(intoUserId, now, scope.agentId, fromUserId);
+      await tx.user.update({
+        where: { agentId_userId: { agentId: scope.agentId, userId: fromUserId } },
+        data: { mergedInto: intoUserId, updatedAt: now },
+      });
     });
   }
 
   async delete(scope: StoreScope, userId: string): Promise<void> {
-    await this.enqueueWrite(async () => {
-      // Identities are cascade-deleted via FK
-      this.database
-        .prepare(`DELETE FROM users WHERE agent_id = ? AND user_id = ?`)
-        .run(scope.agentId, userId);
+    // Identities are cascade-deleted via FK
+    await this.prisma.user.delete({
+      where: { agentId_userId: { agentId: scope.agentId, userId } },
     });
   }
 
-  private async enqueueWrite(work: () => Promise<void>): Promise<void> {
-    const run = this.writeQueue.then(work, work);
-    this.writeQueue = run.catch(() => undefined);
-    await run;
-  }
-
-  private rowToUserRecord(row: Record<string, unknown>): UserRecord {
+  private rowToUserRecord(row: {
+    userId: string;
+    role: string;
+    name: string | null;
+    mergedInto: string | null;
+    createdAt: string;
+    updatedAt: string;
+  }): UserRecord {
     const record: UserRecord = {
-      userId: String(row.user_id),
-      role: String(row.role) as UserRecord['role'],
-      createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
+      userId: row.userId,
+      role: row.role as UserRecord['role'],
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
     };
 
-    if (typeof row.name === 'string') {
+    if (row.name !== null) {
       record.name = row.name;
     }
 
-    if (typeof row.merged_into === 'string') {
-      record.mergedInto = row.merged_into;
+    if (row.mergedInto !== null) {
+      record.mergedInto = row.mergedInto;
     }
 
     return record;

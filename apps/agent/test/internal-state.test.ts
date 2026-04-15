@@ -3,57 +3,27 @@ import { existsSync } from 'node:fs';
 import test from 'node:test';
 
 import { internalStateFiles } from '@openhermit/shared';
-import { SqliteInternalStateStore, CURRENT_SCHEMA_VERSION, standaloneScope } from '@openhermit/store';
+import { SqliteInternalStateStore, standaloneScope } from '@openhermit/store';
 
 import { createSecurityFixture } from './helpers.js';
 
-test('SqliteInternalStateStore bootstraps per-agent state.sqlite with schema version', async (t) => {
+test('SqliteInternalStateStore bootstraps per-agent state.sqlite', async (t) => {
   const { security } = await createSecurityFixture(t);
 
-  const store = SqliteInternalStateStore.open(security.stateFilePath);
+  const store = await SqliteInternalStateStore.open(security.stateFilePath);
 
   try {
     assert.equal(store.databasePath, security.stateFilePath);
-    assert.equal(store.getSchemaVersion(), CURRENT_SCHEMA_VERSION);
     assert.equal(existsSync(security.stateFilePath), true);
   } finally {
-    store.close();
+    await store.close();
   }
-});
-
-test('SqliteInternalStateStore creates tables with agent_id and composite keys', async (t) => {
-  const { security } = await createSecurityFixture(t);
-
-  const store = SqliteInternalStateStore.open(security.stateFilePath);
-  t.after(() => store.close());
-
-  // Verify sessions has composite PK (agent_id, session_id)
-  const sessionColumns = store.rawDatabase
-    .prepare(`PRAGMA table_info(sessions)`)
-    .all() as Array<{ name: string; pk: number }>;
-  const sessionPks = sessionColumns.filter((c) => c.pk > 0).map((c) => c.name);
-  assert.deepEqual(sessionPks, ['agent_id', 'session_id']);
-
-  // Verify session_events has content and user_id columns
-  const eventColumns = store.rawDatabase
-    .prepare(`PRAGMA table_info(session_events)`)
-    .all() as Array<{ name: string }>;
-  const eventColumnNames = eventColumns.map((c) => c.name);
-  assert.ok(eventColumnNames.includes('content'));
-  assert.ok(eventColumnNames.includes('user_id'));
-
-  // Verify memories has composite PK (agent_id, memory_key)
-  const memColumns = store.rawDatabase
-    .prepare(`PRAGMA table_info(memories)`)
-    .all() as Array<{ name: string; pk: number }>;
-  const memPks = memColumns.filter((c) => c.pk > 0).map((c) => c.name);
-  assert.deepEqual(memPks, ['agent_id', 'memory_key']);
 });
 
 test('SqliteInternalStateStore supports basic CRUD with FK integrity', async (t) => {
   const { security } = await createSecurityFixture(t);
 
-  const store = SqliteInternalStateStore.open(security.stateFilePath);
+  const store = await SqliteInternalStateStore.open(security.stateFilePath);
   t.after(() => store.close());
 
   // Create a session

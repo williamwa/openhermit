@@ -364,7 +364,7 @@ test('AgentRunner injects session working memory but not long-term memory', asyn
       interactive: true,
     },
   });
-  const store = SqliteInternalStateStore.open(security.stateFilePath);
+  const store = await SqliteInternalStateStore.open(security.stateFilePath);
   t.after(() => store.close());
   await store.messages.setSessionWorkingMemory(
     testScope,
@@ -533,7 +533,7 @@ test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
   });
   await security.load();
 
-  const store = SqliteInternalStateStore.open(security.stateFilePath);
+  const store = await SqliteInternalStateStore.open(security.stateFilePath);
   t.after(() => store.close());
   await store.memories.add(testScope, { id: 'fact', content: 'The answer is 42.' });
 

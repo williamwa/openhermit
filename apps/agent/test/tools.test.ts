@@ -304,12 +304,13 @@ test('memory_add stores entry, memory_recall finds it, and memory_get returns fu
   });
   await security.load();
 
-  const store = SqliteInternalStateStore.open(security.stateFilePath);
+  const store = await SqliteInternalStateStore.open(security.stateFilePath);
   t.after(() => store.close());
   const memoryProvider = store.memories;
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
-    stateFilePath: security.stateFilePath,
+    containerStore: store.containers,
+    storeScope: standaloneScope,
   });
   const tools = createBuiltInTools({
     security,
@@ -359,12 +360,13 @@ test('memory_add creates entries and memory_recall searches them', async (t) => 
   });
   await security.load();
 
-  const store = SqliteInternalStateStore.open(security.stateFilePath);
+  const store = await SqliteInternalStateStore.open(security.stateFilePath);
   t.after(() => store.close());
   const memoryProvider = store.memories;
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
-    stateFilePath: security.stateFilePath,
+    containerStore: store.containers,
+    storeScope: standaloneScope,
   });
   const tools = createBuiltInTools({
     security,
@@ -402,12 +404,13 @@ test('memory_get rejects unknown IDs', async (t) => {
   });
   await security.load();
 
-  const store = SqliteInternalStateStore.open(security.stateFilePath);
+  const store = await SqliteInternalStateStore.open(security.stateFilePath);
   t.after(() => store.close());
   const memoryProvider = store.memories;
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
-    stateFilePath: security.stateFilePath,
+    containerStore: store.containers,
+    storeScope: standaloneScope,
   });
   const tools = createBuiltInTools({
     security,
@@ -438,12 +441,13 @@ test('memory_add is blocked in readonly mode', async (t) => {
   });
   await security.load();
 
-  const store = SqliteInternalStateStore.open(security.stateFilePath);
+  const store = await SqliteInternalStateStore.open(security.stateFilePath);
   t.after(() => store.close());
   const memoryProvider = store.memories;
   const containerManager = new DockerContainerManager(workspace, {
     runner: new FakeDockerRunner([]),
-    stateFilePath: security.stateFilePath,
+    containerStore: store.containers,
+    storeScope: standaloneScope,
   });
   const tools = createBuiltInTools({
     security,
@@ -766,7 +770,7 @@ test('instruction_update stores an entry and instruction_read retrieves it', asy
   });
   await security.load();
 
-  const stateStore = SqliteInternalStateStore.open(
+  const stateStore = await SqliteInternalStateStore.open(
     path.join(await createTempDir(t, 'instruction-test-'), 'state.sqlite'),
   );
   t.after(() => stateStore.close());
@@ -808,7 +812,7 @@ test('instruction_read returns empty message when no entries exist', async (t) =
   });
   await security.load();
 
-  const stateStore = SqliteInternalStateStore.open(
+  const stateStore = await SqliteInternalStateStore.open(
     path.join(await createTempDir(t, 'instruction-test-'), 'state.sqlite'),
   );
   t.after(() => stateStore.close());
@@ -833,7 +837,7 @@ test('instruction_update is blocked in readonly mode', async (t) => {
   });
   await security.load();
 
-  const stateStore = SqliteInternalStateStore.open(
+  const stateStore = await SqliteInternalStateStore.open(
     path.join(await createTempDir(t, 'instruction-test-'), 'state.sqlite'),
   );
   t.after(() => stateStore.close());

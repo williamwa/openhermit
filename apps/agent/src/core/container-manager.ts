@@ -217,30 +217,42 @@ export class DockerContainerManager {
   private readonly docker: DockerRunner;
   private readonly agentId: string;
 
-  readonly registry: ScopedContainerRegistry;
+  readonly registry!: ScopedContainerRegistry;
 
   constructor(
     private readonly workspace: AgentWorkspace,
     options: DockerContainerManagerOptions = {},
+    registry?: ScopedContainerRegistry,
   ) {
     this.docker = options.runner ?? new DockerCliRunner();
     this.agentId = options.agentId ?? 'default';
 
-    if (options.containerStore) {
+    if (registry) {
+      this.registry = registry;
+    } else if (options.containerStore) {
       this.registry = new ScopedContainerRegistry(
         options.containerStore,
         options.storeScope ?? standaloneScope,
       );
-    } else {
-      const store = SqliteInternalStateStore.open(
-        options.stateFilePath
-        ?? path.join(workspace.root, '.openhermit-internal', 'state.sqlite'),
-      );
-      this.registry = new ScopedContainerRegistry(
-        store.containers,
-        standaloneScope,
-      );
     }
+    // When neither is provided, registry stays unset.
+    // Use DockerContainerManager.create() for the file-based fallback path.
+  }
+
+  static async create(
+    workspace: AgentWorkspace,
+    options: DockerContainerManagerOptions = {},
+  ): Promise<DockerContainerManager> {
+    if (options.containerStore) {
+      return new DockerContainerManager(workspace, options);
+    }
+
+    const store = await SqliteInternalStateStore.open(
+      options.stateFilePath
+      ?? path.join(workspace.root, '.openhermit-internal', 'state.sqlite'),
+    );
+    const registry = new ScopedContainerRegistry(store.containers, standaloneScope);
+    return new DockerContainerManager(workspace, options, registry);
   }
 
   private async requireRegisteredService(

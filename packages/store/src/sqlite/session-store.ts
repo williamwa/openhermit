@@ -1,153 +1,112 @@
-import type { DatabaseSync } from 'node:sqlite';
 import type { MetadataValue } from '@openhermit/protocol';
+import type { PrismaClient } from '../generated/prisma/index.js';
 
 import type { SessionStore } from '../interfaces.js';
 import type { PersistedSessionIndexEntry, StoreScope } from '../types.js';
 
 export class SqliteSessionStore implements SessionStore {
-  private writeQueue = Promise.resolve();
-
-  constructor(private readonly database: DatabaseSync) {}
+  constructor(private readonly prisma: PrismaClient) {}
 
   async waitForIdle(): Promise<void> {
-    await this.writeQueue;
+    // Prisma handles connection management internally.
   }
 
   async list(scope: StoreScope): Promise<PersistedSessionIndexEntry[]> {
-    await this.waitForIdle();
-    return this.readSessions(scope);
+    const rows = await this.prisma.session.findMany({
+      where: { agentId: scope.agentId },
+      orderBy: { lastActivityAt: 'desc' },
+    });
+
+    return rows.map((row) => this.rowToEntry(row));
   }
 
   async get(scope: StoreScope, sessionId: string): Promise<PersistedSessionIndexEntry | undefined> {
-    const sessions = await this.list(scope);
-    return sessions.find((session) => session.sessionId === sessionId);
+    const row = await this.prisma.session.findUnique({
+      where: { agentId_sessionId: { agentId: scope.agentId, sessionId } },
+    });
+
+    if (!row) return undefined;
+    return this.rowToEntry(row);
   }
 
   async upsert(scope: StoreScope, entry: PersistedSessionIndexEntry): Promise<void> {
-    await this.enqueueWrite(async () => {
-      this.database
-        .prepare(
-          `INSERT INTO sessions(
-            agent_id,
-            session_id,
-            source_kind,
-            source_platform,
-            interactive,
-            created_at,
-            last_activity_at,
-            description,
-            description_source,
-            message_count,
-            completed_turn_count,
-            last_message_preview,
-            metadata_json,
-            status
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(agent_id, session_id) DO UPDATE SET
-            source_kind = excluded.source_kind,
-            source_platform = excluded.source_platform,
-            interactive = excluded.interactive,
-            created_at = excluded.created_at,
-            last_activity_at = excluded.last_activity_at,
-            description = excluded.description,
-            description_source = excluded.description_source,
-            message_count = excluded.message_count,
-            completed_turn_count = excluded.completed_turn_count,
-            last_message_preview = excluded.last_message_preview,
-            metadata_json = excluded.metadata_json,
-            status = excluded.status`,
-        )
-        .run(
-          scope.agentId,
-          entry.sessionId,
-          entry.source.kind,
-          entry.source.platform ?? null,
-          entry.source.interactive ? 1 : 0,
-          entry.createdAt,
-          entry.lastActivityAt,
-          entry.description ?? null,
-          entry.descriptionSource ?? null,
-          entry.messageCount,
-          entry.completedTurnCount ?? 0,
-          entry.lastMessagePreview ?? null,
-          JSON.stringify(entry.metadata ?? {}),
-          'idle',
-        );
+    const data = {
+      sourceKind: entry.source.kind,
+      sourcePlatform: entry.source.platform ?? null,
+      interactive: entry.source.interactive ? 1 : 0,
+      createdAt: entry.createdAt,
+      lastActivityAt: entry.lastActivityAt,
+      description: entry.description ?? null,
+      descriptionSource: entry.descriptionSource ?? null,
+      messageCount: entry.messageCount,
+      completedTurnCount: entry.completedTurnCount ?? 0,
+      lastMessagePreview: entry.lastMessagePreview ?? null,
+      metadataJson: JSON.stringify(entry.metadata ?? {}),
+      status: 'idle',
+    };
+
+    await this.prisma.session.upsert({
+      where: { agentId_sessionId: { agentId: scope.agentId, sessionId: entry.sessionId } },
+      create: {
+        agentId: scope.agentId,
+        sessionId: entry.sessionId,
+        ...data,
+      },
+      update: data,
     });
   }
 
   async updateDescription(scope: StoreScope, sessionId: string, description: string, source: 'fallback' | 'ai'): Promise<void> {
-    await this.enqueueWrite(async () => {
-      this.database
-        .prepare(
-          `UPDATE sessions SET description = ?, description_source = ? WHERE agent_id = ? AND session_id = ?`,
-        )
-        .run(description, source, scope.agentId, sessionId);
+    await this.prisma.session.update({
+      where: { agentId_sessionId: { agentId: scope.agentId, sessionId } },
+      data: { description, descriptionSource: source },
     });
   }
 
-  private async enqueueWrite(work: () => Promise<void>): Promise<void> {
-    const run = this.writeQueue.then(work, work);
-    this.writeQueue = run.catch(() => undefined);
-    await run;
-  }
+  private rowToEntry(row: {
+    sessionId: string;
+    sourceKind: string;
+    sourcePlatform: string | null;
+    interactive: number;
+    createdAt: string;
+    lastActivityAt: string;
+    description: string | null;
+    descriptionSource: string | null;
+    messageCount: number;
+    completedTurnCount: number;
+    lastMessagePreview: string | null;
+    metadataJson: string;
+  }): PersistedSessionIndexEntry {
+    const metadata = JSON.parse(row.metadataJson || '{}') as Record<string, unknown>;
+    const entry: PersistedSessionIndexEntry = {
+      sessionId: row.sessionId,
+      source: {
+        kind: row.sourceKind,
+        interactive: row.interactive === 1,
+        ...(row.sourcePlatform !== null ? { platform: row.sourcePlatform } : {}),
+      },
+      createdAt: row.createdAt,
+      lastActivityAt: row.lastActivityAt,
+      messageCount: row.messageCount,
+      completedTurnCount: row.completedTurnCount,
+    };
 
-  private readSessions(scope: StoreScope): PersistedSessionIndexEntry[] {
-    const rows = this.database
-      .prepare(
-        `SELECT
-          session_id,
-          source_kind,
-          source_platform,
-          interactive,
-          created_at,
-          last_activity_at,
-          description,
-          description_source,
-          message_count,
-          completed_turn_count,
-          last_message_preview,
-          metadata_json
-         FROM sessions
-         WHERE agent_id = ?
-         ORDER BY last_activity_at DESC`,
-      )
-      .all(scope.agentId) as Array<Record<string, unknown>>;
+    if (row.description !== null) {
+      entry.description = row.description;
+    }
 
-    return rows.map((row) => {
-      const metadata = JSON.parse(String(row.metadata_json || '{}')) as Record<string, unknown>;
-      const entry: PersistedSessionIndexEntry = {
-        sessionId: String(row.session_id),
-        source: {
-          kind: String(row.source_kind),
-          interactive: Number(row.interactive) === 1,
-          ...(typeof row.source_platform === 'string'
-            ? { platform: row.source_platform }
-            : {}),
-        },
-        createdAt: String(row.created_at),
-        lastActivityAt: String(row.last_activity_at),
-        messageCount: Number(row.message_count),
-        completedTurnCount: Number(row.completed_turn_count),
-      };
+    if (row.descriptionSource === 'fallback' || row.descriptionSource === 'ai') {
+      entry.descriptionSource = row.descriptionSource;
+    }
 
-      if (typeof row.description === 'string') {
-        entry.description = row.description;
-      }
+    if (row.lastMessagePreview !== null) {
+      entry.lastMessagePreview = row.lastMessagePreview;
+    }
 
-      if (row.description_source === 'fallback' || row.description_source === 'ai') {
-        entry.descriptionSource = row.description_source;
-      }
+    if (Object.keys(metadata).length > 0) {
+      entry.metadata = metadata as Record<string, MetadataValue>;
+    }
 
-      if (typeof row.last_message_preview === 'string') {
-        entry.lastMessagePreview = row.last_message_preview;
-      }
-
-      if (Object.keys(metadata).length > 0) {
-        entry.metadata = metadata as Record<string, MetadataValue>;
-      }
-
-      return entry;
-    });
+    return entry;
   }
 }

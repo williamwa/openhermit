@@ -87,9 +87,11 @@ export class AgentRunner implements SessionRuntime {
     }
   }
 
-  private constructor(private readonly options: AgentRunnerOptions) {
-    this.store = options.store
-      ?? SqliteInternalStateStore.open(options.security.stateFilePath);
+  private constructor(
+    private readonly options: AgentRunnerOptions,
+    store: InternalStateStore,
+  ) {
+    this.store = store;
     this.scope = { agentId: options.security.agentId };
     this.containerManager =
       options.containerManager
@@ -102,7 +104,9 @@ export class AgentRunner implements SessionRuntime {
 
   static async create(options: AgentRunnerOptions): Promise<AgentRunner> {
     AgentRunner.DEBUG = Boolean(process.env.OPENHERMIT_DEBUG);
-    return new AgentRunner(options);
+    const store = options.store
+      ?? await SqliteInternalStateStore.open(options.security.stateFilePath);
+    return new AgentRunner(options, store);
   }
 
   resetWorkspaceIdleTimer(config: import('./core/types.js').WorkspaceContainerConfig): void {

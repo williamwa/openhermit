@@ -12,11 +12,16 @@
     }
   },
   "scripts": {
-    "build": "tsc -b",
+    "build": "prisma generate && tsc -b",
+    "prisma:generate": "prisma generate",
     "typecheck": "tsc -p tsconfig.json --pretty false --noEmit"
   },
   "dependencies": {
     "@openhermit/protocol": "0.1.0",
-    "@openhermit/shared": "0.1.0"
+    "@openhermit/shared": "0.1.0",
+    "@prisma/client": "^6.19.3"
+  },
+  "devDependencies": {
+    "prisma": "^6.19.3"
   }
 }

@@ -101,5 +101,5 @@ export interface InternalStateStore {
   containers: ContainerStore;
   instructions: InstructionStore;
   users: UserStore;
-  close(): void;
+  close(): Promise<void>;
 }
