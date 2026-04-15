@@ -13,7 +13,7 @@ import { SqliteInstructionStore } from './instruction-store.js';
 import { SqliteUserStore } from './user-store.js';
 
 // SHA-256 of prisma/migrations/0_baseline/migration.sql (must stay in sync if SQL changes)
-const BASELINE_CHECKSUM = '340a35608f3c3c3c09a2532d24bdba572a6d91783a8cebd046483df4f784adb1';
+const BASELINE_CHECKSUM = '365521592cffcda410d6e6b8d3b8d13e8b9c033cecf31af0ca383f22172b0787';
 const BASELINE_NAME = '0_baseline';
 
 /**
@@ -122,15 +122,8 @@ export class SqliteInternalStateStore implements InternalStateStore {
       await prisma.$queryRawUnsafe('PRAGMA foreign_keys = ON;');
 
       // Ensure schema is up to date (creates tables on fresh DB, marks baseline on pre-Prisma DB).
+      // The baseline migration also creates the memories_fts FTS5 virtual table.
       await bootstrapSchema(prisma);
-
-      // Create FTS5 virtual table (not supported by Prisma schema).
-      await prisma.$executeRawUnsafe(
-        `CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-          agent_id, memory_key, content,
-          tokenize='porter unicode61'
-        );`,
-      );
 
       return new SqliteInternalStateStore(prisma, databasePath);
     } catch (error) {

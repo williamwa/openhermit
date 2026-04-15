@@ -121,3 +121,9 @@ CREATE INDEX "idx_users_agent" ON "users"("agent_id", "updated_at" DESC);
 -- CreateIndex
 CREATE INDEX "idx_user_identities_user" ON "user_identities"("agent_id", "user_id");
 
+-- CreateVirtualTable (FTS5, not supported by Prisma schema — managed manually)
+CREATE VIRTUAL TABLE IF NOT EXISTS "memories_fts" USING fts5(
+  agent_id, memory_key, content,
+  tokenize='porter unicode61'
+);
+
