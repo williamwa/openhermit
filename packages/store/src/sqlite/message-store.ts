@@ -208,6 +208,19 @@ export class SqliteMessageStore implements MessageStore {
     return row?.max_id ?? 0;
   }
 
+  async getTurnsSinceLastIntrospection(scope: StoreScope, sessionId: string): Promise<number> {
+    const lastId = await this.getLastIntrospectionEventId(scope, sessionId);
+    const row = this.database
+      .prepare(
+        `SELECT COUNT(*) AS cnt
+         FROM session_events
+         WHERE agent_id = ? AND session_id = ? AND event_type = 'agent_end' AND id > ?`,
+      )
+      .get(scope.agentId, sessionId, lastId) as { cnt: number } | undefined;
+
+    return row?.cnt ?? 0;
+  }
+
   async listSessionEntries(scope: StoreScope, sessionId: string): Promise<SessionLogEntry[]> {
     const rows = this.database
       .prepare(

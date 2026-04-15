@@ -20,8 +20,6 @@ export interface PersistedSessionIndexEntry {
   lastActivityAt: string;
   messageCount: number;
   completedTurnCount?: number;
-  lastSummarizedTurnCount?: number;
-  lastSummarizedAt?: string;
   description?: string;
   descriptionSource?: 'fallback' | 'ai';
   lastMessagePreview?: string;

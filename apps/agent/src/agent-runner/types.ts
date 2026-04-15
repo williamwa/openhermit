@@ -19,8 +19,6 @@ export interface RunnerSession extends SessionDescriptor {
   status: SessionStatus;
   messageCount: number;
   completedTurnCount: number;
-  lastSummarizedTurnCount: number;
-  lastSummarizedAt?: string;
   description?: string;
   descriptionSource?: 'fallback' | 'ai';
   lastMessagePreview?: string;

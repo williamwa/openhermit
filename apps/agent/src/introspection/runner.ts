@@ -23,9 +23,6 @@ export interface IntrospectionInput {
   history: Array<{ role: 'user' | 'assistant' | 'error'; content: string; ts: string; userId?: string }>;
   previousWorkingMemory: string | undefined;
   currentDescription: string | undefined;
-  completedTurnCount: number;
-  lastSummarizedTurnCount: number;
-
   createAgent: (input: {
     config: AgentConfig;
     agentSessionId: string;
@@ -68,7 +65,10 @@ export async function runIntrospection(input: IntrospectionInput): Promise<Intro
     descriptionUpdated: false,
   };
 
-  const turnsSinceLast = input.completedTurnCount - input.lastSummarizedTurnCount;
+  const turnsSinceLast = await input.store.messages.getTurnsSinceLastIntrospection(
+    input.scope,
+    input.sessionId,
+  );
 
   // Write introspection_start event
   await input.store.messages.appendLogEntry(input.scope, input.sessionId, {

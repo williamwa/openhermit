@@ -13,10 +13,6 @@ export const createPersistedSessionIndexEntry = (
   lastActivityAt: session.updatedAt,
   messageCount: session.messageCount,
   completedTurnCount: session.completedTurnCount,
-  lastSummarizedTurnCount: session.lastSummarizedTurnCount,
-  ...(session.lastSummarizedAt
-    ? { lastSummarizedAt: session.lastSummarizedAt }
-    : {}),
   ...(session.description ? { description: session.description } : {}),
   ...(session.descriptionSource
     ? { descriptionSource: session.descriptionSource }

@@ -272,10 +272,6 @@ export class AgentRunner implements SessionRuntime {
       status: 'idle',
       messageCount: persisted?.messageCount ?? 0,
       completedTurnCount: persisted?.completedTurnCount ?? 0,
-      lastSummarizedTurnCount: persisted?.lastSummarizedTurnCount ?? 0,
-      ...(persisted?.lastSummarizedAt
-        ? { lastSummarizedAt: persisted.lastSummarizedAt }
-        : {}),
       ...(persisted?.description ? { description: persisted.description } : {}),
       ...(persisted?.descriptionSource
         ? { descriptionSource: persisted.descriptionSource }
@@ -487,8 +483,6 @@ export class AgentRunner implements SessionRuntime {
       history: newHistory,
       previousWorkingMemory,
       currentDescription: session.description,
-      completedTurnCount: session.completedTurnCount,
-      lastSummarizedTurnCount: session.lastSummarizedTurnCount,
       createAgent: (input) => this.createConfiguredAgent(input),
       ...(this.options.langfuse ? { langfuse: this.options.langfuse } : {}),
       logRuntime: (msg) => this.logRuntime(msg),
@@ -496,8 +490,6 @@ export class AgentRunner implements SessionRuntime {
 
     // Update session index
     const ts = new Date().toISOString();
-    session.lastSummarizedTurnCount = session.completedTurnCount;
-    session.lastSummarizedAt = ts;
 
     // Sync description back from store if introspection updated it
     if (result.descriptionUpdated) {
@@ -1393,10 +1385,11 @@ export class AgentRunner implements SessionRuntime {
         void this.queueBackgroundTask(session, async () => {
           const config = await this.options.security.readConfig();
 
-          if (
-            session.completedTurnCount - session.lastSummarizedTurnCount >=
-            this.getCheckpointTurnInterval(config)
-          ) {
+          const turnsSinceLast = await this.store.messages.getTurnsSinceLastIntrospection(
+            this.scope,
+            session.spec.sessionId,
+          );
+          if (turnsSinceLast >= this.getCheckpointTurnInterval(config)) {
             await this.runSessionCheckpoint(session, 'turn_limit');
           }
 
