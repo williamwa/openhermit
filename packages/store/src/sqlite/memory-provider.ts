@@ -22,24 +22,32 @@ export class SqliteMemoryProvider implements MemoryProvider {
     const now = new Date().toISOString();
     const metadataJson = JSON.stringify(input.metadata ?? {});
 
-    this.database
-      .prepare(
-        `INSERT INTO memories(agent_id, memory_key, content, metadata_json, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(agent_id, memory_key) DO UPDATE SET
-           content = excluded.content,
-           metadata_json = excluded.metadata_json,
-           updated_at = excluded.updated_at`,
-      )
-      .run(scope.agentId, id, input.content, metadataJson, now, now);
+    this.database.exec('BEGIN');
+    try {
+      this.database
+        .prepare(
+          `INSERT INTO memories(agent_id, memory_key, content, metadata_json, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(agent_id, memory_key) DO UPDATE SET
+             content = excluded.content,
+             metadata_json = excluded.metadata_json,
+             updated_at = excluded.updated_at`,
+        )
+        .run(scope.agentId, id, input.content, metadataJson, now, now);
 
-    // Keep FTS index in sync — delete old row (if any) then insert fresh.
-    this.database
-      .prepare(`DELETE FROM memories_fts WHERE agent_id = ? AND memory_key = ?`)
-      .run(scope.agentId, id);
-    this.database
-      .prepare(`INSERT INTO memories_fts(agent_id, memory_key, content) VALUES (?, ?, ?)`)
-      .run(scope.agentId, id, input.content);
+      // Keep FTS index in sync — delete old row (if any) then insert fresh.
+      this.database
+        .prepare(`DELETE FROM memories_fts WHERE agent_id = ? AND memory_key = ?`)
+        .run(scope.agentId, id);
+      this.database
+        .prepare(`INSERT INTO memories_fts(agent_id, memory_key, content) VALUES (?, ?, ?)`)
+        .run(scope.agentId, id, input.content);
+
+      this.database.exec('COMMIT');
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+      throw error;
+    }
 
     return {
       id,
@@ -65,14 +73,16 @@ export class SqliteMemoryProvider implements MemoryProvider {
       const rows = this.database
         .prepare(
           `SELECT m.memory_key, m.content, m.metadata_json, m.created_at, m.updated_at
-           FROM memories_fts f
-           JOIN memories m ON m.agent_id = f.agent_id AND m.memory_key = f.memory_key
-           WHERE memories_fts MATCH ?
-             AND f.agent_id = ?
-           ORDER BY f.rank
+           FROM memories m
+           WHERE m.agent_id = ?
+             AND m.memory_key IN (
+               SELECT DISTINCT memory_key FROM memories_fts
+               WHERE memories_fts MATCH ? AND agent_id = ?
+             )
+           ORDER BY m.updated_at DESC
            LIMIT ?`,
         )
-        .all(ftsQuery, scope.agentId, limit) as Array<{
+        .all(scope.agentId, ftsQuery, scope.agentId, limit) as Array<{
         memory_key: string;
         content: string;
         metadata_json: string;
@@ -157,21 +167,29 @@ export class SqliteMemoryProvider implements MemoryProvider {
       : existing.metadata;
     const now = new Date().toISOString();
 
-    this.database
-      .prepare(
-        `UPDATE memories
-         SET content = ?, metadata_json = ?, updated_at = ?
-         WHERE agent_id = ? AND memory_key = ?`,
-      )
-      .run(content, JSON.stringify(metadata ?? {}), now, scope.agentId, id);
+    this.database.exec('BEGIN');
+    try {
+      this.database
+        .prepare(
+          `UPDATE memories
+           SET content = ?, metadata_json = ?, updated_at = ?
+           WHERE agent_id = ? AND memory_key = ?`,
+        )
+        .run(content, JSON.stringify(metadata ?? {}), now, scope.agentId, id);
 
-    // Keep FTS index in sync.
-    this.database
-      .prepare(`DELETE FROM memories_fts WHERE agent_id = ? AND memory_key = ?`)
-      .run(scope.agentId, id);
-    this.database
-      .prepare(`INSERT INTO memories_fts(agent_id, memory_key, content) VALUES (?, ?, ?)`)
-      .run(scope.agentId, id, content);
+      // Keep FTS index in sync.
+      this.database
+        .prepare(`DELETE FROM memories_fts WHERE agent_id = ? AND memory_key = ?`)
+        .run(scope.agentId, id);
+      this.database
+        .prepare(`INSERT INTO memories_fts(agent_id, memory_key, content) VALUES (?, ?, ?)`)
+        .run(scope.agentId, id, content);
+
+      this.database.exec('COMMIT');
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+      throw error;
+    }
 
     return {
       id,
@@ -183,12 +201,19 @@ export class SqliteMemoryProvider implements MemoryProvider {
   }
 
   async delete(scope: StoreScope, id: string): Promise<void> {
-    this.database
-      .prepare(`DELETE FROM memories WHERE agent_id = ? AND memory_key = ?`)
-      .run(scope.agentId, id);
-    this.database
-      .prepare(`DELETE FROM memories_fts WHERE agent_id = ? AND memory_key = ?`)
-      .run(scope.agentId, id);
+    this.database.exec('BEGIN');
+    try {
+      this.database
+        .prepare(`DELETE FROM memories WHERE agent_id = ? AND memory_key = ?`)
+        .run(scope.agentId, id);
+      this.database
+        .prepare(`DELETE FROM memories_fts WHERE agent_id = ? AND memory_key = ?`)
+        .run(scope.agentId, id);
+      this.database.exec('COMMIT');
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   async getContextBlock(
