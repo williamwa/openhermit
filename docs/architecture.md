@@ -114,7 +114,7 @@ Current responsibilities:
 - `security.json`: autonomy and approval policy
 - `secrets.json`: provider and integration secrets
 - `runtime.json`: live local discovery metadata for the agent-local API
-- `state.sqlite`: sessions, messages, memories, container runtime inventory, and other runtime-owned records managed through lightweight versioned migrations
+- `state.sqlite`: sessions, messages, memories, container runtime inventory, and other runtime-owned records — schema managed by Prisma migrations (`packages/store/prisma/`)
 
 ## Runtime Discovery
 

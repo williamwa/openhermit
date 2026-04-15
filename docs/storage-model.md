@@ -85,13 +85,16 @@ interface InternalStateStore {
   memories: MemoryProvider;
   containers: ContainerStore;
   instructions: InstructionStore;
-  close(): void;
+  users: UserStore;
+  close(): Promise<void>;
 }
 ```
 
 Current adapter: `SqliteInternalStateStore` in `packages/store/src/sqlite/`.
 
 Future adapters: `PostgresInternalStateStore`.
+
+The store package uses Prisma ORM for type-safe queries. The same `InternalStateStore` interface can be backed by a different Prisma provider (e.g. `postgresql`) without changing the store implementation — only the datasource URL in `PrismaClient` changes.
 
 This preserves structure, indexing, migration control, and explicit lifecycle semantics.
 

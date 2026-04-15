@@ -317,8 +317,8 @@ interface InternalStateStore {
   memories: MemoryProvider;
   containers: ContainerStore;
   instructions: InstructionStore;
-  users: UserStore;           // new
-  close(): void;
+  users: UserStore;
+  close(): Promise<void>;
 }
 ```
 
@@ -336,9 +336,9 @@ interface InternalStateStore {
 8. ✅ **System prompt** — multi-user aware preamble; per-user memory namespacing (`user/{userId}/…`); current user context section; agent identity under `agent/…`
 9. ✅ **Telegram identity** — Telegram bridge passes metadata (chat_id, username, first_name) on all session opens including `/start`; auto-guest creation for unknown Telegram users
 
-### Phase 1b: Remaining
+### Phase 1b: Completed
 
-- **Session management tools** — `session_list`, `session_read`, `session_summary` (owner-only, not yet implemented)
+- ✅ **Session management tools** — `session_list`, `session_read`, `session_summary` (owner-only)
 - **Unknown user policy config** — `auto_guest` is hardcoded; `reject` and `require_approval` policies not yet configurable
 
 ### Phase 2: Multi-channel

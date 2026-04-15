@@ -218,3 +218,21 @@ Operational model:
 
 - CLI, web, and future channels all reuse the same execution contract
 - a future gateway can proxy this later without changing the per-agent runtime boundary
+
+## ADR-015: Prisma ORM for internal state store
+
+**Decision**: `packages/store` uses Prisma v6 as the ORM for all `InternalStateStore` implementations. Schema is defined in `prisma/schema.prisma`. Migrations are managed by Prisma (`prisma/migrations/`).
+
+**Rationale**:
+
+- type-safe queries replace hand-written raw SQL across all six store implementations
+- Prisma handles connection lifecycle and migration state; no custom migration runner needed
+- switching from SQLite to PostgreSQL requires only a datasource provider change — the store implementations are unchanged
+- FTS5 virtual tables (not supported by Prisma schema) continue to use `$executeRawUnsafe` / `$queryRawUnsafe`
+
+**Constraints**:
+
+- Prisma v6 is required (v7 changed datasource config in a breaking way)
+- `SqliteInternalStateStore.open()` is async; `close()` returns `Promise<void>`
+- FTS5 bootstrap runs via `$executeRawUnsafe` inside `open()`
+- SQLite write serialization is handled by Prisma's engine; the explicit write-queue pattern has been removed from stores

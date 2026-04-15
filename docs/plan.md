@@ -56,7 +56,7 @@ There are also several active design drafts that are intentionally not yet imple
 
 - per-agent `state.sqlite`
 - per-agent `runtime.json`
-- lightweight versioned migrations inside the agent runtime
+- Prisma ORM manages schema and migrations (`packages/store/prisma/`)
 - sessions and session logs migrated out of workspace files
 - session-local working memory migrated into `sessions`
 - named memories migrated into `memories`
@@ -96,10 +96,11 @@ There are also several active design drafts that are intentionally not yet imple
 - configurable container `mount_target`
 - instruction tools (`instruction_read`, `instruction_update`)
 - user management tools (`user_list`, `user_identity_link`, `user_identity_unlink`, `user_role_set`, `user_merge`) — owner-only
+- session management tools (`session_list`, `session_read`, `session_summary`) — owner-only
 
 ### User Model
 
-- `users` and `user_identities` tables (schema v14)
+- `users` and `user_identities` tables
 - `SqliteUserStore` with resolve, link, merge, scope isolation
 - per-session identity resolution with auto-guest creation for unknown users
 - owner auto-bootstrap on first CLI/web connection
@@ -113,6 +114,14 @@ There are also several active design drafts that are intentionally not yet imple
 - auto-launch via `config.json` channel configuration
 - session-per-chat routing (`tg:{chatId}`)
 - `/start` and `/new` commands
+
+### Store Infrastructure
+
+- Prisma ORM introduced to `packages/store` — type-safe queries replacing raw `node:sqlite` SQL
+- baseline migration (`prisma/migrations/0_baseline/`) aligned with existing schema
+- `SqliteInternalStateStore.open()` is now async, `close()` returns `Promise<void>`
+- FTS5 virtual table bootstrapped via `$executeRawUnsafe` (Prisma does not model virtual tables)
+- store architecture is provider-neutral — PostgreSQL adapter will follow the same `InternalStateStore` interface
 
 ## Remaining Major Work
 
@@ -239,7 +248,7 @@ See `docs/user-model.md`. Phase 1 (core tables, identity resolution, role-based 
 
 ## Immediate Implementation Order
 
-1. ~~fix `memory_recall` search quality~~ ✅ FTS5 with porter stemming (schema v13)
+1. ~~fix `memory_recall` search quality~~ ✅ FTS5 with porter stemming
 2. decide on introspection model quality strategy (minimum model floor vs structured pipeline)
 3. ~~resolve working memory ownership~~ ✅ introspection-only
 4. ~~fix approval gate tests~~ ✅ waitForEvent helper + registered tools + updated assertions
