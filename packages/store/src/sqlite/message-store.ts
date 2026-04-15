@@ -196,6 +196,18 @@ export class SqliteMessageStore implements MessageStore {
     return row?.max_id ?? 0;
   }
 
+  async getLastIntrospectionEventId(scope: StoreScope, sessionId: string): Promise<number> {
+    const row = this.database
+      .prepare(
+        `SELECT MAX(id) AS max_id
+         FROM session_events
+         WHERE agent_id = ? AND session_id = ? AND event_type = 'introspection_end'`,
+      )
+      .get(scope.agentId, sessionId) as { max_id: number | null } | undefined;
+
+    return row?.max_id ?? 0;
+  }
+
   async listSessionEntries(scope: StoreScope, sessionId: string): Promise<SessionLogEntry[]> {
     const rows = this.database
       .prepare(

@@ -19,7 +19,6 @@ export interface RunnerSession extends SessionDescriptor {
   status: SessionStatus;
   messageCount: number;
   completedTurnCount: number;
-  lastIntrospectionEventId: number;
   lastSummarizedTurnCount: number;
   lastSummarizedAt?: string;
   description?: string;

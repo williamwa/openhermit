@@ -39,13 +39,12 @@ export class SqliteSessionStore implements SessionStore {
             description_source,
             message_count,
             completed_turn_count,
-            last_introspection_event_id,
             last_summarized_turn_count,
             last_summarized_at,
             last_message_preview,
             metadata_json,
             status
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(agent_id, session_id) DO UPDATE SET
             source_kind = excluded.source_kind,
             source_platform = excluded.source_platform,
@@ -56,7 +55,6 @@ export class SqliteSessionStore implements SessionStore {
             description_source = excluded.description_source,
             message_count = excluded.message_count,
             completed_turn_count = excluded.completed_turn_count,
-            last_introspection_event_id = excluded.last_introspection_event_id,
             last_summarized_turn_count = excluded.last_summarized_turn_count,
             last_summarized_at = excluded.last_summarized_at,
             last_message_preview = excluded.last_message_preview,
@@ -75,7 +73,6 @@ export class SqliteSessionStore implements SessionStore {
           entry.descriptionSource ?? null,
           entry.messageCount,
           entry.completedTurnCount ?? 0,
-          entry.lastIntrospectionEventId ?? 0,
           entry.lastSummarizedTurnCount ?? 0,
           entry.lastSummarizedAt ?? null,
           entry.lastMessagePreview ?? null,
@@ -115,7 +112,6 @@ export class SqliteSessionStore implements SessionStore {
           description_source,
           message_count,
           completed_turn_count,
-          last_introspection_event_id,
           last_summarized_turn_count,
           last_summarized_at,
           last_message_preview,
@@ -141,7 +137,6 @@ export class SqliteSessionStore implements SessionStore {
         lastActivityAt: String(row.last_activity_at),
         messageCount: Number(row.message_count),
         completedTurnCount: Number(row.completed_turn_count),
-        lastIntrospectionEventId: Number(row.last_introspection_event_id),
         lastSummarizedTurnCount: Number(row.last_summarized_turn_count),
       };
 

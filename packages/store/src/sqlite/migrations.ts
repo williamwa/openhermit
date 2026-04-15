@@ -15,7 +15,6 @@ const schemaStatements = [
     description_source TEXT,
     message_count INTEGER NOT NULL DEFAULT 0,
     completed_turn_count INTEGER NOT NULL DEFAULT 0,
-    last_introspection_event_id INTEGER NOT NULL DEFAULT 0,
     last_summarized_turn_count INTEGER NOT NULL DEFAULT 0,
     last_summarized_at TEXT,
     last_message_preview TEXT,
@@ -137,9 +136,12 @@ const migrationStatements = [
   // v16: replace last_summarized_history_count with last_introspection_event_id (event ID cursor)
   `ALTER TABLE sessions ADD COLUMN last_introspection_event_id INTEGER NOT NULL DEFAULT 0;`,
   `ALTER TABLE sessions DROP COLUMN last_summarized_history_count;`,
+  // v17: drop last_introspection_event_id — introspection progress is now derived from
+  // the last introspection_end event in session_events, same pattern as compaction
+  `ALTER TABLE sessions DROP COLUMN last_introspection_event_id;`,
 ] as const;
 
-export const CURRENT_SCHEMA_VERSION = 16;
+export const CURRENT_SCHEMA_VERSION = 17;
 
 const ensureMetaTable = (database: DatabaseSync): void => {
   database.exec(

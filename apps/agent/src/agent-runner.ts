@@ -272,7 +272,6 @@ export class AgentRunner implements SessionRuntime {
       status: 'idle',
       messageCount: persisted?.messageCount ?? 0,
       completedTurnCount: persisted?.completedTurnCount ?? 0,
-      lastIntrospectionEventId: persisted?.lastIntrospectionEventId ?? 0,
       lastSummarizedTurnCount: persisted?.lastSummarizedTurnCount ?? 0,
       ...(persisted?.lastSummarizedAt
         ? { lastSummarizedAt: persisted.lastSummarizedAt }
@@ -440,10 +439,15 @@ export class AgentRunner implements SessionRuntime {
       await session.queue;
       await session.sideEffects;
 
+      const lastIntrospectionEventId = await this.store.messages.getLastIntrospectionEventId(
+        this.scope,
+        session.spec.sessionId,
+      );
+
       const unsummarized = await this.store.messages.listMessagesSinceEvent(
         this.scope,
         session.spec.sessionId,
-        session.lastIntrospectionEventId,
+        lastIntrospectionEventId,
       );
 
       if (unsummarized.length === 0) {
@@ -492,7 +496,6 @@ export class AgentRunner implements SessionRuntime {
 
     // Update session index
     const ts = new Date().toISOString();
-    session.lastIntrospectionEventId = latestEventId;
     session.lastSummarizedTurnCount = session.completedTurnCount;
     session.lastSummarizedAt = ts;
 

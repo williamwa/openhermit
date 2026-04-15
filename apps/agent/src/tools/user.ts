@@ -207,10 +207,24 @@ export const createUserMergeTool = (context: ToolContext): AgentTool<typeof User
       throw new ValidationError(`Target user not found: ${intoId}`);
     }
 
+    // Inherit name from source if target has none
+    if (fromUser.name && !intoUser.name) {
+      await context.userStore.upsert(context.storeScope, {
+        ...intoUser,
+        name: fromUser.name,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
     await context.userStore.merge(context.storeScope, fromId, intoId);
 
+    const parts = [`Merged user ${fromId} into ${intoId}. All identities have been transferred.`];
+    if (fromUser.name && !intoUser.name) {
+      parts.push(`Name "${fromUser.name}" inherited from source user.`);
+    }
+
     return {
-      content: asTextContent(`Merged user ${fromId} into ${intoId}. All identities have been transferred.\n`),
+      content: asTextContent(parts.join('\n') + '\n'),
       details: { fromUserId: fromId, intoUserId: intoId },
     };
   },
