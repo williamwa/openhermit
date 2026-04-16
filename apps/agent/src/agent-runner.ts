@@ -174,14 +174,14 @@ export class AgentRunner implements SessionRuntime {
       existing.updatedAt = now;
       existing.status = 'idle';
 
-      // Resolve user identity if not already resolved for this session
-      if (!existing.resolvedUserId) {
-        await this.ensureOwnerBootstrap(existing.spec, now);
-        const { userId, role, userName } = await this.resolveSessionUser(existing.spec, now);
-        if (userId) existing.resolvedUserId = userId;
-        if (role) existing.resolvedUserRole = role;
-        if (userName) existing.resolvedUserName = userName;
-      }
+      // Re-resolve user identity every time the session opens.
+      // This picks up merges (e.g. guest merged into owner) that happened
+      // since the session was first created.
+      await this.ensureOwnerBootstrap(existing.spec, now);
+      const { userId, role, userName } = await this.resolveSessionUser(existing.spec, now);
+      if (userId) existing.resolvedUserId = userId;
+      if (role) existing.resolvedUserRole = role;
+      if (userName) existing.resolvedUserName = userName;
 
       await this.persistSessionIndex(existing);
 
