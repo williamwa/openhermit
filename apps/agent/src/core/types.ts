@@ -120,10 +120,6 @@ export interface AgentRuntimeConfig {
 
 export type AgentConfig = AgentRuntimeConfig;
 
-export interface WorkspaceConfig {
-  plugins?: string[];
-}
-
 export interface SecurityPolicy {
   autonomy_level: AutonomyLevel;
   require_approval_for: string[];

@@ -74,10 +74,6 @@ Typical structure:
 ```text
 workspace/
 ├── .openhermit/
-│   ├── config.json
-│   ├── IDENTITY.md
-│   ├── SOUL.md
-│   └── AGENTS.md
 └── containers/
 │   └── {container-name}/
 │       └── data/
@@ -86,10 +82,7 @@ workspace/
 Notes:
 
 - the default scaffold is intentionally minimal: `.openhermit/` and `containers/`
-- `workspace/.openhermit/config.json` is the workspace-owned external config surface for agent-manageable integrations and channels
-- `workspace/.openhermit/*.md` (IDENTITY.md, SOUL.md, AGENTS.md) serve as bootstrap sources for identity
-- on first boot, these files are migrated into the `InstructionStore` in PostgreSQL
-- after migration, the `InstructionStore` is the canonical source; the agent manages instructions via the `instruction_update` tool
+- agent identity and instructions are managed via the `InstructionStore` in PostgreSQL, updated through the `instruction_update` tool
 - additional directories such as `files/` may be created later by user work or agent actions
 - `containers/{name}/data/` is external state because it contains mounted task data
 - container runtime inventory is internal state and now lives in PostgreSQL

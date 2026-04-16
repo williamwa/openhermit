@@ -3,8 +3,6 @@ import path from 'node:path';
 
 import { NotFoundError, ValidationError } from '@openhermit/shared';
 
-import type { WorkspaceConfig } from './types.js';
-
 export interface WorkspaceInitOptions {
   agentId: string;
   createdAt?: string;
@@ -53,53 +51,15 @@ const findNearestExistingAncestor = async (
   }
 };
 
-const parseJsonFile = <T>(content: string, filePath: string): T => {
-  try {
-    return JSON.parse(content) as T;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new ValidationError(
-      `Invalid JSON in ${filePath}: ${message}`,
-    );
-  }
-};
-
-export const createDefaultWorkspaceConfig = (): WorkspaceConfig => ({});
-
 export class AgentWorkspace {
   constructor(public readonly root: string) {}
 
-  async init(options: WorkspaceInitOptions): Promise<WorkspaceConfig> {
+  async init(options: WorkspaceInitOptions): Promise<void> {
     await fs.mkdir(this.root, { recursive: true });
 
     for (const relativeDir of SCAFFOLD_DIRECTORIES) {
       await fs.mkdir(path.join(this.root, relativeDir), { recursive: true });
     }
-
-    const config = createDefaultWorkspaceConfig();
-    const configPath = path.join(this.root, '.openhermit', 'config.json');
-
-    try {
-      await fs.access(configPath);
-    } catch {
-      await this.writeConfig(config);
-    }
-
-    return this.readConfig();
-  }
-
-  async readConfig(): Promise<WorkspaceConfig> {
-    const configPath = await this.resolve('.openhermit/config.json', {
-      mustExist: true,
-      kind: 'file',
-    });
-    const content = await fs.readFile(configPath, 'utf8');
-
-    return parseJsonFile<WorkspaceConfig>(content, configPath);
-  }
-
-  async writeConfig(config: WorkspaceConfig): Promise<void> {
-    await this.writeFile('.openhermit/config.json', `${JSON.stringify(config, null, 2)}\n`);
   }
 
   async resolve(

@@ -188,9 +188,7 @@ See `docs/user-model.md`. Phase 1 (core tables, identity resolution, role-based 
 
 ### 1.1 Identity ✅ Completed
 
-- workspace `.openhermit/*.md` files serve as bootstrap sources for first boot
-- on first boot, identity files are migrated into `InstructionStore` in PostgreSQL
-- `InstructionStore` is now the canonical source for agent identity and instructions
+- `InstructionStore` in PostgreSQL is the canonical source for agent identity and instructions
 - agent manages instructions via the `instruction_update` tool (instructions are always in the system prompt)
 
 ### 1.2 Durable Memory Refinement

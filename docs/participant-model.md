@@ -151,7 +151,7 @@ This should be stored separately from assistant content so audit and policy logi
 
 OpenHermit should keep these boundaries:
 
-- agent identity and instructions are managed via the `InstructionStore` (bootstrapped from `workspace/.openhermit/*.md` on first boot)
+- agent identity and instructions are managed via the `InstructionStore` in PostgreSQL
 - participant facts and preferences belong in named memory
 - participant-specific memory should be keyed by participant identity
 
