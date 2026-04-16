@@ -263,6 +263,7 @@ h2 {
 }
 
 .chat__messages {
+  font-size: 0.92rem;
   padding: 24px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.28), transparent 18%),
