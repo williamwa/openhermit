@@ -177,6 +177,9 @@ export class AgentSecurity {
   }
 
   async readConfig(): Promise<AgentRuntimeConfig> {
+    // Reload security policy and secrets from disk on every config read,
+    // so changes to security.json and secrets.json take effect without restart.
+    await this.load();
     const content = await fs.readFile(this.configFilePath, 'utf8');
     const config = parseJsonFile<AgentRuntimeConfig>(content, this.configFilePath);
     return this.interpolateSecrets(config);
