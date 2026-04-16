@@ -4,11 +4,20 @@ export type SourceKind = KnownSourceKind | (string & {});
 
 export type MetadataValue = string | number | boolean;
 
+export type SessionType = 'direct' | 'group';
+
 export interface SessionSource {
   kind: SourceKind;
   interactive: boolean;
   platform?: string;
   triggerId?: string;
+  type?: SessionType;
+}
+
+export interface MessageSender {
+  channel: string;
+  channelUserId: string;
+  displayName?: string;
 }
 
 export interface SessionSpec {
@@ -27,6 +36,7 @@ export interface SessionMessage {
   messageId?: string;
   text: string;
   attachments?: SessionAttachment[];
+  sender?: MessageSender;
 }
 
 export type SessionHistoryRole = 'user' | 'assistant' | 'error';
@@ -212,6 +222,14 @@ export const isSessionSpec = (value: unknown): value is SessionSpec => {
     return false;
   }
 
+  if (
+    value.source.type !== undefined &&
+    value.source.type !== 'direct' &&
+    value.source.type !== 'group'
+  ) {
+    return false;
+  }
+
   if (value.metadata !== undefined) {
     if (!isRecord(value.metadata)) {
       return false;
@@ -227,12 +245,23 @@ export const isSessionSpec = (value: unknown): value is SessionSpec => {
   return true;
 };
 
+const isSender = (value: unknown): value is MessageSender => {
+  if (!isRecord(value)) return false;
+  if (typeof value.channel !== 'string' || typeof value.channelUserId !== 'string') return false;
+  if (value.displayName !== undefined && typeof value.displayName !== 'string') return false;
+  return true;
+};
+
 export const isSessionMessage = (value: unknown): value is SessionMessage => {
   if (!isRecord(value) || typeof value.text !== 'string') {
     return false;
   }
 
   if (value.messageId !== undefined && typeof value.messageId !== 'string') {
+    return false;
+  }
+
+  if (value.sender !== undefined && !isSender(value.sender)) {
     return false;
   }
 

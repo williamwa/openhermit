@@ -85,10 +85,11 @@ export class TelegramBridge {
     }
 
     const sessionId = `tg:${chatId}`;
+    const isGroup = message.chat.type === 'group' || message.chat.type === 'supergroup';
 
     // Handle commands.
     if (text === '/start') {
-      await this.handleStart(chatId, sessionId, message);
+      await this.handleStart(chatId, sessionId, message, isGroup);
       return;
     }
 
@@ -98,18 +99,19 @@ export class TelegramBridge {
     }
 
     // Regular message — send to agent.
-    await this.sendToAgent(chatId, sessionId, text, message);
+    await this.sendToAgent(chatId, sessionId, text, message, isGroup);
   }
 
   private async handleStart(
     chatId: number,
     sessionId: string,
     message: TelegramMessage,
+    isGroup: boolean,
   ): Promise<void> {
     const displayName =
       message.from?.first_name ?? message.from?.username ?? 'there';
 
-    await this.ensureSession(sessionId, message);
+    await this.ensureSession(sessionId, message, isGroup);
     await this.telegram.sendMessage(
       chatId,
       `Hello ${displayName}! I'm ready. Send me a message to get started.\n\nUse /new to start a fresh conversation.`,
@@ -134,15 +136,28 @@ export class TelegramBridge {
     sessionId: string,
     text: string,
     message: TelegramMessage,
+    isGroup: boolean,
   ): Promise<void> {
     // Show typing indicator.
     void this.telegram.sendChatAction(chatId).catch(() => undefined);
 
     // Ensure session exists.
-    await this.ensureSession(sessionId, message);
+    await this.ensureSession(sessionId, message, isGroup);
 
-    // Post message to agent.
-    await this.client.postMessage(sessionId, { text });
+    // Post message to agent with per-message sender info.
+    const displayName = message.from?.first_name || message.from?.username;
+    await this.client.postMessage(sessionId, {
+      text,
+      ...(message.from
+        ? {
+            sender: {
+              channel: 'telegram',
+              channelUserId: String(message.from.id),
+              ...(displayName ? { displayName } : {}),
+            },
+          }
+        : {}),
+    });
 
     // Consume SSE stream for the agent's response.
     const result = await this.waitForAgentResponse(sessionId, chatId);
@@ -161,27 +176,41 @@ export class TelegramBridge {
   private async ensureSession(
     sessionId: string,
     message?: TelegramMessage,
+    isGroup = false,
   ): Promise<void> {
+    const metadata: Record<string, string | number> = {};
+
+    if (message) {
+      metadata.telegram_chat_id = message.chat.id;
+
+      if (isGroup) {
+        // Group sessions: include chat title, not individual sender info
+        if (message.chat.title) {
+          metadata.telegram_chat_title = message.chat.title;
+        }
+      } else {
+        // Direct sessions: include sender info for session-level identity resolution
+        if (message.from?.id) {
+          metadata.telegram_user_id = message.from.id;
+        }
+        if (message.from?.username) {
+          metadata.telegram_username = message.from.username;
+        }
+        if (message.from?.first_name) {
+          metadata.telegram_first_name = message.from.first_name;
+        }
+      }
+    }
+
     await this.client.openSession({
       sessionId,
       source: {
         kind: 'im',
         interactive: true,
         platform: 'telegram',
+        type: isGroup ? 'group' : 'direct',
       },
-      ...(message?.from
-        ? {
-            metadata: {
-              telegram_chat_id: message.chat.id,
-              ...(message.from.username
-                ? { telegram_username: message.from.username }
-                : {}),
-              ...(message.from.first_name
-                ? { telegram_first_name: message.from.first_name }
-                : {}),
-            },
-          }
-        : {}),
+      ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
     });
   }
 

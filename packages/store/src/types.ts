@@ -3,6 +3,7 @@ import type {
   SessionHistoryMessage,
   SessionSource,
   SessionSpec,
+  SessionType,
 } from '@openhermit/protocol';
 
 export interface StoreScope {
@@ -24,6 +25,7 @@ export interface PersistedSessionIndexEntry {
   descriptionSource?: 'fallback' | 'ai';
   lastMessagePreview?: string;
   metadata?: Record<string, MetadataValue>;
+  type?: SessionType;
 }
 
 export interface SessionLogEntry {

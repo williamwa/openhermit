@@ -46,6 +46,19 @@ export class DbUserStore implements UserStore {
   }
 
   async linkIdentity(scope: StoreScope, identity: UserIdentity): Promise<void> {
+    // Find previous owner of this identity (if any)
+    const previous = await this.prisma.userIdentity.findUnique({
+      where: {
+        agentId_channel_channelUserId: {
+          agentId: scope.agentId,
+          channel: identity.channel,
+          channelUserId: identity.channelUserId,
+        },
+      },
+    });
+    const previousUserId = previous?.userId;
+
+    // Upsert the identity link
     await this.prisma.userIdentity.upsert({
       where: {
         agentId_channel_channelUserId: {
@@ -65,6 +78,11 @@ export class DbUserStore implements UserStore {
         userId: identity.userId,
       },
     });
+
+    // If the identity moved from a different user, clean up the orphan
+    if (previousUserId && previousUserId !== identity.userId) {
+      await this.cleanupOrphanedUser(scope, previousUserId, identity.userId);
+    }
   }
 
   async resolve(scope: StoreScope, channel: string, channelUserId: string): Promise<string | undefined> {
@@ -117,11 +135,15 @@ export class DbUserStore implements UserStore {
         data: { userId: intoUserId },
       });
 
-      // Mark source as merged
-      const now = new Date().toISOString();
-      await tx.user.update({
+      // Reassign session events from source to target
+      await tx.sessionEvent.updateMany({
+        where: { agentId: scope.agentId, userId: fromUserId },
+        data: { userId: intoUserId },
+      });
+
+      // Delete the merged user (identities already moved, cascade won't lose anything)
+      await tx.user.delete({
         where: { agentId_userId: { agentId: scope.agentId, userId: fromUserId } },
-        data: { mergedInto: intoUserId, updatedAt: now },
       });
     });
   }
@@ -130,6 +152,32 @@ export class DbUserStore implements UserStore {
     // Identities are cascade-deleted via FK
     await this.prisma.user.delete({
       where: { agentId_userId: { agentId: scope.agentId, userId } },
+    });
+  }
+
+  /**
+   * After an identity is moved away from a user, check if that user has no
+   * remaining identities. If so, reassign their session events and delete them.
+   */
+  private async cleanupOrphanedUser(
+    scope: StoreScope,
+    orphanUserId: string,
+    newUserId: string,
+  ): Promise<void> {
+    const remaining = await this.prisma.userIdentity.count({
+      where: { agentId: scope.agentId, userId: orphanUserId },
+    });
+    if (remaining > 0) return;
+
+    // Reassign all session events from the orphan to the new owner
+    await this.prisma.sessionEvent.updateMany({
+      where: { agentId: scope.agentId, userId: orphanUserId },
+      data: { userId: newUserId },
+    });
+
+    // Delete the orphaned user
+    await this.prisma.user.delete({
+      where: { agentId_userId: { agentId: scope.agentId, userId: orphanUserId } },
     });
   }
 

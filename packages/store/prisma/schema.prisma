@@ -32,6 +32,7 @@ model Session {
   workingMemoryUpdatedAt String? @map("working_memory_updated_at")
   metadataJson         String  @default("{}") @map("metadata_json")
   status               String  @default("idle")
+  type                 String  @default("direct")
 
   events SessionEvent[]
 

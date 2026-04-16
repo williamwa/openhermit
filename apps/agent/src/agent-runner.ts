@@ -1,7 +1,7 @@
 import { userInfo } from 'node:os';
 
 import { Agent, type AgentEvent, type AgentMessage } from '@mariozechner/pi-agent-core';
-import type { SessionHistoryMessage, SessionListQuery, SessionMessage, SessionSpec, SessionSummary } from '@openhermit/protocol';
+import type { MessageSender, SessionHistoryMessage, SessionListQuery, SessionMessage, SessionSpec, SessionSummary } from '@openhermit/protocol';
 import { NotFoundError, ValidationError, getErrorMessage } from '@openhermit/shared';
 import {
   type InternalStateStore,
@@ -532,19 +532,41 @@ export class AgentRunner implements SessionRuntime {
       }
     }
     session.lastMessagePreview = message.text;
+
+    // Per-message sender resolution (for group sessions or any message with sender info)
+    let messageUserId = session.resolvedUserId;
+    if (message.sender) {
+      const now = new Date().toISOString();
+      const resolved = await this.resolveMessageSender(message.sender, now);
+      if (resolved.userId) {
+        messageUserId = resolved.userId;
+        // Update session's current user so system prompt reflects the latest sender
+        session.resolvedUserId = resolved.userId;
+        if (resolved.role) session.resolvedUserRole = resolved.role;
+        if (resolved.userName) session.resolvedUserName = resolved.userName;
+      }
+    }
+
     await this.persistSessionIndex(session);
 
     const receivedAt = new Date().toISOString();
     await this.queueSideEffect(session, async () => {
-      await this.store.messages.appendLogEntry(this.scope,session.spec.sessionId, {
+      await this.store.messages.appendLogEntry(this.scope, session.spec.sessionId, {
         ts: receivedAt,
         role: 'user',
         messageId: message.messageId,
         content: message.text,
         ...(message.attachments ? { attachments: message.attachments } : {}),
-        ...(session.resolvedUserId ? { userId: session.resolvedUserId } : {}),
+        ...(messageUserId ? { userId: messageUserId } : {}),
       });
     });
+
+    // In group sessions, prefix the message with the sender's display name
+    // so the model can distinguish who is speaking
+    const isGroup = session.spec.source.type === 'group';
+    const promptMessage = isGroup && message.sender?.displayName
+      ? { ...message, text: `[${message.sender.displayName}] ${message.text}` }
+      : message;
 
     const run = async (): Promise<void> => {
       try {
@@ -559,7 +581,7 @@ export class AgentRunner implements SessionRuntime {
             message.text,
           );
         }
-        await session.agent.prompt(createUserMessage(message));
+        await session.agent.prompt(createUserMessage(promptMessage));
       } catch (error) {
         await this.handleRunError(session, error);
       }
@@ -794,14 +816,55 @@ export class AgentRunner implements SessionRuntime {
   }
 
   /**
+   * Resolve a per-message sender to a user identity.
+   * Used in group sessions where each message may come from a different user.
+   */
+  private async resolveMessageSender(
+    sender: MessageSender,
+    now: string,
+  ): Promise<{ userId?: string; role?: UserRole; userName?: string }> {
+    const existingUserId = await this.store.users.resolve(
+      this.scope, sender.channel, sender.channelUserId,
+    );
+    if (existingUserId) {
+      const user = await this.store.users.get(this.scope, existingUserId);
+      if (user) {
+        return { userId: user.userId, role: user.role, ...(user.name ? { userName: user.name } : {}) };
+      }
+    }
+
+    // Auto-create guest for unknown sender
+    const guestId = `usr-${Date.now().toString(36)}`;
+    await this.store.users.upsert(this.scope, {
+      userId: guestId,
+      role: 'guest',
+      ...(sender.displayName ? { name: sender.displayName } : {}),
+      createdAt: now,
+      updatedAt: now,
+    });
+    await this.store.users.linkIdentity(this.scope, {
+      userId: guestId,
+      channel: sender.channel,
+      channelUserId: sender.channelUserId,
+      createdAt: now,
+    });
+    this.logRuntime(`auto-created guest user ${guestId} for ${sender.channel}:${sender.channelUserId}`);
+    return { userId: guestId, role: 'guest' as const, ...(sender.displayName ? { userName: sender.displayName } : {}) };
+  }
+
+  /**
    * Derive a channel user ID from a session spec's metadata and source.
    * Returns undefined if no identity can be extracted.
    */
   private deriveChannelUserId(spec: SessionSpec): string | undefined {
+    // Group sessions resolve users per-message, not per-session
+    if (spec.source.type === 'group') return undefined;
+
     const meta = spec.metadata;
 
-    // Telegram: use chat_id or username
+    // Telegram: prefer user_id (from.id), fall back to chat_id (equals user id in DMs)
     if (spec.source.platform === 'telegram') {
+      if (meta?.telegram_user_id) return String(meta.telegram_user_id);
       if (meta?.telegram_chat_id) return String(meta.telegram_chat_id);
       if (meta?.telegram_username) return String(meta.telegram_username);
     }
@@ -844,6 +907,7 @@ export class AgentRunner implements SessionRuntime {
       ...(userRole ? { userRole } : {}),
       ...(userId ? { userId } : {}),
       ...(userName ? { userName } : {}),
+      ...(spec.source.type ? { sessionType: spec.source.type } : {}),
     });
   }
 
@@ -861,6 +925,7 @@ export class AgentRunner implements SessionRuntime {
     userRole?: UserRole;
     userId?: string;
     userName?: string;
+    sessionType?: import('@openhermit/protocol').SessionType;
   }): Promise<Agent> {
     const webProvider = this.resolveWebProvider(input.config);
 
@@ -913,7 +978,12 @@ export class AgentRunner implements SessionRuntime {
       : tools;
 
     const currentUser = input.userId && input.userRole
-      ? { userId: input.userId, role: input.userRole, ...(input.userName ? { name: input.userName } : {}) }
+      ? {
+          userId: input.userId,
+          role: input.userRole,
+          ...(input.userName ? { name: input.userName } : {}),
+          ...(input.sessionType ? { sessionType: input.sessionType } : {}),
+        }
       : undefined;
     const baseSystemPrompt = await buildSystemPrompt(
       input.config,
@@ -969,6 +1039,7 @@ export class AgentRunner implements SessionRuntime {
       ...(session.resolvedUserRole ? { userRole: session.resolvedUserRole } : {}),
       ...(session.resolvedUserId ? { userId: session.resolvedUserId } : {}),
       ...(session.resolvedUserName ? { userName: session.resolvedUserName } : {}),
+      ...(session.spec.source.type ? { sessionType: session.spec.source.type } : {}),
     });
     session.agent.setModel(resolveModel(config));
     session.agent.setSystemPrompt(refreshedAgent.state.systemPrompt);

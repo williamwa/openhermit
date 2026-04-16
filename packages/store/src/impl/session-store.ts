@@ -1,4 +1,4 @@
-import type { MetadataValue } from '@openhermit/protocol';
+import type { MetadataValue, SessionType } from '@openhermit/protocol';
 import type { PrismaClient } from '../generated/prisma/index.js';
 
 import type { SessionStore } from '../interfaces.js';
@@ -43,6 +43,7 @@ export class DbSessionStore implements SessionStore {
       lastMessagePreview: entry.lastMessagePreview ?? null,
       metadataJson: JSON.stringify(entry.metadata ?? {}),
       status: 'idle',
+      type: entry.type ?? entry.source.type ?? 'direct',
     };
 
     await this.prisma.session.upsert({
@@ -76,6 +77,7 @@ export class DbSessionStore implements SessionStore {
     completedTurnCount: number;
     lastMessagePreview: string | null;
     metadataJson: string;
+    type: string;
   }): PersistedSessionIndexEntry {
     const metadata = JSON.parse(row.metadataJson || '{}') as Record<string, unknown>;
     const entry: PersistedSessionIndexEntry = {
@@ -84,11 +86,13 @@ export class DbSessionStore implements SessionStore {
         kind: row.sourceKind,
         interactive: row.interactive === 1,
         ...(row.sourcePlatform !== null ? { platform: row.sourcePlatform } : {}),
+        ...(row.type !== 'direct' ? { type: row.type as SessionType } : {}),
       },
       createdAt: row.createdAt,
       lastActivityAt: row.lastActivityAt,
       messageCount: row.messageCount,
       completedTurnCount: row.completedTurnCount,
+      ...(row.type !== 'direct' ? { type: row.type as SessionType } : {}),
     };
 
     if (row.description !== null) {

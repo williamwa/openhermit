@@ -1,3 +1,4 @@
+import type { SessionType } from '@openhermit/protocol';
 import type { InstructionStore, StoreScope } from '@openhermit/store';
 
 import type { AgentRuntimeConfig, AgentSecurity } from '../core/index.js';
@@ -25,6 +26,7 @@ export interface CurrentUserContext {
   userId: string;
   role: import('@openhermit/store').UserRole;
   name?: string;
+  sessionType?: SessionType;
 }
 
 export interface InstructionSource {
@@ -72,9 +74,15 @@ export const buildSystemPrompt = async (
 
   if (currentUser) {
     const namePart = currentUser.name ? ` (${currentUser.name})` : '';
-    contextParts.push(
-      `### Current User\n\nYou are talking to user \`${currentUser.userId}\`${namePart}, role: **${currentUser.role}**.\n\nUse this ID when storing or recalling per-user memories (e.g. \`user/${currentUser.userId}/preferences\`). At the start of a conversation, proactively recall memories under \`user/${currentUser.userId}/\` to personalize your responses.\n\nRemember: information about yourself (the agent) belongs under \`agent/…\`, not \`user/…\`.`,
-    );
+    if (currentUser.sessionType === 'group') {
+      contextParts.push(
+        `### Current User\n\nThis is a **group conversation**. The most recent message is from user \`${currentUser.userId}\`${namePart}, role: **${currentUser.role}**.\n\nMultiple users participate in this session. Each user message is prefixed with the sender's name in brackets (e.g. \`[Alice] hello\`). Use the sender's user ID for per-user memories (e.g. \`user/${currentUser.userId}/preferences\`).\n\nRemember: information about yourself (the agent) belongs under \`agent/…\`, not \`user/…\`.`,
+      );
+    } else {
+      contextParts.push(
+        `### Current User\n\nYou are talking to user \`${currentUser.userId}\`${namePart}, role: **${currentUser.role}**.\n\nUse this ID when storing or recalling per-user memories (e.g. \`user/${currentUser.userId}/preferences\`). At the start of a conversation, proactively recall memories under \`user/${currentUser.userId}/\` to personalize your responses.\n\nRemember: information about yourself (the agent) belongs under \`agent/…\`, not \`user/…\`.`,
+      );
+    }
   }
 
   contextParts.push(`### Runtime\n\nAutonomy level: ${security.getAutonomyLevel()}`);
