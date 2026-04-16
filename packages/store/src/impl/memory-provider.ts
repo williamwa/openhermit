@@ -4,17 +4,17 @@ import type { PrismaClient } from '../generated/prisma/index.js';
 import type { MemoryProvider } from '../interfaces.js';
 import type { MemoryAddInput, MemoryEntry, MemorySearchOptions, MemoryUpdateInput, StoreScope } from '../types.js';
 
-export class SqliteMemoryProvider implements MemoryProvider {
-  readonly name = 'sqlite';
+export class DbMemoryProvider implements MemoryProvider {
+  readonly name = 'db';
 
   constructor(private readonly prisma: PrismaClient) {}
 
   async initialize(_scope: StoreScope): Promise<void> {
-    // Tables are bootstrapped during database creation, nothing to do here.
+    // Tables and indexes are managed by Prisma migrations.
   }
 
   async shutdown(): Promise<void> {
-    // Database lifecycle is managed by SqliteInternalStateStore.
+    // Database lifecycle is managed by DbInternalStateStore.
   }
 
   async add(scope: StoreScope, input: MemoryAddInput): Promise<MemoryEntry> {
@@ -22,33 +22,21 @@ export class SqliteMemoryProvider implements MemoryProvider {
     const now = new Date().toISOString();
     const metadataJson = JSON.stringify(input.metadata ?? {});
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.memory.upsert({
-        where: { agentId_memoryKey: { agentId: scope.agentId, memoryKey: id } },
-        create: {
-          agentId: scope.agentId,
-          memoryKey: id,
-          content: input.content,
-          metadataJson,
-          createdAt: now,
-          updatedAt: now,
-        },
-        update: {
-          content: input.content,
-          metadataJson,
-          updatedAt: now,
-        },
-      });
-
-      // Keep FTS index in sync — delete old row (if any) then insert fresh.
-      await tx.$executeRawUnsafe(
-        `DELETE FROM memories_fts WHERE agent_id = ? AND memory_key = ?`,
-        scope.agentId, id,
-      );
-      await tx.$executeRawUnsafe(
-        `INSERT INTO memories_fts(agent_id, memory_key, content) VALUES (?, ?, ?)`,
-        scope.agentId, id, input.content,
-      );
+    await this.prisma.memory.upsert({
+      where: { agentId_memoryKey: { agentId: scope.agentId, memoryKey: id } },
+      create: {
+        agentId: scope.agentId,
+        memoryKey: id,
+        content: input.content,
+        metadataJson,
+        createdAt: now,
+        updatedAt: now,
+      },
+      update: {
+        content: input.content,
+        metadataJson,
+        updatedAt: now,
+      },
     });
 
     return {
@@ -65,13 +53,8 @@ export class SqliteMemoryProvider implements MemoryProvider {
     const trimmed = query.trim();
     if (!trimmed) return [];
 
-    // Tokenize query into words and build FTS5 match expression.
-    const words = trimmed.split(/\s+/).filter(Boolean);
-    const ftsQuery = words.map((w) => `"${w.replace(/"/g, '""')}"`).join(' ');
-
     try {
-      // Use FTS5 full-text search with porter stemming.
-      // Use raw query because FTS5 is not modeled in Prisma.
+      // Use PostgreSQL tsvector full-text search with ranking.
       const rows = await this.prisma.$queryRawUnsafe<Array<{
         memory_key: string;
         content: string;
@@ -81,14 +64,11 @@ export class SqliteMemoryProvider implements MemoryProvider {
       }>>(
         `SELECT m.memory_key, m.content, m.metadata_json, m.created_at, m.updated_at
          FROM memories m
-         WHERE m.agent_id = ?
-           AND m.memory_key IN (
-             SELECT DISTINCT memory_key FROM memories_fts
-             WHERE memories_fts MATCH ? AND agent_id = ?
-           )
-         ORDER BY m.updated_at DESC
-         LIMIT ?`,
-        scope.agentId, ftsQuery, scope.agentId, limit,
+         WHERE m.agent_id = $1
+           AND m.content_tsv @@ plainto_tsquery('english', $2)
+         ORDER BY ts_rank(m.content_tsv, plainto_tsquery('english', $2)) DESC
+         LIMIT $3`,
+        scope.agentId, trimmed, limit,
       );
 
       return rows.map((row) => ({
@@ -99,8 +79,8 @@ export class SqliteMemoryProvider implements MemoryProvider {
         updatedAt: row.updated_at,
       }));
     } catch {
-      // FTS table may not exist yet. Fall back to LIKE matching.
-      const term = `%${trimmed.toLowerCase()}%`;
+      // Fallback to ILIKE search if tsvector column is unavailable.
+      const term = `%${trimmed}%`;
       const rows = await this.prisma.$queryRawUnsafe<Array<{
         memory_key: string;
         content: string;
@@ -110,10 +90,10 @@ export class SqliteMemoryProvider implements MemoryProvider {
       }>>(
         `SELECT memory_key, content, metadata_json, created_at, updated_at
          FROM memories
-         WHERE agent_id = ?
-           AND (lower(memory_key) LIKE ? OR lower(content) LIKE ?)
+         WHERE agent_id = $1
+           AND (memory_key ILIKE $2 OR content ILIKE $3)
          ORDER BY updated_at DESC
-         LIMIT ?`,
+         LIMIT $4`,
         scope.agentId, term, term, limit,
       );
 
@@ -155,25 +135,13 @@ export class SqliteMemoryProvider implements MemoryProvider {
       : existing.metadata;
     const now = new Date().toISOString();
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.memory.update({
-        where: { agentId_memoryKey: { agentId: scope.agentId, memoryKey: id } },
-        data: {
-          content,
-          metadataJson: JSON.stringify(metadata ?? {}),
-          updatedAt: now,
-        },
-      });
-
-      // Keep FTS index in sync.
-      await tx.$executeRawUnsafe(
-        `DELETE FROM memories_fts WHERE agent_id = ? AND memory_key = ?`,
-        scope.agentId, id,
-      );
-      await tx.$executeRawUnsafe(
-        `INSERT INTO memories_fts(agent_id, memory_key, content) VALUES (?, ?, ?)`,
-        scope.agentId, id, content,
-      );
+    await this.prisma.memory.update({
+      where: { agentId_memoryKey: { agentId: scope.agentId, memoryKey: id } },
+      data: {
+        content,
+        metadataJson: JSON.stringify(metadata ?? {}),
+        updatedAt: now,
+      },
     });
 
     return {
@@ -186,14 +154,8 @@ export class SqliteMemoryProvider implements MemoryProvider {
   }
 
   async delete(scope: StoreScope, id: string): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      await tx.memory.delete({
-        where: { agentId_memoryKey: { agentId: scope.agentId, memoryKey: id } },
-      });
-      await tx.$executeRawUnsafe(
-        `DELETE FROM memories_fts WHERE agent_id = ? AND memory_key = ?`,
-        scope.agentId, id,
-      );
+    await this.prisma.memory.delete({
+      where: { agentId_memoryKey: { agentId: scope.agentId, memoryKey: id } },
     });
   }
 

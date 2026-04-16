@@ -88,11 +88,11 @@ Notes:
 - the default scaffold is intentionally minimal: `.openhermit/` and `containers/`
 - `workspace/.openhermit/config.json` is the workspace-owned external config surface for agent-manageable integrations and channels
 - `workspace/.openhermit/*.md` (IDENTITY.md, SOUL.md, AGENTS.md) serve as bootstrap sources for identity
-- on first boot, these files are migrated into the `InstructionStore` in `state.sqlite`
+- on first boot, these files are migrated into the `InstructionStore` in PostgreSQL
 - after migration, the `InstructionStore` is the canonical source; the agent manages instructions via `instruction_read` and `instruction_update` tools
 - additional directories such as `files/` may be created later by user work or agent actions
 - `containers/{name}/data/` is external state because it contains mounted task data
-- container runtime inventory is internal state and now lives in `state.sqlite`
+- container runtime inventory is internal state and now lives in PostgreSQL
 - the workspace no longer defaults to storing session, memory, or runtime discovery state
 
 ### Per-Agent Internal State
@@ -104,9 +104,10 @@ Internal state lives under:
 ├── config.json
 ├── security.json
 ├── secrets.json
-├── runtime.json   # only while the agent is running
-└── state.sqlite
+└── runtime.json   # only while the agent is running
 ```
+
+Structured runtime state (sessions, messages, memories, container registry, users) is stored in a shared PostgreSQL database, scoped by `agent_id`. Schema is managed by Prisma migrations (`packages/store/prisma/`).
 
 Current responsibilities:
 
@@ -114,7 +115,7 @@ Current responsibilities:
 - `security.json`: autonomy and approval policy
 - `secrets.json`: provider and integration secrets
 - `runtime.json`: live local discovery metadata for the agent-local API
-- `state.sqlite`: sessions, messages, memories, container runtime inventory, and other runtime-owned records — schema managed by Prisma migrations (`packages/store/prisma/`)
+- PostgreSQL (`DATABASE_URL`): sessions, messages, memories, container runtime inventory, instructions, users — all scoped by `agent_id`
 
 ## Runtime Discovery
 
@@ -287,7 +288,7 @@ OpenHermit uses two logical memory layers:
 
 Current direction:
 
-- raw session history and memories live in `state.sqlite`
+- raw session history and memories live in PostgreSQL
 - long-term memories are managed through a pluggable `MemoryProvider` interface (default: `SqliteMemoryProvider`)
 - the MemoryProvider exposes `getContextBlock()` to inject relevant memory into each turn's context
 - user-authored knowledge should remain external and searchable as normal files

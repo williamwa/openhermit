@@ -24,9 +24,7 @@ Properties:
 - may be revisited later
 - may accumulate multiple introspection events over time
 
-Session persistence now lives in:
-
-- `~/.openhermit/{agent-id}/state.sqlite`
+Session persistence now lives in PostgreSQL (scoped by `agent_id`).
 
 ## 2. Run
 

@@ -4,7 +4,7 @@ import type { PrismaClient } from '../generated/prisma/index.js';
 import type { SessionStore } from '../interfaces.js';
 import type { PersistedSessionIndexEntry, StoreScope } from '../types.js';
 
-export class SqliteSessionStore implements SessionStore {
+export class DbSessionStore implements SessionStore {
   constructor(private readonly prisma: PrismaClient) {}
 
   async waitForIdle(): Promise<void> {

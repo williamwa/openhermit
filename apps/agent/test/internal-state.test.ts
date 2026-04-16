@@ -1,33 +1,31 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
 import test from 'node:test';
 
 import { internalStateFiles } from '@openhermit/shared';
-import { SqliteInternalStateStore, standaloneScope } from '@openhermit/store';
+import { DbInternalStateStore, standaloneScope } from '@openhermit/store';
 
 import { createSecurityFixture } from './helpers.js';
 
-test('SqliteInternalStateStore bootstraps per-agent state.sqlite', async (t) => {
-  const { security } = await createSecurityFixture(t);
-
-  const store = await SqliteInternalStateStore.open(security.stateFilePath);
-
+test('DbInternalStateStore connects to PostgreSQL', async () => {
+  const store = await DbInternalStateStore.open();
   try {
-    assert.equal(store.databasePath, security.stateFilePath);
-    assert.equal(existsSync(security.stateFilePath), true);
+    assert.ok(store);
+    assert.ok(store.sessions);
+    assert.ok(store.messages);
+    assert.ok(store.memories);
   } finally {
     await store.close();
   }
 });
 
-test('SqliteInternalStateStore supports basic CRUD with FK integrity', async (t) => {
-  const { security } = await createSecurityFixture(t);
-
-  const store = await SqliteInternalStateStore.open(security.stateFilePath);
+test('DbInternalStateStore supports basic CRUD with FK integrity', async (t) => {
+  const store = await DbInternalStateStore.open();
   t.after(() => store.close());
 
+  const scope = { agentId: `test-crud-${Date.now()}` };
+
   // Create a session
-  await store.sessions.upsert(standaloneScope, {
+  await store.sessions.upsert(scope, {
     sessionId: 's1',
     source: { kind: 'cli', interactive: true },
     createdAt: '2026-01-01T00:00:00Z',
@@ -35,35 +33,33 @@ test('SqliteInternalStateStore supports basic CRUD with FK integrity', async (t)
     messageCount: 0,
   });
 
-  const sessions = await store.sessions.list(standaloneScope);
+  const sessions = await store.sessions.list(scope);
   assert.equal(sessions.length, 1);
   assert.equal(sessions[0]?.sessionId, 's1');
 
   // Append a message (FK to session)
-  await store.messages.appendLogEntry(standaloneScope, 's1', {
+  await store.messages.appendLogEntry(scope, 's1', {
     ts: '2026-01-01T00:00:00Z',
     role: 'user',
     content: 'hello',
   });
 
-  const messages = await store.messages.listHistoryMessages(standaloneScope, 's1');
+  const messages = await store.messages.listHistoryMessages(scope, 's1');
   assert.equal(messages.length, 1);
   assert.equal(messages[0]?.content, 'hello');
 
   // Write and read memory
-  const entry = await store.memories.add(standaloneScope, { id: 'test-key', content: 'remember this' });
+  const entry = await store.memories.add(scope, { id: 'test-key', content: 'remember this' });
   assert.equal(entry.content, 'remember this');
-  const readBack = await store.memories.get(standaloneScope, 'test-key');
+  const readBack = await store.memories.get(scope, 'test-key');
   assert.equal(readBack?.content, 'remember this');
 });
 
 test('AgentSecurity exposes per-agent internal state paths outside the workspace', async (t) => {
   const { security, root } = await createSecurityFixture(t);
 
-  assert.match(security.stateFilePath, new RegExp(`${internalStateFiles.sqlite.replace('.', '\\.')}$`));
   assert.match(security.runtimeFilePath, new RegExp(`${internalStateFiles.runtime.replace('.', '\\.')}$`));
   assert.match(security.configFilePath, new RegExp(`${internalStateFiles.config.replace('.', '\\.')}$`));
-  assert.equal(security.stateFilePath.startsWith(root), false);
   assert.equal(security.runtimeFilePath.startsWith(root), false);
   assert.equal(security.configFilePath.startsWith(root), false);
 });

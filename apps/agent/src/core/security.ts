@@ -69,8 +69,6 @@ export class AgentSecurity {
 
   readonly configFilePath: string;
 
-  readonly stateFilePath: string;
-
   readonly runtimeFilePath: string;
 
   readonly agentId: string;
@@ -86,7 +84,6 @@ export class AgentSecurity {
     this.securityFilePath = path.join(this.rootDir, 'security.json');
     this.secretsFilePath = path.join(this.rootDir, 'secrets.json');
     this.configFilePath = path.join(this.rootDir, internalStateFiles.config);
-    this.stateFilePath = path.join(this.rootDir, internalStateFiles.sqlite);
     this.runtimeFilePath = path.join(this.rootDir, internalStateFiles.runtime);
   }
 

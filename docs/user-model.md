@@ -17,7 +17,7 @@ OpenHermit currently has no concept of "user". Sessions are identified by `sessi
 
 ### Core Tables
 
-Two new tables in `state.sqlite`, scoped by `agentId` like all existing tables.
+Two tables in PostgreSQL, scoped by `agentId` like all existing tables.
 
 #### `users`
 

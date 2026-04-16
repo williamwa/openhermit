@@ -164,7 +164,6 @@ export const main = async (): Promise<void> => {
   if (config !== initialConfig) {
     await security.writeConfig(config);
   }
-  logStartup(`internal state: ${security.stateFilePath}`);
   logStartup(`internal config: ${security.configFilePath}`);
   logStartup(`runtime metadata: ${security.runtimeFilePath}`);
   logStartup(`autonomy: ${security.getAutonomyLevel()}`);

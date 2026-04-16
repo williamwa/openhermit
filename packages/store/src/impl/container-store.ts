@@ -9,7 +9,7 @@ import type {
   StoreScope,
 } from '../types.js';
 
-export class SqliteContainerStore implements ContainerStore {
+export class DbContainerStore implements ContainerStore {
   constructor(private readonly prisma: PrismaClient) {}
 
   private serializeMetadata(entry: ContainerRegistryEntry): string {

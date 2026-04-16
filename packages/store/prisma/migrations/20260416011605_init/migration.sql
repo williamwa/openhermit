@@ -1,7 +1,9 @@
 -- CreateTable
 CREATE TABLE "meta" (
-    "key" TEXT NOT NULL PRIMARY KEY,
-    "value" TEXT NOT NULL
+    "key" TEXT NOT NULL,
+    "value" TEXT NOT NULL,
+
+    CONSTRAINT "meta_pkey" PRIMARY KEY ("key")
 );
 
 -- CreateTable
@@ -23,12 +25,12 @@ CREATE TABLE "sessions" (
     "metadata_json" TEXT NOT NULL DEFAULT '{}',
     "status" TEXT NOT NULL DEFAULT 'idle',
 
-    PRIMARY KEY ("agent_id", "session_id")
+    CONSTRAINT "sessions_pkey" PRIMARY KEY ("agent_id","session_id")
 );
 
 -- CreateTable
 CREATE TABLE "session_events" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "id" SERIAL NOT NULL,
     "agent_id" TEXT NOT NULL,
     "session_id" TEXT NOT NULL,
     "ts" TEXT NOT NULL,
@@ -36,7 +38,8 @@ CREATE TABLE "session_events" (
     "payload_json" TEXT NOT NULL,
     "content" TEXT,
     "user_id" TEXT,
-    CONSTRAINT "session_events_agent_id_session_id_fkey" FOREIGN KEY ("agent_id", "session_id") REFERENCES "sessions" ("agent_id", "session_id") ON DELETE CASCADE ON UPDATE CASCADE
+
+    CONSTRAINT "session_events_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -48,7 +51,7 @@ CREATE TABLE "memories" (
     "created_at" TEXT NOT NULL DEFAULT '',
     "updated_at" TEXT NOT NULL,
 
-    PRIMARY KEY ("agent_id", "memory_key")
+    CONSTRAINT "memories_pkey" PRIMARY KEY ("agent_id","memory_key")
 );
 
 -- CreateTable
@@ -62,7 +65,7 @@ CREATE TABLE "containers" (
     "metadata_json" TEXT NOT NULL,
     "updated_at" TEXT NOT NULL,
 
-    PRIMARY KEY ("agent_id", "container_name")
+    CONSTRAINT "containers_pkey" PRIMARY KEY ("agent_id","container_name")
 );
 
 -- CreateTable
@@ -72,7 +75,7 @@ CREATE TABLE "instructions" (
     "content" TEXT NOT NULL,
     "updated_at" TEXT NOT NULL,
 
-    PRIMARY KEY ("agent_id", "key")
+    CONSTRAINT "instructions_pkey" PRIMARY KEY ("agent_id","key")
 );
 
 -- CreateTable
@@ -85,7 +88,7 @@ CREATE TABLE "users" (
     "created_at" TEXT NOT NULL,
     "updated_at" TEXT NOT NULL,
 
-    PRIMARY KEY ("agent_id", "user_id")
+    CONSTRAINT "users_pkey" PRIMARY KEY ("agent_id","user_id")
 );
 
 -- CreateTable
@@ -96,8 +99,7 @@ CREATE TABLE "user_identities" (
     "channel_user_id" TEXT NOT NULL,
     "created_at" TEXT NOT NULL,
 
-    PRIMARY KEY ("agent_id", "channel", "channel_user_id"),
-    CONSTRAINT "user_identities_agent_id_user_id_fkey" FOREIGN KEY ("agent_id", "user_id") REFERENCES "users" ("agent_id", "user_id") ON DELETE CASCADE ON UPDATE CASCADE
+    CONSTRAINT "user_identities_pkey" PRIMARY KEY ("agent_id","channel","channel_user_id")
 );
 
 -- CreateIndex
@@ -121,9 +123,8 @@ CREATE INDEX "idx_users_agent" ON "users"("agent_id", "updated_at" DESC);
 -- CreateIndex
 CREATE INDEX "idx_user_identities_user" ON "user_identities"("agent_id", "user_id");
 
--- CreateVirtualTable (FTS5, not supported by Prisma schema — managed manually)
-CREATE VIRTUAL TABLE IF NOT EXISTS "memories_fts" USING fts5(
-  agent_id, memory_key, content,
-  tokenize='porter unicode61'
-);
+-- AddForeignKey
+ALTER TABLE "session_events" ADD CONSTRAINT "session_events_agent_id_session_id_fkey" FOREIGN KEY ("agent_id", "session_id") REFERENCES "sessions"("agent_id", "session_id") ON DELETE CASCADE ON UPDATE CASCADE;
 
+-- AddForeignKey
+ALTER TABLE "user_identities" ADD CONSTRAINT "user_identities_agent_id_user_id_fkey" FOREIGN KEY ("agent_id", "user_id") REFERENCES "users"("agent_id", "user_id") ON DELETE CASCADE ON UPDATE CASCADE;

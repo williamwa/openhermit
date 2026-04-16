@@ -3,7 +3,7 @@ import type { PrismaClient } from '../generated/prisma/index.js';
 import type { UserStore } from '../interfaces.js';
 import type { StoreScope, UserIdentity, UserRecord } from '../types.js';
 
-export class SqliteUserStore implements UserStore {
+export class DbUserStore implements UserStore {
   constructor(private readonly prisma: PrismaClient) {}
 
   async upsert(scope: StoreScope, user: UserRecord): Promise<void> {

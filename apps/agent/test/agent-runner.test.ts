@@ -12,7 +12,7 @@ import {
 
 import { AgentRunner } from '../src/agent-runner.js';
 import type { LangfuseClientLike } from '../src/langfuse.js';
-import { SqliteInternalStateStore, type StoreScope } from '@openhermit/store';
+import { DbInternalStateStore, type StoreScope } from '@openhermit/store';
 
 /** Poll the event backlog until `predicate` matches, with a timeout (default 5s). */
 const waitForEvent = (
@@ -364,7 +364,7 @@ test('AgentRunner injects session working memory but not long-term memory', asyn
       interactive: true,
     },
   });
-  const store = await SqliteInternalStateStore.open(security.stateFilePath);
+  const store = await DbInternalStateStore.open();
   t.after(() => store.close());
   await store.messages.setSessionWorkingMemory(
     testScope,
@@ -533,7 +533,7 @@ test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
   });
   await security.load();
 
-  const store = await SqliteInternalStateStore.open(security.stateFilePath);
+  const store = await DbInternalStateStore.open();
   t.after(() => store.close());
   await store.memories.add(testScope, { id: 'fact', content: 'The answer is 42.' });
 

@@ -7,7 +7,7 @@ import {
   type InternalStateStore,
   type StoreScope,
   type UserRole,
-  SqliteInternalStateStore,
+  DbInternalStateStore,
 } from '@openhermit/store';
 
 import {
@@ -105,7 +105,7 @@ export class AgentRunner implements SessionRuntime {
   static async create(options: AgentRunnerOptions): Promise<AgentRunner> {
     AgentRunner.DEBUG = Boolean(process.env.OPENHERMIT_DEBUG);
     const store = options.store
-      ?? await SqliteInternalStateStore.open(options.security.stateFilePath);
+      ?? await DbInternalStateStore.open();
     return new AgentRunner(options, store);
   }
 

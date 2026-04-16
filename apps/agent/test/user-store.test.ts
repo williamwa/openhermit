@@ -1,21 +1,23 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
 
-import { SqliteInternalStateStore } from '@openhermit/store';
+import { DbInternalStateStore } from '@openhermit/store';
 import type { StoreScope, UserStore } from '@openhermit/store';
 
-import { createTempDir } from './helpers.js';
-
 async function createTestStore(t: import('node:test').TestContext) {
-  const dir = await createTempDir(t, 'user-store-');
-  return SqliteInternalStateStore.open(`${dir}/test.sqlite`);
+  const store = await DbInternalStateStore.open();
+  t.after(() => store.close());
+  return store;
 }
 
-const scope: StoreScope = { agentId: 'test-agent' };
+function uniqueScope(): StoreScope {
+  return { agentId: `test-user-${randomUUID().slice(0, 8)}` };
+}
 
 test('UserStore: upsert and get a user', async (t) => {
   const store = await createTestStore(t);
-  t.after(() => store.close());
+  const scope = uniqueScope();
   const users = store.users;
 
   const now = new Date().toISOString();
@@ -36,7 +38,7 @@ test('UserStore: upsert and get a user', async (t) => {
 
 test('UserStore: upsert updates existing user', async (t) => {
   const store = await createTestStore(t);
-  t.after(() => store.close());
+  const scope = uniqueScope();
   const users = store.users;
 
   const now = new Date().toISOString();
@@ -64,7 +66,7 @@ test('UserStore: upsert updates existing user', async (t) => {
 
 test('UserStore: list excludes merged users', async (t) => {
   const store = await createTestStore(t);
-  t.after(() => store.close());
+  const scope = uniqueScope();
   const users = store.users;
 
   const now = new Date().toISOString();
@@ -81,7 +83,7 @@ test('UserStore: list excludes merged users', async (t) => {
 
 test('UserStore: link and resolve identity', async (t) => {
   const store = await createTestStore(t);
-  t.after(() => store.close());
+  const scope = uniqueScope();
   const users = store.users;
 
   const now = new Date().toISOString();
@@ -103,7 +105,7 @@ test('UserStore: link and resolve identity', async (t) => {
 
 test('UserStore: resolve follows merged_into', async (t) => {
   const store = await createTestStore(t);
-  t.after(() => store.close());
+  const scope = uniqueScope();
   const users = store.users;
 
   const now = new Date().toISOString();
@@ -121,7 +123,7 @@ test('UserStore: resolve follows merged_into', async (t) => {
 
 test('UserStore: merge re-links identities', async (t) => {
   const store = await createTestStore(t);
-  t.after(() => store.close());
+  const scope = uniqueScope();
   const users = store.users;
 
   const now = new Date().toISOString();
@@ -145,7 +147,7 @@ test('UserStore: merge re-links identities', async (t) => {
 
 test('UserStore: unlink identity', async (t) => {
   const store = await createTestStore(t);
-  t.after(() => store.close());
+  const scope = uniqueScope();
   const users = store.users;
 
   const now = new Date().toISOString();
@@ -160,7 +162,7 @@ test('UserStore: unlink identity', async (t) => {
 
 test('UserStore: delete cascades identities', async (t) => {
   const store = await createTestStore(t);
-  t.after(() => store.close());
+  const scope = uniqueScope();
   const users = store.users;
 
   const now = new Date().toISOString();
@@ -178,7 +180,7 @@ test('UserStore: delete cascades identities', async (t) => {
 
 test('UserStore: linkIdentity re-links existing identity to new user', async (t) => {
   const store = await createTestStore(t);
-  t.after(() => store.close());
+  const scope = uniqueScope();
   const users = store.users;
 
   const now = new Date().toISOString();
@@ -195,12 +197,11 @@ test('UserStore: linkIdentity re-links existing identity to new user', async (t)
 
 test('UserStore: scope isolation between agents', async (t) => {
   const store = await createTestStore(t);
-  t.after(() => store.close());
+  const scope1 = uniqueScope();
+  const scope2 = uniqueScope();
   const users = store.users;
 
   const now = new Date().toISOString();
-  const scope1: StoreScope = { agentId: 'agent-1' };
-  const scope2: StoreScope = { agentId: 'agent-2' };
 
   await users.upsert(scope1, { userId: 'usr-001', role: 'owner', createdAt: now, updatedAt: now });
   await users.linkIdentity(scope1, { userId: 'usr-001', channel: 'cli', channelUserId: 'alice', createdAt: now });

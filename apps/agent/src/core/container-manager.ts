@@ -7,7 +7,7 @@ import { OpenHermitError, NotFoundError, ValidationError } from '@openhermit/sha
 import {
   type ContainerStore,
   type StoreScope,
-  SqliteInternalStateStore,
+  DbInternalStateStore,
   standaloneScope,
 } from '@openhermit/store';
 
@@ -170,7 +170,6 @@ class DockerCliRunner implements DockerRunner {
 export interface DockerContainerManagerOptions {
   agentId?: string;
   runner?: DockerRunner;
-  stateFilePath?: string;
   containerStore?: ContainerStore;
   storeScope?: StoreScope;
 }
@@ -247,10 +246,7 @@ export class DockerContainerManager {
       return new DockerContainerManager(workspace, options);
     }
 
-    const store = await SqliteInternalStateStore.open(
-      options.stateFilePath
-      ?? path.join(workspace.root, '.openhermit-internal', 'state.sqlite'),
-    );
+    const store = await DbInternalStateStore.open();
     const registry = new ScopedContainerRegistry(store.containers, standaloneScope);
     return new DockerContainerManager(workspace, options, registry);
   }

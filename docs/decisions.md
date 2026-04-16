@@ -62,7 +62,7 @@ Examples:
 
 ## ADR-004: Identity migrated from workspace markdown to InstructionStore
 
-**Decision**: `workspace/.openhermit/*.md` (IDENTITY.md, SOUL.md, AGENTS.md) serve as bootstrap sources. On first boot, they are migrated into the `InstructionStore` in `state.sqlite`. After migration, the `InstructionStore` is the canonical source.
+**Decision**: `workspace/.openhermit/*.md` (IDENTITY.md, SOUL.md, AGENTS.md) serve as bootstrap sources. On first boot, they are migrated into the `InstructionStore` in PostgreSQL. After migration, the `InstructionStore` is the canonical source.
 
 The agent manages instructions via `instruction_read` and `instruction_update` tools.
 
@@ -73,18 +73,17 @@ The agent manages instructions via `instruction_read` and `instruction_update` t
 - workspace markdown files remain useful as initial scaffolding for new agents
 - this supersedes the earlier decision to keep workspace files as the canonical source
 
-## ADR-005: Per-agent SQLite internal store
+## ADR-005: Shared PostgreSQL internal store (supersedes per-agent SQLite)
 
-**Decision**: Internal state is stored in one SQLite database per agent:
-
-- `~/.openhermit/{agent-id}/state.sqlite`
+**Decision**: Internal state is stored in a shared PostgreSQL database, with row-level isolation via `agent_id` column on every table. Connection is configured via `DATABASE_URL` environment variable. Local development uses Docker Compose to run PostgreSQL.
 
 **Rationale**:
 
-- avoids reintroducing file-based internal state
-- keeps agent data isolated
-- simplifies per-agent migration
-- leaves room for future gateway-level aggregation without forcing a single global DB today
+- PostgreSQL is the standard for cloud-deployed services with proper connection pooling
+- native `tsvector` + GIN index replaces SQLite FTS5 for full-text search, with auto-maintained generated columns
+- a single shared database simplifies deployment (no per-agent database files)
+- application-level `agent_id` scoping provides sufficient data isolation between agents
+- Docker Compose provides a consistent local dev experience matching production
 
 ## ADR-006: Runtime discovery uses runtime.json
 
@@ -221,18 +220,17 @@ Operational model:
 
 ## ADR-015: Prisma ORM for internal state store
 
-**Decision**: `packages/store` uses Prisma v6 as the ORM for all `InternalStateStore` implementations. Schema is defined in `prisma/schema.prisma`. Migrations are managed by Prisma (`prisma/migrations/`).
+**Decision**: `packages/store` uses Prisma v6 as the ORM for the `DbInternalStateStore` implementation. Schema is defined in `prisma/schema.prisma` with `provider = "postgresql"`. Migrations are managed by Prisma (`prisma/migrations/`).
 
 **Rationale**:
 
 - type-safe queries replace hand-written raw SQL across all six store implementations
 - Prisma handles connection lifecycle and migration state; no custom migration runner needed
-- switching from SQLite to PostgreSQL requires only a datasource provider change — the store implementations are unchanged
-- FTS5 virtual tables (not supported by Prisma schema) continue to use `$executeRawUnsafe` / `$queryRawUnsafe`
+- PostgreSQL `tsvector` generated stored column with GIN index provides native full-text search — no manual FTS index sync needed
 
 **Constraints**:
 
 - Prisma v6 is required (v7 changed datasource config in a breaking way)
-- `SqliteInternalStateStore.open()` is async; `close()` returns `Promise<void>`
-- FTS5 bootstrap runs via `$executeRawUnsafe` inside `open()`
-- SQLite write serialization is handled by Prisma's engine; the explicit write-queue pattern has been removed from stores
+- `DbInternalStateStore.open()` is async; `close()` returns `Promise<void>`
+- the `content_tsv` generated column is managed via migration SQL (not modeled in Prisma schema)
+- `DATABASE_URL` environment variable is required at runtime

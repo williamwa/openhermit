@@ -9,7 +9,7 @@ OpenHermit already has a working single-agent runtime with:
 - container-native agent execution (`exec`, service containers, ephemeral containers)
 - per-agent internal state in `~/.openhermit/{agent-id}/`
 - per-agent internal runtime config in `~/.openhermit/{agent-id}/config.json`
-- `state.sqlite` as the primary internal-state store
+- PostgreSQL as the primary internal-state store (shared database, `agent_id` scoping)
 - `runtime.json` for local API discovery
 - startup / shutdown protection around `runtime.json`
 - agent-local HTTP + SSE API
@@ -54,13 +54,14 @@ There are also several active design drafts that are intentionally not yet imple
 
 ### Internal State Migration
 
-- per-agent `state.sqlite`
+- shared PostgreSQL database (scoped by `agent_id`)
 - per-agent `runtime.json`
-- Prisma ORM manages schema and migrations (`packages/store/prisma/`)
+- Prisma ORM with PostgreSQL manages schema and migrations (`packages/store/prisma/`)
+- Docker Compose for local PostgreSQL dev environment
 - sessions and session logs migrated out of workspace files
 - session-local working memory migrated into `sessions`
 - named memories migrated into `memories`
-- container runtime inventory migrated into `state.sqlite`
+- container runtime inventory migrated into PostgreSQL
 - workspace scaffold no longer creates `memory/`, `sessions/`, or `runtime/`
 - workspace scaffold now keeps agent-managed external config and identity files under `workspace/.openhermit/`
 
@@ -117,11 +118,10 @@ There are also several active design drafts that are intentionally not yet imple
 
 ### Store Infrastructure
 
-- Prisma ORM introduced to `packages/store` — type-safe queries replacing raw `node:sqlite` SQL
-- baseline migration (`prisma/migrations/0_baseline/`) aligned with existing schema
-- `SqliteInternalStateStore.open()` is now async, `close()` returns `Promise<void>`
-- FTS5 virtual table bootstrapped via `$executeRawUnsafe` (Prisma does not model virtual tables)
-- store architecture is provider-neutral — PostgreSQL adapter will follow the same `InternalStateStore` interface
+- Prisma ORM with PostgreSQL provider — type-safe queries with native full-text search
+- `DbInternalStateStore.open(databaseUrl?)` connects via `DATABASE_URL` env variable
+- `tsvector` generated stored column with GIN index for full-text memory search (auto-maintained by PostgreSQL)
+- Docker Compose provides local PostgreSQL for development
 
 ## Remaining Major Work
 
@@ -170,7 +170,7 @@ See `docs/user-model.md`. Phase 1 (core tables, identity resolution, role-based 
 ### 1.1 Identity ✅ Completed
 
 - workspace `.openhermit/*.md` files serve as bootstrap sources for first boot
-- on first boot, identity files are migrated into `InstructionStore` in `state.sqlite`
+- on first boot, identity files are migrated into `InstructionStore` in PostgreSQL
 - `InstructionStore` is now the canonical source for agent identity and instructions
 - agent manages instructions via `instruction_read` and `instruction_update` tools
 

@@ -3,7 +3,7 @@ import type { PrismaClient } from '../generated/prisma/index.js';
 import type { InstructionStore } from '../interfaces.js';
 import type { InstructionEntry, StoreScope } from '../types.js';
 
-export class SqliteInstructionStore implements InstructionStore {
+export class DbInstructionStore implements InstructionStore {
   constructor(private readonly prisma: PrismaClient) {}
 
   async get(scope: StoreScope, key: string): Promise<InstructionEntry | undefined> {

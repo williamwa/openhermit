@@ -24,7 +24,7 @@ The three confirmed design constraints:
 
 ### 1.1 Create `packages/store`
 
-New package with store interfaces and SQLite adapters.
+New package with store interfaces and PostgreSQL adapters.
 
 ```
 packages/store/
@@ -32,14 +32,14 @@ packages/store/
     index.ts                    — re-exports
     types.ts                    — StoreScope, MemoryEntry, MemoryAddInput, etc.
     interfaces.ts               — SessionStore, MessageStore, MemoryProvider, ContainerStore, InstructionStore, InternalStateStore
-    sqlite/
-      index.ts                  — SqliteInternalStateStore
-      session-store.ts          — extracted from SessionIndexStore
-      message-store.ts          — extracted from SessionLogWriter (log/history methods)
-      memory-provider.ts        — SqliteMemoryProvider (implements MemoryProvider)
-      container-store.ts        — extracted from ContainerRegistryStore
-      instruction-store.ts      — SqliteInstructionStore
-      migrations.ts             — schema init + migrations (v8)
+    impl/
+      index.ts                  — DbInternalStateStore
+      session-store.ts          — DbSessionStore
+      message-store.ts          — DbMessageStore
+      memory-provider.ts        — DbMemoryProvider (tsvector full-text search)
+      container-store.ts        — DbContainerStore
+      instruction-store.ts      — DbInstructionStore
+      user-store.ts             — DbUserStore
 ```
 
 ### 1.2 Interface Design
@@ -117,7 +117,7 @@ Existing per-agent DBs get the default `'__standalone__'` — zero data migratio
 ### 1.4 Wire into AgentRunner
 
 - `AgentRunnerOptions` gains `store?: InternalStateStore`
-- If `store` provided: use it. If not: create `SqliteInternalStateStore` from `security.stateFilePath` (preserving standalone behavior).
+- If `store` provided: use it. If not: create `DbInternalStateStore` via `DATABASE_URL`.
 - `ToolContext.memoryProvider` changes type from `SessionLogWriter` to `MemoryProvider`
 - `DockerContainerManager` accepts optional `ContainerStore` instead of opening its own DB
 
@@ -127,11 +127,11 @@ Existing per-agent DBs get the default `'__standalone__'` — zero data migratio
 - `apps/agent/src/tools/shared.ts:36-44` — `ToolContext.memoryStore` type change
 - `apps/agent/src/tools/memory.ts` — use `MemoryProvider` interface methods
 - `apps/agent/src/core/container-manager.ts:319-335` — accept `ContainerStore`
-- `apps/agent/src/internal-state/sqlite.ts` — migrations move to `packages/store/src/sqlite/migrations.ts`
+- migrations managed by Prisma (`packages/store/prisma/migrations/`)
 
 ### Key files to extract from:
-- `apps/agent/src/session-logs/writer.ts` → `SqliteMessageStore` + `SqliteMemoryProvider`
-- `apps/agent/src/session-logs/index-store.ts` → `SqliteSessionStore`
+- `apps/agent/src/session-logs/writer.ts` → `DbMessageStore` + `DbMemoryProvider`
+- `apps/agent/src/session-logs/index-store.ts` → `DbSessionStore`
 - `apps/agent/src/core/container-manager.ts` (ContainerRegistryStore) → `SqliteContainerStore`
 
 ---
@@ -218,7 +218,7 @@ interface AgentRegistryEntry {
 | | Standalone | Managed (via Gateway) |
 |---|---|---|
 | Process | One per agent | One per agent + gateway process |
-| Database | Per-agent SQLite | Per-agent SQLite (or shared Postgres) |
+| Database | Shared PostgreSQL (scoped by `agent_id`) | Shared PostgreSQL (scoped by `agent_id`) |
 | Agent routes | `/sessions/...` | `/sessions/...` (unchanged) |
 | Client connects to | Agent directly | Gateway at `/agents/:agentId/...` |
 | Discovery | `runtime.json` | Gateway API |

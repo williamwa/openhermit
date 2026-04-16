@@ -36,7 +36,7 @@ Purpose:
 Storage:
 
 - internal state
-- persisted in `~/.openhermit/{agent-id}/state.sqlite`
+- persisted in PostgreSQL (scoped by `agent_id`)
 
 Contents:
 
@@ -75,7 +75,7 @@ Storage:
 
 ## 2. Long-Term Memory
 
-Long-term memory is managed through the `MemoryProvider` interface. The default implementation is `SqliteMemoryProvider`, which stores memories in `state.sqlite` with FTS5 full-text search (porter stemming, BM25 ranking).
+Long-term memory is managed through the `MemoryProvider` interface. The default implementation is `DbMemoryProvider`, which stores memories in PostgreSQL with native `tsvector` full-text search (English stemming, `ts_rank` ranking) via a GIN-indexed generated stored column.
 
 ### MemoryProvider Interface
 
@@ -93,7 +93,7 @@ interface MemoryProvider {
 }
 ```
 
-The provider is pluggable — different agents can use different memory backends (SQLite, Mem0, Zep, etc.) while the agent-facing tools remain the same.
+The provider is pluggable — different agents can use different memory backends (PostgreSQL, Mem0, Zep, etc.) while the agent-facing tools remain the same.
 
 ### Memory Entry Shape
 

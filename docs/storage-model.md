@@ -90,11 +90,9 @@ interface InternalStateStore {
 }
 ```
 
-Current adapter: `SqliteInternalStateStore` in `packages/store/src/sqlite/`.
+Current adapter: `DbInternalStateStore` in `packages/store/src/impl/`.
 
-Future adapters: `PostgresInternalStateStore`.
-
-The store package uses Prisma ORM for type-safe queries. The same `InternalStateStore` interface can be backed by a different Prisma provider (e.g. `postgresql`) without changing the store implementation — only the datasource URL in `PrismaClient` changes.
+The store package uses Prisma ORM with PostgreSQL for type-safe queries. Full-text search uses PostgreSQL's native `tsvector` with a GIN index — the `content_tsv` generated stored column is auto-maintained by PostgreSQL, requiring no manual FTS sync.
 
 This preserves structure, indexing, migration control, and explicit lifecycle semantics.
 
@@ -132,13 +130,13 @@ OpenHermit should unify access where it helps the agent, not erase domain bounda
 Suggested shape:
 
 - `FileSystemDocumentStore`
-- `SQLiteInternalStateStore`
+- `DbInternalStateStore` (PostgreSQL via Docker Compose for local dev)
 
 Why:
 
 - files are easy to inspect and edit
 - markdown remains natural
-- SQLite keeps structured runtime state simple and portable
+- PostgreSQL provides proper connection pooling, native full-text search, and matches the production deployment target
 
 ### Hosted / Multi-Agent
 

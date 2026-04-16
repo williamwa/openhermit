@@ -102,7 +102,7 @@ const createSessionStartedEntries = (
 const parseStoredSessionLogEntry = (payloadJson: string): SessionLogEntry =>
   JSON.parse(payloadJson) as SessionLogEntry;
 
-export class SqliteMessageStore implements MessageStore {
+export class DbMessageStore implements MessageStore {
   constructor(private readonly prisma: PrismaClient) {}
 
   async appendLogEntry(scope: StoreScope, sessionId: string, entry: SessionLogEntry): Promise<void> {
@@ -223,9 +223,9 @@ export class SqliteMessageStore implements MessageStore {
       `SELECT ts, event_type AS role, content FROM (
          SELECT ts, event_type, content, id
          FROM session_events
-         WHERE agent_id = ? AND session_id = ? AND event_type IN ('user', 'assistant', 'error')
+         WHERE agent_id = $1 AND session_id = $2 AND event_type IN ('user', 'assistant', 'error')
          ORDER BY id DESC
-         LIMIT ? OFFSET ?
+         LIMIT $3 OFFSET $4
        ) sub ORDER BY id ASC`,
       scope.agentId, sessionId, limit, offset ?? 0,
     );

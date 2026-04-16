@@ -16,14 +16,16 @@ const removeOutputs = async (directory) => {
   for (const entry of entries) {
     const absolutePath = path.join(directory, entry.name);
 
-    if (entry.isDirectory() && outputDirectories.has(entry.name)) {
+    if (!entry.isDirectory()) continue;
+
+    if (entry.name === 'node_modules') continue;
+
+    if (outputDirectories.has(entry.name)) {
       await rm(absolutePath, { recursive: true, force: true });
       continue;
     }
 
-    if (entry.isDirectory()) {
-      await removeOutputs(absolutePath);
-    }
+    await removeOutputs(absolutePath);
   }
 };
 
