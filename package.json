@@ -16,13 +16,13 @@
     "clean:build": "node scripts/clean-build.mjs",
     "build": "npm run clean:build && cd packages/store && npx prisma generate && cd ../.. && tsc -b && cp -r packages/store/src/generated packages/store/dist/",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run build && node --import tsx --test apps/agent/test/*.test.ts apps/cli/test/*.test.ts apps/web/test/*.test.ts",
-    "dev:agent": "tsx watch apps/agent/src/index.ts",
-    "chat:agent": "tsx apps/cli/src/index.ts",
-    "dev:cli": "tsx apps/cli/src/index.ts",
-    "dev:web": "tsx apps/web/src/index.ts",
-    "dev:gateway": "tsx apps/gateway/src/index.ts",
-    "dev:telegram": "tsx apps/channels/telegram/src/index.ts"
+    "test": "npm run build && node --env-file=.env --import tsx --test apps/agent/test/*.test.ts apps/cli/test/*.test.ts apps/web/test/*.test.ts",
+    "dev:agent": "node --env-file=.env --import tsx --watch apps/agent/src/index.ts",
+    "chat:agent": "node --env-file=.env --import tsx apps/cli/src/index.ts",
+    "dev:cli": "node --env-file=.env --import tsx apps/cli/src/index.ts",
+    "dev:web": "node --env-file=.env --import tsx apps/web/src/index.ts",
+    "dev:gateway": "node --env-file=.env --import tsx apps/gateway/src/index.ts",
+    "dev:telegram": "node --env-file=.env --import tsx apps/channels/telegram/src/index.ts"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
