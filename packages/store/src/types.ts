@@ -10,6 +10,15 @@ export interface StoreScope {
   agentId: string;
 }
 
+export interface AgentRecord {
+  agentId: string;
+  name?: string;
+  configDir: string;
+  workspaceDir: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export const STANDALONE_AGENT_ID = '__standalone__';
 
 export const standaloneScope: StoreScope = { agentId: STANDALONE_AGENT_ID };

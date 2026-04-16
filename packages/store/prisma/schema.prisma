@@ -15,6 +15,17 @@ model Meta {
   @@map("meta")
 }
 
+model Agent {
+  agentId      String  @id @map("agent_id")
+  name         String?
+  configDir    String  @map("config_dir")
+  workspaceDir String  @map("workspace_dir")
+  createdAt    String  @map("created_at")
+  updatedAt    String  @map("updated_at")
+
+  @@map("agents")
+}
+
 model Session {
   agentId              String  @map("agent_id")
   sessionId            String  @map("session_id")

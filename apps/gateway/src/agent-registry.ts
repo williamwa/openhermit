@@ -2,7 +2,9 @@ import type { AgentStatus, AgentInfo } from '@openhermit/protocol';
 
 export interface AgentRegistryEntry {
   agentId: string;
-  workspaceRoot?: string;
+  name?: string;
+  configDir?: string;
+  workspaceDir?: string;
   status: AgentStatus;
   port?: number;
   pid?: number;
@@ -13,22 +15,21 @@ export interface AgentRegistryEntry {
 export class AgentRegistry {
   private readonly agents = new Map<string, AgentRegistryEntry>();
 
-  register(agentId: string, config?: { workspaceRoot?: string; port?: number; config?: Record<string, unknown> }): AgentRegistryEntry {
+  register(agentId: string, config?: {
+    name?: string;
+    configDir?: string;
+    workspaceDir?: string;
+    port?: number;
+    config?: Record<string, unknown>;
+  }): AgentRegistryEntry {
     const existing = this.agents.get(agentId);
 
     if (existing) {
-      if (config?.workspaceRoot !== undefined) {
-        existing.workspaceRoot = config.workspaceRoot;
-      }
-
-      if (config?.port !== undefined) {
-        existing.port = config.port;
-      }
-
-      if (config?.config !== undefined) {
-        existing.config = config.config;
-      }
-
+      if (config?.name !== undefined) existing.name = config.name;
+      if (config?.configDir !== undefined) existing.configDir = config.configDir;
+      if (config?.workspaceDir !== undefined) existing.workspaceDir = config.workspaceDir;
+      if (config?.port !== undefined) existing.port = config.port;
+      if (config?.config !== undefined) existing.config = config.config;
       return existing;
     }
 
@@ -86,8 +87,10 @@ export class AgentRegistry {
     return {
       agentId: entry.agentId,
       status: entry.status,
+      ...(entry.name ? { name: entry.name } : {}),
+      ...(entry.configDir ? { configDir: entry.configDir } : {}),
+      ...(entry.workspaceDir ? { workspaceDir: entry.workspaceDir } : {}),
       ...(entry.port !== undefined ? { port: entry.port } : {}),
-      ...(entry.workspaceRoot ? { workspaceRoot: entry.workspaceRoot } : {}),
       ...(entry.error ? { error: entry.error } : {}),
     };
   }

@@ -1,11 +1,10 @@
-import { promises as fs } from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { pathToFileURL } from 'node:url';
 import { stderr } from 'node:process';
 
 import { createAdaptorServer } from '@hono/node-server';
+
+import { DbAgentStore } from '@openhermit/store';
 
 import { AgentRegistry } from './agent-registry.js';
 import { AgentLifecycle } from './agent-lifecycle.js';
@@ -20,38 +19,6 @@ const logStartup = (message: string): void => {
   console.log(`[openhermit-gateway] ${message}`);
 };
 
-interface GatewayAgentConfig {
-  agentId: string;
-  workspaceRoot?: string;
-  port?: number;
-}
-
-interface GatewayConfig {
-  agents?: GatewayAgentConfig[];
-}
-
-const resolveConfigPath = (): string => {
-  if (process.env.OPENHERMIT_GATEWAY_CONFIG) {
-    return process.env.OPENHERMIT_GATEWAY_CONFIG;
-  }
-
-  const baseDir =
-    process.env.OPENHERMIT_HOME ?? path.join(os.homedir(), '.openhermit');
-  return path.join(baseDir, 'gateway.json');
-};
-
-const loadConfig = async (): Promise<GatewayConfig> => {
-  const configPath = resolveConfigPath();
-
-  try {
-    const content = await fs.readFile(configPath, 'utf8');
-    logStartup(`loaded config from ${configPath}`);
-    return JSON.parse(content) as GatewayConfig;
-  } catch {
-    logStartup(`no config found at ${configPath}, starting with empty registry`);
-    return {};
-  }
-};
 
 const listen = (
   fetch: NodeFetchCallback,
@@ -88,25 +55,30 @@ const listen = (
   });
 
 export const main = async (): Promise<void> => {
-  const config = await loadConfig();
   const registry = new AgentRegistry();
   const lifecycle = new AgentLifecycle({ registry, logger: logStartup });
 
-  // Register agents from config.
-  if (config.agents) {
-    for (const agentConfig of config.agents) {
-      const regConfig: { workspaceRoot?: string; port?: number } = {};
+  // Open agent store if DATABASE_URL is available.
+  let agentStore: DbAgentStore | undefined;
+  if (process.env.DATABASE_URL) {
+    try {
+      agentStore = await DbAgentStore.open();
+      logStartup('agent store connected');
+    } catch (error) {
+      logStartup(`agent store unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 
-      if (agentConfig.workspaceRoot) {
-        regConfig.workspaceRoot = agentConfig.workspaceRoot;
-      }
-
-      if (agentConfig.port !== undefined) {
-        regConfig.port = agentConfig.port;
-      }
-
-      registry.register(agentConfig.agentId, regConfig);
-      logStartup(`registered agent: ${agentConfig.agentId}`);
+  // Load agents from database into registry.
+  if (agentStore) {
+    const dbAgents = await agentStore.list();
+    for (const agent of dbAgents) {
+      registry.register(agent.agentId, {
+        ...(agent.name ? { name: agent.name } : {}),
+        configDir: agent.configDir,
+        workspaceDir: agent.workspaceDir,
+      });
+      logStartup(`registered agent from db: ${agent.agentId}`);
     }
   }
 
@@ -126,7 +98,12 @@ export const main = async (): Promise<void> => {
     }
   }
 
-  const app = createGatewayApp({ registry, lifecycle, logger: logStartup });
+  const app = createGatewayApp({
+    registry,
+    lifecycle,
+    ...(agentStore ? { agentStore } : {}),
+    logger: logStartup,
+  });
 
   const rawPort = process.env.GATEWAY_PORT ?? process.env.PORT;
   const port = rawPort ? Number.parseInt(rawPort, 10) : defaultPort;
@@ -147,6 +124,7 @@ export const main = async (): Promise<void> => {
     logStartup('shutting down...');
 
     await lifecycle.stopAll();
+    await agentStore?.close();
 
     server.close(() => {
       logStartup('server closed');

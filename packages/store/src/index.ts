@@ -1,4 +1,5 @@
 export type {
+  AgentStore,
   SessionStore,
   MessageStore,
   MemoryProvider,
@@ -9,6 +10,7 @@ export type {
 } from './interfaces.js';
 
 export type {
+  AgentRecord,
   StoreScope,
   PersistedSessionIndexEntry,
   SessionLogEntry,
@@ -36,4 +38,5 @@ export {
   DbContainerStore,
   DbInstructionStore,
   DbUserStore,
+  DbAgentStore,
 } from './impl/index.js';

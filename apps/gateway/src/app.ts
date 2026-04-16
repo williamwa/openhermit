@@ -1,6 +1,8 @@
 import { Hono } from 'hono';
 
 import { gatewayRoutes } from '@openhermit/protocol';
+import type { CreateAgentRequest } from '@openhermit/protocol';
+import type { DbAgentStore } from '@openhermit/store';
 import {
   OpenHermitError,
   ValidationError,
@@ -15,11 +17,12 @@ import { proxyToAgent } from './proxy.js';
 export interface GatewayAppOptions {
   registry: AgentRegistry;
   lifecycle: AgentLifecycle;
+  agentStore?: DbAgentStore;
   logger?: (message: string) => void;
 }
 
 export const createGatewayApp = (options: GatewayAppOptions): Hono => {
-  const { registry, lifecycle } = options;
+  const { registry, lifecycle, agentStore } = options;
   const log = options.logger ?? ((msg: string) => console.log(msg));
   const app = new Hono();
 
@@ -50,9 +53,77 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
 
   // --- agent listing ---
 
-  app.get(gatewayRoutes.agents, (c) => {
+  app.get(gatewayRoutes.agents, async (c) => {
+    if (agentStore) {
+      const records = await agentStore.list();
+      const agents = records.map((record) => {
+        const entry = registry.get(record.agentId);
+        return {
+          agentId: record.agentId,
+          status: entry?.status ?? ('registered' as const),
+          ...(record.name ? { name: record.name } : {}),
+          configDir: record.configDir,
+          workspaceDir: record.workspaceDir,
+          ...(entry?.port !== undefined ? { port: entry.port } : {}),
+          ...(entry?.error ? { error: entry.error } : {}),
+        };
+      });
+      return c.json(agents);
+    }
     const agents = registry.list().map((entry) => registry.toAgentInfo(entry));
     return c.json(agents);
+  });
+
+  app.post(gatewayRoutes.agents, async (c) => {
+    if (!agentStore) {
+      return c.json(
+        { error: { code: 'not_configured', message: 'Agent store is not configured. Set DATABASE_URL to enable agent persistence.' } },
+        501,
+      );
+    }
+
+    const body = await c.req.json<CreateAgentRequest>();
+
+    if (!body.agentId || typeof body.agentId !== 'string') {
+      throw new ValidationError('agentId is required and must be a string.');
+    }
+
+    const existing = await agentStore.get(body.agentId);
+    if (existing) {
+      return c.json(
+        { error: { code: 'conflict', message: `Agent already exists: ${body.agentId}` } },
+        409,
+      );
+    }
+
+    const homeDir = process.env.OPENHERMIT_HOME ?? `${process.env.HOME ?? '/root'}/.openhermit`;
+    const now = new Date().toISOString();
+    const record = await agentStore.create({
+      agentId: body.agentId,
+      ...(body.name ? { name: body.name } : {}),
+      configDir: body.configDir ?? `${homeDir}/${body.agentId}`,
+      workspaceDir: body.workspaceDir ?? `${homeDir}/workspaces/${body.agentId}`,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const agentName = record.name ?? record.agentId;
+    await agentStore.seedInstructions(record.agentId, [
+      { key: 'identity', content: `You are ${agentName}, an AI assistant.` },
+      { key: 'soul', content: 'You are helpful, thoughtful, and concise. You think step by step when solving complex problems.' },
+      { key: 'rules', content: 'Follow the user\'s instructions carefully. Ask for clarification when the request is ambiguous. Do not make up information.' },
+    ], now);
+
+    registry.register(record.agentId, {
+      ...(record.name ? { name: record.name } : {}),
+      configDir: record.configDir,
+      workspaceDir: record.workspaceDir,
+    });
+
+    log(`agent created: ${record.agentId}`);
+
+    const entry = registry.get(record.agentId)!;
+    return c.json(registry.toAgentInfo(entry), 201);
   });
 
   // --- lifecycle management ---

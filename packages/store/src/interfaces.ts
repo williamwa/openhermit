@@ -1,6 +1,7 @@
 import type { SessionHistoryMessage, SessionSpec } from '@openhermit/protocol';
 
 import type {
+  AgentRecord,
   MessageRow,
   ContainerRegistryEntry,
   InstructionEntry,
@@ -92,6 +93,14 @@ export interface UserStore {
 
   /** Delete a user and all their identities. */
   delete(scope: StoreScope, userId: string): Promise<void>;
+}
+
+export interface AgentStore {
+  create(agent: AgentRecord): Promise<AgentRecord>;
+  get(agentId: string): Promise<AgentRecord | undefined>;
+  list(): Promise<AgentRecord[]>;
+  update(agentId: string, patch: Partial<Pick<AgentRecord, 'name' | 'configDir' | 'workspaceDir'>>): Promise<AgentRecord | undefined>;
+  delete(agentId: string): Promise<void>;
 }
 
 export interface InternalStateStore {

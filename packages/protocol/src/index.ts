@@ -135,9 +135,18 @@ export type AgentStatus =
 export interface AgentInfo {
   agentId: string;
   status: AgentStatus;
+  name?: string;
+  configDir?: string;
+  workspaceDir?: string;
   port?: number;
-  workspaceRoot?: string;
   error?: string;
+}
+
+export interface CreateAgentRequest {
+  agentId: string;
+  name?: string;
+  configDir?: string;
+  workspaceDir?: string;
 }
 
 export const gatewayRoutes = {

@@ -18,17 +18,19 @@ export interface AgentLifecycleOptions {
   agentEntryPath?: string;
 }
 
-const resolveRuntimeJsonPath = (agentId: string): string => {
+const defaultConfigDir = (agentId: string): string => {
   const baseDir =
     process.env.OPENHERMIT_HOME ?? path.join(os.homedir(), '.openhermit');
-  return path.join(baseDir, agentId, 'runtime.json');
+  return path.join(baseDir, agentId);
 };
 
 const readRuntimeJson = async (
   agentId: string,
+  configDir?: string,
 ): Promise<RuntimeStateFile | undefined> => {
   try {
-    const content = await fs.readFile(resolveRuntimeJsonPath(agentId), 'utf8');
+    const dir = configDir ?? defaultConfigDir(agentId);
+    const content = await fs.readFile(path.join(dir, 'runtime.json'), 'utf8');
     return JSON.parse(content) as RuntimeStateFile;
   } catch {
     return undefined;
@@ -38,11 +40,12 @@ const readRuntimeJson = async (
 const waitForRuntimeJson = async (
   agentId: string,
   timeoutMs: number,
+  configDir?: string,
 ): Promise<RuntimeStateFile | undefined> => {
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
-    const runtime = await readRuntimeJson(agentId);
+    const runtime = await readRuntimeJson(agentId, configDir);
 
     if (runtime) {
       return runtime;
@@ -84,7 +87,7 @@ export class AgentLifecycle {
       return undefined;
     }
 
-    const runtime = await readRuntimeJson(agentId);
+    const runtime = await readRuntimeJson(agentId, entry?.configDir);
 
     if (!runtime) {
       return undefined;
@@ -119,7 +122,7 @@ export class AgentLifecycle {
     }
 
     // Check if already running externally (runtime.json exists).
-    const existingRuntime = await readRuntimeJson(agentId);
+    const existingRuntime = await readRuntimeJson(agentId, entry.configDir);
 
     if (existingRuntime) {
       const alive = await this.checkHealthHttp(existingRuntime.http_api.port, existingRuntime.http_api.token);
@@ -136,7 +139,8 @@ export class AgentLifecycle {
       }
 
       // Stale runtime.json — remove it so the agent can start fresh.
-      await fs.rm(resolveRuntimeJsonPath(agentId), { force: true });
+      const runtimeDir = entry.configDir ?? defaultConfigDir(agentId);
+      await fs.rm(path.join(runtimeDir, 'runtime.json'), { force: true });
     }
 
     this.registry.update(agentId, { status: 'starting' });
@@ -154,8 +158,11 @@ export class AgentLifecycle {
       env: {
         ...process.env,
         OPENHERMIT_AGENT_ID: agentId,
-        ...(entry.workspaceRoot
-          ? { OPENHERMIT_WORKSPACE_ROOT: entry.workspaceRoot }
+        ...(entry.configDir
+          ? { OPENHERMIT_HOME: path.dirname(entry.configDir) }
+          : {}),
+        ...(entry.workspaceDir
+          ? { OPENHERMIT_WORKSPACE_ROOT: entry.workspaceDir }
           : {}),
       },
       detached: false,
@@ -201,7 +208,7 @@ export class AgentLifecycle {
     }
 
     // Wait for runtime.json to appear (agent writes it after binding).
-    const runtime = await waitForRuntimeJson(agentId, STARTUP_TIMEOUT_MS);
+    const runtime = await waitForRuntimeJson(agentId, STARTUP_TIMEOUT_MS, entry.configDir);
 
     if (!runtime) {
       this.registry.update(agentId, {
@@ -272,7 +279,7 @@ export class AgentLifecycle {
       return false;
     }
 
-    const runtime = await readRuntimeJson(agentId);
+    const runtime = await readRuntimeJson(agentId, entry.configDir);
 
     if (!runtime) {
       return false;
@@ -288,7 +295,8 @@ export class AgentLifecycle {
   }
 
   getAgentToken(agentId: string): Promise<string | undefined> {
-    return readRuntimeJson(agentId).then((r) => r?.http_api.token);
+    const entry = this.registry.get(agentId);
+    return readRuntimeJson(agentId, entry?.configDir).then((r) => r?.http_api.token);
   }
 
   private async checkHealthHttp(

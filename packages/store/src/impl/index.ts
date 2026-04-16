@@ -6,6 +6,7 @@ import { DbMemoryProvider } from './memory-provider.js';
 import { DbContainerStore } from './container-store.js';
 import { DbInstructionStore } from './instruction-store.js';
 import { DbUserStore } from './user-store.js';
+import { DbAgentStore } from './agent-store.js';
 
 export class DbInternalStateStore implements InternalStateStore {
   readonly sessions: DbSessionStore;
@@ -52,3 +53,4 @@ export { DbMemoryProvider } from './memory-provider.js';
 export { DbContainerStore } from './container-store.js';
 export { DbInstructionStore } from './instruction-store.js';
 export { DbUserStore } from './user-store.js';
+export { DbAgentStore } from './agent-store.js';
