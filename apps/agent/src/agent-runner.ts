@@ -45,6 +45,7 @@ import {
   startTurnTrace,
 } from './langfuse.js';
 import { type SessionDescriptor, SessionEventBroker, type SessionRuntime } from './runtime.js';
+export type { SessionEventEnvelope } from './runtime.js';
 import {
   type ApprovalCallback,
   type ApprovalDecision,

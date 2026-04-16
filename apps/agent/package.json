@@ -5,6 +5,13 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./agent-runner": "./dist/agent-runner.js",
+    "./core": "./dist/core/index.js",
+    "./langfuse": "./dist/langfuse.js",
+    "./channels": "./dist/channels.js"
+  },
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -p tsconfig.typecheck.json --pretty false",

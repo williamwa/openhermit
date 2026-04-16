@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.14.0",
+    "@openhermit/agent": "0.1.0",
     "@openhermit/protocol": "0.1.0",
     "@openhermit/shared": "0.1.0",
     "@openhermit/store": "0.1.0",

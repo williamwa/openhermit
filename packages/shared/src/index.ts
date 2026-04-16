@@ -83,8 +83,9 @@ export const jsonError = (
 };
 
 export const joinUrl = (baseUrl: string, path: string): string => {
-  const normalizedBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
-  return new URL(path, normalizedBase).toString();
+  const base = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+  const suffix = path.startsWith('/') ? path : `/${path}`;
+  return `${base}${suffix}`;
 };
 
 export const requireEnv = (name: string): string => {

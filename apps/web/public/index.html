@@ -7,15 +7,51 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <div class="shell">
+    <!-- Connect screen -->
+    <div class="connect-screen" id="connect-screen">
+      <form class="connect-form" id="connect-form">
+        <p class="eyebrow">OpenHermit</p>
+        <h1>Connect to Agent</h1>
+        <p class="connect-form__hint">Enter your gateway connection details to start chatting.</p>
+
+        <label class="field">
+          <span class="field__label">Gateway URL</span>
+          <input class="field__input" id="connect-gateway-url" type="url" placeholder="http://localhost:4000" required />
+        </label>
+
+        <label class="field">
+          <span class="field__label">Agent ID</span>
+          <input class="field__input" id="connect-agent-id" type="text" placeholder="one" required />
+        </label>
+
+        <label class="field">
+          <span class="field__label">Token</span>
+          <input class="field__input" id="connect-token" type="password" placeholder="Optional" />
+        </label>
+
+        <p class="connect-form__error" id="connect-error"></p>
+
+        <button class="button button--primary connect-form__submit" id="connect-button" type="submit">
+          Connect
+        </button>
+      </form>
+    </div>
+
+    <!-- Chat shell (hidden until connected) -->
+    <div class="shell" id="chat-shell" hidden>
       <aside class="sidebar">
         <div class="sidebar__top">
           <p class="eyebrow">OpenHermit</p>
           <h1>Web Chat</h1>
           <p class="sidebar__meta" id="agent-meta">Connecting...</p>
-          <button class="button button--primary" id="new-session-button" type="button">
-            New Session
-          </button>
+          <div class="sidebar__buttons">
+            <button class="button button--primary" id="new-session-button" type="button">
+              New Session
+            </button>
+            <button class="button button--ghost" id="disconnect-button" type="button">
+              Disconnect
+            </button>
+          </div>
         </div>
         <div class="sidebar__list" id="sessions-list"></div>
       </aside>

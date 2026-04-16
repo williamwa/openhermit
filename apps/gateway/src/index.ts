@@ -6,10 +6,9 @@ import { createAdaptorServer } from '@hono/node-server';
 
 import { DbAgentStore } from '@openhermit/store';
 
-import { AgentRegistry } from './agent-registry.js';
-import { AgentLifecycle } from './agent-lifecycle.js';
+import { AgentInstanceManager } from './agent-instance.js';
 import { createGatewayApp } from './app.js';
-import { attachGatewayWsProxy } from './ws-proxy.js';
+import { attachGatewayWs } from './ws-handler.js';
 
 const defaultPort = 4000;
 
@@ -55,8 +54,7 @@ const listen = (
   });
 
 export const main = async (): Promise<void> => {
-  const registry = new AgentRegistry();
-  const lifecycle = new AgentLifecycle({ registry, logger: logStartup });
+  const instances = new AgentInstanceManager();
 
   // Open agent store if DATABASE_URL is available.
   let agentStore: DbAgentStore | undefined;
@@ -69,38 +67,8 @@ export const main = async (): Promise<void> => {
     }
   }
 
-  // Load agents from database into registry.
-  if (agentStore) {
-    const dbAgents = await agentStore.list();
-    for (const agent of dbAgents) {
-      registry.register(agent.agentId, {
-        ...(agent.name ? { name: agent.name } : {}),
-        configDir: agent.configDir,
-        workspaceDir: agent.workspaceDir,
-      });
-      logStartup(`registered agent from db: ${agent.agentId}`);
-    }
-  }
-
-  // Discover already-running agents or start them.
-  for (const entry of registry.list()) {
-    const discovered = await lifecycle.discover(entry.agentId);
-
-    if (discovered) {
-      logStartup(`discovered running agent: ${entry.agentId} on port ${discovered.port}`);
-    } else {
-      try {
-        const started = await lifecycle.start(entry.agentId);
-        logStartup(`started agent: ${entry.agentId} on port ${started.port}`);
-      } catch (error) {
-        logStartup(`failed to start agent ${entry.agentId}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-  }
-
   const app = createGatewayApp({
-    registry,
-    lifecycle,
+    instances,
     ...(agentStore ? { agentStore } : {}),
     logger: logStartup,
   });
@@ -114,16 +82,32 @@ export const main = async (): Promise<void> => {
 
   const { server, info } = await listen(app.fetch, port);
 
-  attachGatewayWsProxy(server as import('node:http').Server, {
-    registry,
-    lifecycle,
+  // Set the gateway base URL so channel adapters can connect back.
+  instances.setGatewayBaseUrl(`http://localhost:${info.port}`);
+
+  attachGatewayWs(server as import('node:http').Server, {
+    instances,
     logger: logStartup,
   });
+
+  // Start agents from database after server is listening (channels need the gateway URL).
+  if (agentStore) {
+    const dbAgents = await agentStore.list();
+    for (const agent of dbAgents) {
+      try {
+        await instances.start(agent.agentId, agent.configDir, agent.workspaceDir);
+        logStartup(`started agent: ${agent.agentId}`);
+      } catch (error) {
+        logStartup(`failed to start agent ${agent.agentId}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    logStartup(`${dbAgents.length} agent(s) loaded`);
+  }
 
   const shutdownHandler = async (): Promise<void> => {
     logStartup('shutting down...');
 
-    await lifecycle.stopAll();
+    await instances.stopAll();
     await agentStore?.close();
 
     server.close(() => {
@@ -136,9 +120,6 @@ export const main = async (): Promise<void> => {
   process.on('SIGTERM', () => void shutdownHandler());
 
   logStartup(`listening on http://localhost:${info.port}`);
-  logStartup(
-    `${registry.list().length} agent(s) registered`,
-  );
 };
 
 if (

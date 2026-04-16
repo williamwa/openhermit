@@ -6,6 +6,7 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
   "references": [
+    { "path": "../agent" },
     { "path": "../../packages/protocol" },
     { "path": "../../packages/shared" },
     { "path": "../../packages/store" }

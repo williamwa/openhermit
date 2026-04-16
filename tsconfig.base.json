@@ -16,6 +16,18 @@
       ],
       "@openhermit/store": [
         "packages/store/src/index.ts"
+      ],
+      "@openhermit/agent/agent-runner": [
+        "apps/agent/src/agent-runner.ts"
+      ],
+      "@openhermit/agent/core": [
+        "apps/agent/src/core/index.ts"
+      ],
+      "@openhermit/agent/langfuse": [
+        "apps/agent/src/langfuse.ts"
+      ],
+      "@openhermit/agent/channels": [
+        "apps/agent/src/channels.ts"
       ]
     },
     "lib": [

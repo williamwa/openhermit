@@ -1,23 +1,27 @@
 import { pathToFileURL } from 'node:url';
 
-import { parseWebCliArgs } from './args.js';
 import { createWebServer } from './server.js';
 
-export { parseWebCliArgs, resolveWorkspaceRoot } from './args.js';
 export { createWebServer } from './server.js';
 
+const defaultPort = 4310;
+
 export const main = async (): Promise<void> => {
-  const options = parseWebCliArgs(process.argv.slice(2));
-  const server = createWebServer(options);
+  const rawPort = process.env.OPENHERMIT_WEB_PORT ?? process.env.PORT;
+  const port = rawPort ? Number.parseInt(rawPort, 10) : defaultPort;
+
+  if (Number.isNaN(port)) {
+    throw new Error(`Invalid port: ${rawPort}`);
+  }
+
+  const server = createWebServer({ port });
 
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
-    server.listen(options.port, '127.0.0.1', () => resolve());
+    server.listen(port, '127.0.0.1', () => resolve());
   });
 
-  console.info(
-    `[openhermit-web] http://127.0.0.1:${options.port} -> ${options.agentId} (${options.workspaceRoot})`,
-  );
+  console.info(`[openhermit-web] http://127.0.0.1:${port}`);
 };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

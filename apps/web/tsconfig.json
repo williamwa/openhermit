@@ -5,11 +5,6 @@
     "outDir": "dist",
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
-  "references": [
-    { "path": "../../packages/protocol" },
-    { "path": "../../packages/sdk" },
-    { "path": "../../packages/shared" }
-  ],
   "include": [
     "src"
   ]

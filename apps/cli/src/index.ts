@@ -1,14 +1,13 @@
 import { pathToFileURL } from 'node:url';
 import { stderr } from 'node:process';
 
-import { AgentLocalClient } from '@openhermit/sdk';
+import { GatewayClient } from '@openhermit/sdk';
 
 import { parseChatCliArgs } from './args.js';
 import { parseSlashCommand } from './commands.js';
 import { formatSessionList } from './formatting.js';
-import { readRuntimeState, readWorkspaceRoot } from './runtime-files.js';
-import { listCliSessions, selectStartupSession } from './sessions.js';
 import { parseSseFrames, waitForAssistantTurn, streamAssistantTurn } from './sse.js';
+import { listCliSessions, selectStartupSession } from './sessions.js';
 import { runTuiChatLoop } from './tui/index.js';
 
 export {
@@ -21,16 +20,24 @@ export {
   waitForAssistantTurn,
 };
 
+const resolveGatewayUrl = (env: NodeJS.ProcessEnv = process.env): string => {
+  if (env.OPENHERMIT_GATEWAY_URL) return env.OPENHERMIT_GATEWAY_URL;
+  const port = env.GATEWAY_PORT ?? env.PORT ?? '4000';
+  return `http://127.0.0.1:${port}`;
+};
+
 export const main = async (): Promise<void> => {
   const options = parseChatCliArgs(process.argv.slice(2));
-  const runtimeState = await readRuntimeState(options.agentId);
-  const workspaceRoot = await readWorkspaceRoot(options.agentId);
-  const port = String(runtimeState.http_api.port);
-  const token = runtimeState.http_api.token;
-  const client = new AgentLocalClient({
-    baseUrl: `http://127.0.0.1:${port}`,
-    token,
-  });
+  const gatewayUrl = resolveGatewayUrl();
+  const token = process.env.OPENHERMIT_TOKEN ?? '';
+
+  const gateway = new GatewayClient({ baseUrl: gatewayUrl, token });
+  const client = gateway.agent(options.agentId);
+
+  // Fetch workspace root from gateway agent info.
+  const agents = await gateway.listAgents();
+  const agentInfo = agents.find((a) => a.agentId === options.agentId);
+  const workspaceRoot = agentInfo?.workspaceDir ?? process.cwd();
 
   const initialSessions = await listCliSessions(client);
   const startupSession = selectStartupSession(options, initialSessions);
