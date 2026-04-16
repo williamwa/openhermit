@@ -546,7 +546,7 @@ test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
           id: 'call-memory-get',
           name: 'memory_get',
           arguments: {
-            id: 'fact',
+            key: 'fact',
           },
         }),
       () => createTextResponseStream('The fact is 42.'),

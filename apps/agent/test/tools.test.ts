@@ -323,7 +323,7 @@ test('memory_add stores entry, memory_recall finds it, and memory_get returns fu
   const recallTool = findTool(tools, 'memory_recall');
 
   const addResult = await addTool.execute('call-memory-add', {
-    id: 'lang-pref',
+    key: 'lang-pref',
     content: 'The user prefers TypeScript for new examples.',
     metadata: { title: 'Language preference' },
   });
@@ -344,7 +344,7 @@ test('memory_add stores entry, memory_recall finds it, and memory_get returns fu
   assert.equal(recallDetails.count, 1);
 
   const getResult = await getTool.execute('call-memory-get', {
-    id: 'lang-pref',
+    key: 'lang-pref',
   });
   const getDetails = getResult.details as Record<string, unknown>;
   assert.equal(getDetails.id, 'lang-pref');
@@ -378,11 +378,11 @@ test('memory_add creates entries and memory_recall searches them', async (t) => 
   const recallTool = findTool(tools, 'memory_recall');
 
   await addTool.execute('call-memory-add-focus', {
-    id: 'current-focus',
+    key: 'current-focus',
     content: 'I am currently working in session:web:abc on the OpenHermit web UI.',
   });
   await addTool.execute('call-memory-add-project', {
-    id: 'project/openhermit/plan',
+    key: 'project/openhermit/plan',
     content: 'Next up: scheduler and identity split.',
   });
 
@@ -423,7 +423,7 @@ test('memory_get rejects unknown IDs', async (t) => {
   await assert.rejects(
     () =>
       getTool.execute('call-memory-get-missing', {
-        id: 'project/missing',
+        key: 'project/missing',
       }),
     (error: unknown) =>
       error instanceof ValidationError

@@ -24,17 +24,17 @@ const MemoryRecallParams = Type.Object({
 type MemoryRecallArgs = Static<typeof MemoryRecallParams>;
 
 const MemoryGetParams = Type.Object({
-  id: Type.String({
+  key: Type.String({
     description:
-      'Exact memory entry ID to read.',
+      'Exact memory key to read.',
   }),
 });
 
 type MemoryGetArgs = Static<typeof MemoryGetParams>;
 
 const MemoryUpdateParams = Type.Object({
-  id: Type.String({
-    description: 'ID of the memory entry to update.',
+  key: Type.String({
+    description: 'Key of the memory entry to update.',
   }),
   content: Type.Optional(
     Type.String({
@@ -51,10 +51,10 @@ const MemoryUpdateParams = Type.Object({
 type MemoryUpdateArgs = Static<typeof MemoryUpdateParams>;
 
 const MemoryAddParams = Type.Object({
-  id: Type.Optional(
+  key: Type.Optional(
     Type.String({
       description:
-        'Stable memory ID following the namespacing rules in the Memory section (e.g. "agent/name", "user/{userId}/preferences", "project/conventions"). If omitted, one is generated automatically.',
+        'Stable memory key following the namespacing rules in the Memory section (e.g. "agent/name", "user/{userId}/preferences", "project/conventions"). If omitted, one is generated automatically.',
     }),
   ),
   content: Type.String({
@@ -70,8 +70,8 @@ const MemoryAddParams = Type.Object({
 type MemoryAddArgs = Static<typeof MemoryAddParams>;
 
 const MemoryDeleteParams = Type.Object({
-  id: Type.String({
-    description: 'ID of the memory entry to delete.',
+  key: Type.String({
+    description: 'Key of the memory entry to delete.',
   }),
 });
 
@@ -84,21 +84,21 @@ export const createMemoryGetTool = ({
   name: 'memory_get',
   label: 'Get Memory',
   description:
-    'Read one memory entry by exact ID.',
+    'Read one memory entry by exact key.',
   parameters: MemoryGetParams,
   execute: async (_toolCallId, args: MemoryGetArgs) => {
     if (!memoryProvider || !storeScope) {
       throw new ValidationError('memory_get is unavailable: no memory provider is configured.');
     }
 
-    const id = args.id.trim();
-    if (!id) {
-      throw new ValidationError('memory_get requires a non-empty id.');
+    const key = args.key.trim();
+    if (!key) {
+      throw new ValidationError('memory_get requires a non-empty key.');
     }
 
-    const entry = await memoryProvider.get(storeScope, id);
+    const entry = await memoryProvider.get(storeScope, key);
     if (!entry) {
-      throw new ValidationError(`Memory not found: ${id}`);
+      throw new ValidationError(`Memory not found: ${key}`);
     }
 
     return {
@@ -154,7 +154,7 @@ export const createMemoryAddTool = ({
   name: 'memory_add',
   label: 'Add Memory',
   description:
-    'Create or upsert a memory entry. Use semantic IDs like "project/plan" or "user/preferences/style" for stable entries, or omit the ID for auto-generated ones. Save proactively when the user shares preferences, corrects you, or reveals project decisions. Use memory_recall first to check for existing entries and avoid duplicates.',
+    'Create or upsert a memory entry. Use semantic keys following the namespacing rules (e.g. "agent/name", "user/{userId}/preferences", "project/conventions"), or omit the key for auto-generated ones. Save proactively when the user shares preferences, corrects you, or reveals project decisions. Use memory_recall first to check for existing entries and avoid duplicates.',
   parameters: MemoryAddParams,
   execute: async (_toolCallId, args: MemoryAddArgs) => {
     ensureAutonomyAllows(security, 'memory_add');
@@ -169,7 +169,7 @@ export const createMemoryAddTool = ({
     }
 
     const entry = await memoryProvider.add(storeScope, {
-      ...(args.id?.trim() ? { id: args.id.trim() } : {}),
+      ...(args.key?.trim() ? { id: args.key.trim() } : {}),
       content,
       ...(args.metadata ? { metadata: args.metadata as Record<string, unknown> } : {}),
     });
@@ -189,7 +189,7 @@ export const createMemoryUpdateTool = ({
   name: 'memory_update',
   label: 'Update Memory',
   description:
-    'Update an existing memory entry by ID. Use memory_get first to read the current content before updating.',
+    'Update an existing memory entry by key. Use memory_get first to read the current content before updating.',
   parameters: MemoryUpdateParams,
   execute: async (_toolCallId, args: MemoryUpdateArgs) => {
     ensureAutonomyAllows(security, 'memory_update');
@@ -198,12 +198,12 @@ export const createMemoryUpdateTool = ({
       throw new ValidationError('memory_update is unavailable: no memory provider is configured.');
     }
 
-    const id = args.id.trim();
-    if (!id) {
-      throw new ValidationError('memory_update requires a non-empty id.');
+    const key = args.key.trim();
+    if (!key) {
+      throw new ValidationError('memory_update requires a non-empty key.');
     }
 
-    const entry = await memoryProvider.update(storeScope, id, {
+    const entry = await memoryProvider.update(storeScope, key, {
       ...(args.content?.trim() ? { content: args.content.trim() } : {}),
       ...(args.metadata ? { metadata: args.metadata as Record<string, unknown> } : {}),
     });
@@ -223,7 +223,7 @@ export const createMemoryDeleteTool = ({
   name: 'memory_delete',
   label: 'Delete Memory',
   description:
-    'Delete a memory entry by ID.',
+    'Delete a memory entry by key.',
   parameters: MemoryDeleteParams,
   execute: async (_toolCallId, args: MemoryDeleteArgs) => {
     ensureAutonomyAllows(security, 'memory_delete');
@@ -232,16 +232,16 @@ export const createMemoryDeleteTool = ({
       throw new ValidationError('memory_delete is unavailable: no memory provider is configured.');
     }
 
-    const id = args.id.trim();
-    if (!id) {
-      throw new ValidationError('memory_delete requires a non-empty id.');
+    const key = args.key.trim();
+    if (!key) {
+      throw new ValidationError('memory_delete requires a non-empty key.');
     }
 
-    await memoryProvider.delete(storeScope, id);
+    await memoryProvider.delete(storeScope, key);
 
     return {
-      content: asTextContent(`Deleted memory: ${id}\n`),
-      details: { id },
+      content: asTextContent(`Deleted memory: ${key}\n`),
+      details: { key },
     };
   },
 });
