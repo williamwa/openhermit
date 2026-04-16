@@ -449,39 +449,41 @@ class AgentWsClient {
 }
 ```
 
-## Implementation Phases
+## Implementation Status
 
-### Phase 1: HTTP Sync + Stream (highest value, smallest change)
+### Phase 1: HTTP Sync + Stream ✅ Completed
 
-No new dependencies. Reuses existing event broker.
+1. ✅ `SyncResponse`, `SyncToolCall` types added to protocol
+2. ✅ `subscribeFrom()` added to `SessionEventBroker`
+3. ✅ POST messages handler supports `?wait=true` and `?stream=true`
+4. ✅ `postMessageSync`, `postMessageStream` added to SDK
+5. ✅ Gateway proxy detects streaming POST responses and streams through
+6. ✅ Tests for sync, stream, backward compat
 
-1. Add `SyncResponse`, `SyncToolCall` types to protocol
-2. Add `subscribeFrom()` to `SessionEventBroker`
-3. Modify POST messages handler to support `?wait=true` and `?stream=true`
-4. Add `postMessageSync`, `postMessageStream` to SDK
-5. Extract `parseSseFrames` to shared SDK utility
-6. Update gateway proxy for stream pass-through
-7. Tests for sync, stream, timeout, backward compat
+Implementation notes:
+- Event subscription is established *before* `postMessage()` to handle both sync runtimes (InMemoryAgentRuntime) and async runtimes (AgentRunner)
+- Stream mode buffers events during `postMessage()` and flushes them once the SSE stream is ready
+- Default timeout for sync mode: 300 seconds, configurable via `?timeout=N`
 
-### Phase 2: WebSocket Endpoint
+### Phase 2: WebSocket Endpoint ✅ Completed
 
-1. Add WS types to protocol
-2. Add `ws` dependency to agent
-3. Create `ws-handler.ts` — WS message handler
-4. Attach WS server to HTTP server in `index.ts`
-5. Create `AgentWsClient` in SDK
-6. Tests for auth, method dispatch, subscribe, reconnect
+1. ✅ WS types added to protocol (`WsRequest`, `WsResponse`, `WsEvent`, `WsMethod`, `WsErrorCode`)
+2. ✅ `ws` dependency added to agent and gateway
+3. ✅ `ws-handler.ts` — handles all 8 WS methods
+4. ✅ WS server attached to HTTP server via `upgrade` event in `index.ts`
+5. ✅ `AgentWsClient` added to SDK (browser-compatible WebSocket client)
+6. ✅ `isWsRequest()` validator added to protocol
 
 ### Phase 3: CLI Migration
 
 1. Adopt `?stream=true` for `waitForAssistantTurn` (quick win)
 2. Later: migrate to `AgentWsClient`
 
-### Phase 4: Gateway WS Proxy
+### Phase 4: Gateway WS Proxy ✅ Completed
 
-1. Add `ws` to gateway
-2. Handle `upgrade` for `/agents/:agentId/ws`
-3. Update `GatewayClient`
+1. ✅ `ws` added to gateway
+2. ✅ `ws-proxy.ts` handles `upgrade` for `/agents/:agentId/ws`
+3. ✅ Bidirectional frame proxy with close/error propagation
 
 ### Phase 5: Web Migration + SSE Deprecation
 

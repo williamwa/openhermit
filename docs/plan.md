@@ -12,7 +12,7 @@ OpenHermit already has a working single-agent runtime with:
 - PostgreSQL as the primary internal-state store (shared database, `agent_id` scoping)
 - `runtime.json` for local API discovery
 - startup / shutdown protection around `runtime.json`
-- agent-local HTTP + SSE API
+- agent-local HTTP + SSE + WebSocket API (sync, stream, and bidirectional modes)
 - CLI client
 - local web client
 - approval gate
@@ -123,6 +123,23 @@ There are also several active design drafts that are intentionally not yet imple
 - `tsvector` generated stored column with GIN index for full-text memory search (auto-maintained by PostgreSQL)
 - Docker Compose provides local PostgreSQL for development
 
+### Transport Protocol
+
+- three-layer transport model: HTTP sync, HTTP stream, WebSocket (see `docs/transport-protocol.md`)
+- `POST /sessions/:id/messages?wait=true` — blocks until `agent_end`, returns `SyncResponse`
+- `POST /sessions/:id/messages?stream=true` — inline SSE stream scoped to one turn
+- `ws://host/ws` — bidirectional WebSocket with RPC (`session.open/message/approve/checkpoint/list/history/subscribe/unsubscribe`)
+- `subscribeFrom()` on `SessionEventBroker` for atomic subscribe + backlog replay
+- SDK: `postMessageSync()`, `postMessageStream()`, `AgentWsClient`
+- gateway WS proxy: `/agents/:agentId/ws` → bidirectional frame proxy to agent
+- existing HTTP+SSE retained for backward compatibility
+
+### Config & Secrets
+
+- `${{SECRET_NAME}}` interpolation in config.json — secrets resolved at load time from secrets.json
+- custom model endpoints via `base_url` and `api` fields in `AgentModelConfig`
+- ZAI provider API key candidate (`ZAI_API_KEY`)
+
 ## Remaining Major Work
 
 ### Memory Reliability
@@ -138,10 +155,12 @@ There are also several active design drafts that are intentionally not yet imple
 
 ### Transport Protocol
 
-- **three-layer transport model** — designed in `docs/transport-protocol.md`
-  - Phase 1: HTTP sync (`?wait=true`) and stream (`?stream=true`) modes on POST messages
-  - Phase 2: WebSocket endpoint (`ws://host/ws`) with request-response + event streaming
-  - Phase 3-5: CLI/web/gateway migration, SSE deprecation
+- ~~**three-layer transport model**~~ ✅ Core implemented — see `docs/transport-protocol.md`
+  - ✅ Phase 1: HTTP sync (`?wait=true`) and stream (`?stream=true`) modes on POST messages
+  - ✅ Phase 2: WebSocket endpoint (`ws://host/ws`) with request-response + event streaming
+  - ✅ Phase 4: Gateway WS proxy (`/agents/:agentId/ws`)
+  - Phase 3: CLI migration to `?stream=true` or WS (pending)
+  - Phase 5: Web migration to WS + SSE deprecation (pending)
 - existing HTTP+SSE retained for backward compatibility
 
 ## Draft Design Tracks
@@ -253,8 +272,8 @@ See `docs/user-model.md`. Phase 1 (core tables, identity resolution, role-based 
 3. ~~resolve working memory ownership~~ ✅ introspection-only
 4. ~~fix approval gate tests~~ ✅ waitForEvent helper + registered tools + updated assertions
 5. ~~design transport protocol~~ ✅ three-layer model in `docs/transport-protocol.md`
-6. implement transport Phase 1: HTTP sync + stream modes
-7. implement transport Phase 2: WebSocket endpoint
+6. ~~implement transport Phase 1: HTTP sync + stream modes~~ ✅ `?wait=true` and `?stream=true` on POST messages
+7. ~~implement transport Phase 2: WebSocket endpoint~~ ✅ `ws://host/ws` with full RPC + event subscriptions + gateway proxy
 8. define the durable-memory vs user-knowledge boundary more tightly
 9. implement idle / sleep-time long-term consolidation
 10. design and implement the scheduler
