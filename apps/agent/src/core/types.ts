@@ -14,6 +14,13 @@ export interface AgentModelConfig {
   provider: string;
   model: string;
   max_tokens: number;
+  /** Override the default base URL for the provider (e.g. domestic Chinese endpoint). */
+  base_url?: string;
+  /**
+   * API protocol to use. Required when defining a fully custom model with base_url
+   * that is not in the pi-ai registry. Common values: 'openai-completions', 'anthropic-messages'.
+   */
+  api?: string;
 }
 
 export interface ContainerDefaultsConfig {

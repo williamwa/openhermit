@@ -40,11 +40,35 @@ export const formatMissingApiKeyMessage = (
 };
 
 export const resolveModel = (config: AgentConfig): Model<any> => {
+  // Custom model: when both api and base_url are specified, build a Model
+  // directly instead of looking it up in the pi-ai registry. This enables
+  // arbitrary OpenAI-compatible providers (e.g. DeepSeek, Qwen domestic).
+  if (config.model.api && config.model.base_url) {
+    return {
+      id: config.model.model,
+      name: config.model.model,
+      api: config.model.api,
+      provider: config.model.provider,
+      baseUrl: config.model.base_url,
+      reasoning: false,
+      input: ['text'],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 128000,
+      maxTokens: config.model.max_tokens,
+    } as Model<any>;
+  }
+
   try {
-    return getModel(
+    const model = getModel(
       config.model.provider as never,
       config.model.model as never,
     ) as Model<any>;
+
+    if (config.model.base_url) {
+      return { ...model, baseUrl: config.model.base_url };
+    }
+
+    return model;
   } catch {
     throw new ValidationError(
       `Unsupported model configuration: ${config.model.provider}/${config.model.model}`,
