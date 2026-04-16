@@ -95,7 +95,7 @@ There are also several active design drafts that are intentionally not yet imple
   - tools conditionally included only when webProvider is available
 - container tools (`container_start`, `container_stop`, `container_exec`, `container_run`, `container_status`) — implemented but disabled by default
 - configurable container `mount_target`
-- instruction tools (`instruction_read`, `instruction_update`)
+- instruction tool (`instruction_update`)
 - user management tools (`user_list`, `user_identity_link`, `user_identity_unlink`, `user_role_set`, `user_merge`) — owner-only
 - session management tools (`session_list`, `session_read`, `session_summary`) — owner-only
 
@@ -172,7 +172,7 @@ See `docs/user-model.md`. Phase 1 (core tables, identity resolution, role-based 
 - workspace `.openhermit/*.md` files serve as bootstrap sources for first boot
 - on first boot, identity files are migrated into `InstructionStore` in PostgreSQL
 - `InstructionStore` is now the canonical source for agent identity and instructions
-- agent manages instructions via `instruction_read` and `instruction_update` tools
+- agent manages instructions via the `instruction_update` tool (instructions are always in the system prompt)
 
 ### 1.2 Durable Memory Refinement
 

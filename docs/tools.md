@@ -20,7 +20,6 @@ Requires: `instructionStore`
 
 | Tool | Description | Parameters | 🔐 | ✏️ |
 |------|-------------|------------|:--:|:--:|
-| `instruction_read` | Read instruction definitions. Returns one entry by key, or all if key omitted | `key` (string, optional) | | |
 | `instruction_update` | Update an instruction entry (identity, soul, agents, etc.) | `key` (string, required), `content` (string, required) | ✓ | ✓ |
 
 ## Web
@@ -103,6 +102,6 @@ Tool availability is filtered by user role in `createBuiltInToolsets()`:
 |------|----------------|
 | **owner** | All tools |
 | **user** | memory, instruction, web, exec, user (read-only subset) |
-| **guest** | web, session (read-only), instruction_read, memory_get, memory_recall |
+| **guest** | web, session (read-only), memory_get, memory_recall |
 
 The exact gating is implemented per-tool via the `context.userRole` check at registration time.

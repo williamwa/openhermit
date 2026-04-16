@@ -764,7 +764,7 @@ test('web_fetch output markdown extracts main content as Markdown', async (t) =>
   );
 });
 
-test('instruction_update stores an entry and instruction_read retrieves it', async (t) => {
+test('instruction_update stores an entry and verifies via store', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: { ANTHROPIC_API_KEY: 'key' },
   });
@@ -789,41 +789,9 @@ test('instruction_update stores an entry and instruction_read retrieves it', asy
     content: '# IDENTITY\n\nName: TestBot\nRole: A test agent.',
   });
 
-  const readTool = findTool(tools, 'instruction_read');
-  const singleResult = await readTool.execute('call-id-2', { key: 'identity' });
-  assert.match(getFirstText(singleResult), /TestBot/);
-
-  await updateTool.execute('call-id-3', {
-    key: 'soul',
-    content: '# SOUL\n\nValues:\n- precision',
-  });
-
-  const allResult = await readTool.execute('call-id-4', {});
-  const allText = getFirstText(allResult);
-  assert.match(allText, /identity/);
-  assert.match(allText, /soul/);
-});
-
-test('instruction_read returns empty message when no entries exist', async (t) => {
-  const { workspace, security } = await createSecurityFixture(t, {
-    secrets: { ANTHROPIC_API_KEY: 'key' },
-  });
-  await security.load();
-
-  const stateStore = await DbInternalStateStore.open();
-  t.after(() => stateStore.close());
-
-  const docker = new FakeDockerRunner([]);
-  const containerManager = new DockerContainerManager(workspace, { runner: docker });
-  const tools = createBuiltInTools({
-    security,
-    containerManager,
-    instructionStore: stateStore.instructions,
-    storeScope: { agentId: 'agent-test' },
-  });
-
-  const result = await findTool(tools, 'instruction_read').execute('call-id-5', {});
-  assert.match(getFirstText(result), /No instruction entries found/);
+  const entry = await stateStore.instructions.get(scope, 'identity');
+  assert.ok(entry);
+  assert.match(entry.content, /TestBot/);
 });
 
 test('instruction_update is blocked in readonly mode', async (t) => {

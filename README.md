@@ -43,7 +43,7 @@ Current internal-state files include:
 - `security.json`
 - `secrets.json`
 
-The workspace keeps agent-managed external inputs under `workspace/.openhermit/`, including workspace-level integration config. Identity files (`.openhermit/IDENTITY.md`, `SOUL.md`, `AGENTS.md`) are migrated into the `InstructionStore` in `state.sqlite` on first boot and managed via `instruction_read`/`instruction_update` tools thereafter.
+The workspace keeps agent-managed external inputs under `workspace/.openhermit/`, including workspace-level integration config. Identity files (`.openhermit/IDENTITY.md`, `SOUL.md`, `AGENTS.md`) are migrated into the `InstructionStore` in PostgreSQL on first boot and managed via the `instruction_update` tool thereafter.
 Runtime-owned settings such as model selection and checkpoint cadence live in `~/.openhermit/{agent-id}/config.json`.
 
 `state.sqlite` now stores sessions, session history, memories, instructions, and container runtime inventory. It also uses lightweight versioned migrations for incremental schema changes.

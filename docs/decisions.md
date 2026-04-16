@@ -64,7 +64,7 @@ Examples:
 
 **Decision**: `workspace/.openhermit/*.md` (IDENTITY.md, SOUL.md, AGENTS.md) serve as bootstrap sources. On first boot, they are migrated into the `InstructionStore` in PostgreSQL. After migration, the `InstructionStore` is the canonical source.
 
-The agent manages instructions via `instruction_read` and `instruction_update` tools.
+The agent manages instructions via the `instruction_update` tool. Instructions are always included in the system prompt, so a separate read tool is unnecessary.
 
 **Rationale**:
 

@@ -13,7 +13,7 @@ const mockToolset = (id: string, description: string): Toolset => ({
 
 const allToolsets: Toolset[] = [
   mockToolset('memory', '### Memory\n\nmemory_recall memory_add'),
-  mockToolset('instruction', '### Instructions Management\n\ninstruction_update instruction_read'),
+  mockToolset('instruction', '### Instructions Management\n\ninstruction_update'),
   mockToolset('exec', '### Execution\n\nexec tool'),
   mockToolset('container', '### Containers\n\nMounting files into service containers\nmount_target\ncontainer_start'),
   mockToolset('web', '### Web\n\nweb_search web_fetch'),
