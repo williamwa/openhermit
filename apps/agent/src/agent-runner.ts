@@ -934,10 +934,10 @@ export class AgentRunner implements SessionRuntime {
     // - owner: all tools (memory, instructions, exec, containers, web, user management)
     // - user: memory, exec, containers, web (no instructions, no user management)
     // - guest: web only (no memory, no exec, no containers, no instructions, no user management)
-    // - undefined (no user resolved): all tools (backwards compatibility)
+    // - undefined (no user resolved): guest-level access (deny by default)
     const role = input.userRole;
-    const isOwnerOrUnresolved = !role || role === 'owner';
-    const isGuestRole = role === 'guest';
+    const isOwnerOrUnresolved = role === 'owner';
+    const isGuestRole = !role || role === 'guest';
 
     // When tools are provided directly (introspection, compaction), skip toolset creation
     let toolsets: Toolset[];

@@ -1,6 +1,16 @@
 // ─── Storage ────────────────────────────────────────────────────────────────
 
 const STORAGE_KEY = 'openhermit_connection';
+const DEVICE_ID_KEY = 'openhermit_device_id';
+
+const getDeviceId = () => {
+  let id = localStorage.getItem(DEVICE_ID_KEY);
+  if (!id) {
+    id = `web:${crypto.randomUUID()}`;
+    localStorage.setItem(DEVICE_ID_KEY, id);
+  }
+  return id;
+};
 
 const loadConnection = () => {
   try {
@@ -411,7 +421,7 @@ const selectSession = async (sessionId) => {
   await apiFetch('/sessions', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ sessionId, source: { kind: 'web', interactive: true } }),
+    body: JSON.stringify({ sessionId, source: { kind: 'web', interactive: true }, metadata: { username: getDeviceId() } }),
   });
 
   const summary = state.sessions.find((s) => s.sessionId === sessionId);
@@ -437,7 +447,7 @@ const createAndSelectSession = async () => {
   await apiFetch('/sessions', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ sessionId, source: { kind: 'web', interactive: true } }),
+    body: JSON.stringify({ sessionId, source: { kind: 'web', interactive: true }, metadata: { username: getDeviceId() } }),
   });
   await refreshSessions();
   await selectSession(sessionId);
