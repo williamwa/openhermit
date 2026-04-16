@@ -3,6 +3,7 @@ import { Type, type Static } from '@mariozechner/pi-ai';
 import { ValidationError } from '@openhermit/shared';
 
 import {
+  type Toolset,
   type ToolContext,
   asTextContent,
   ensureAutonomyAllows,
@@ -228,4 +229,28 @@ export const createUserMergeTool = (context: ToolContext): AgentTool<typeof User
       details: { fromUserId: fromId, intoUserId: intoId },
     };
   },
+});
+
+// ── Toolset ────────────────────────────────────────────────────────
+
+const USER_DESCRIPTION = `\
+### User Management
+
+You can manage users and their cross-channel identities. Only the owner can use these tools.
+
+When the owner mentions linking identities or managing users, use these tools. For example:
+- "that Telegram user is me" → find the user, then \`user_identity_link\` to your own user ID
+- "give Bob user access" → \`user_role_set\`
+- "who are my users?" → \`user_list\``;
+
+export const createUserToolset = (context: ToolContext): Toolset => ({
+  id: 'user',
+  description: USER_DESCRIPTION,
+  tools: [
+    createUserListTool(context),
+    createUserIdentityLinkTool(context),
+    createUserIdentityUnlinkTool(context),
+    createUserRoleSetTool(context),
+    createUserMergeTool(context),
+  ],
 });

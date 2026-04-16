@@ -2,6 +2,7 @@ import { Type, type Static } from '@mariozechner/pi-ai';
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 
 import {
+  type Toolset,
   type ToolContext,
   asTextContent,
   ensureAutonomyAllows,
@@ -63,4 +64,19 @@ export const createWorkspaceExecTool = (
       details,
     };
   },
+});
+
+// ── Toolset ────────────────────────────────────────────────────────
+
+const EXEC_DESCRIPTION = `\
+### Execution
+
+Use \`exec\` to run any shell command. The workspace is at \`/workspace\`. This is how you do everything: read files, write files, search, build, test, install packages, run scripts.
+
+The execution environment is a persistent Linux container. Installed packages and state survive between calls.`;
+
+export const createExecToolset = (context: ToolContext): Toolset => ({
+  id: 'exec',
+  description: EXEC_DESCRIPTION,
+  tools: [createWorkspaceExecTool(context)],
 });

@@ -1,25 +1,26 @@
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 
-import { createContainerExecTool, createContainerRunTool, createContainerStartTool, createContainerStatusTool, createContainerStopTool, summarizeContainerEntry, summarizeContainerList } from './tools/container.js';
-import { createMemoryAddTool, createMemoryDeleteTool, createMemoryGetTool, createMemoryRecallTool, createMemoryUpdateTool } from './tools/memory.js';
+import { createContainerToolset, summarizeContainerEntry, summarizeContainerList } from './tools/container.js';
+import { createMemoryToolset } from './tools/memory.js';
 import { withApproval } from './tools/approval.js';
 import type {
   ApprovalCallback,
   ApprovalDecision,
+  Toolset,
   ToolContext,
   ToolRequestedCallback,
   ToolStartedCallback,
 } from './tools/shared.js';
-import { createInstructionReadTool, createInstructionUpdateTool } from './tools/instruction.js';
-import { createWebFetchTool } from './tools/web-fetch.js';
-import { createWebSearchTool } from './tools/web-search.js';
-import { createSessionListTool, createSessionReadTool, createSessionSummaryTool } from './tools/session.js';
-import { createUserIdentityLinkTool, createUserIdentityUnlinkTool, createUserListTool, createUserMergeTool, createUserRoleSetTool } from './tools/user.js';
-import { createWorkspaceExecTool } from './tools/workspace-exec.js';
+import { createInstructionToolset } from './tools/instruction.js';
+import { createWebToolset } from './tools/web.js';
+import { createSessionToolset } from './tools/session.js';
+import { createUserToolset } from './tools/user.js';
+import { createExecToolset } from './tools/workspace-exec.js';
 
 export type {
   ApprovalCallback,
   ApprovalDecision,
+  Toolset,
   ToolContext,
   ToolRequestedCallback,
   ToolStartedCallback,
@@ -31,68 +32,54 @@ export {
   withApproval,
 };
 
-export const createBuiltInTools = (
+export const toolsFromToolsets = (toolsets: Toolset[]): AgentTool<any>[] =>
+  toolsets.flatMap((ts) => ts.tools);
+
+export const createBuiltInTools = (context: ToolContext): AgentTool<any>[] =>
+  toolsFromToolsets(createBuiltInToolsets(context));
+
+export const createBuiltInToolsets = (
   context: ToolContext,
-): AgentTool<any>[] => {
+): Toolset[] => {
   const { security, approvalCallback, approvedCache, onToolRequested, onToolStarted } = context;
 
-  const tools = [
-    ...(context.memoryProvider
-      ? [
-          createMemoryGetTool(context),
-          createMemoryRecallTool(context),
-          createMemoryAddTool(context),
-          createMemoryUpdateTool(context),
-          createMemoryDeleteTool(context),
-        ]
-      : []),
-    ...(context.instructionStore
-      ? [
-          createInstructionReadTool(context),
-          createInstructionUpdateTool(context),
-        ]
-      : []),
-    ...(context.webProvider
-      ? [
-          createWebSearchTool(context),
-          createWebFetchTool(context),
-        ]
-      : []),
-    // TODO: Re-enable container tools once container support is prioritized.
-    // createContainerRunTool(context),
-    // createContainerStatusTool(context),
-    // createContainerStartTool(context),
-    // createContainerStopTool(context),
-    // createContainerExecTool(context),
-    ...(context.agentId ? [createWorkspaceExecTool(context)] : []),
-    ...(context.userStore
-      ? [
-          createUserListTool(context),
-          createUserIdentityLinkTool(context),
-          createUserIdentityUnlinkTool(context),
-          createUserRoleSetTool(context),
-          createUserMergeTool(context),
-        ]
-      : []),
-    ...(context.sessionStore
-      ? [
-          createSessionListTool(context),
-          createSessionReadTool(context),
-          createSessionSummaryTool(context),
-        ]
-      : []),
-    // working_memory_update is intentionally excluded from the main agent —
-    // it is only available to the introspection agent to prevent overwrite conflicts.
-  ];
+  const toolsets: Toolset[] = [];
 
-  return tools.map((tool) =>
-    withApproval(
-      tool,
-      security,
-      approvalCallback,
-      onToolRequested,
-      onToolStarted,
-      approvedCache,
+  if (context.memoryProvider) {
+    toolsets.push(createMemoryToolset(context));
+  }
+  if (context.instructionStore) {
+    toolsets.push(createInstructionToolset(context));
+  }
+  if (context.webProvider) {
+    toolsets.push(createWebToolset(context));
+  }
+  // TODO: Re-enable container tools once container support is prioritized.
+  // toolsets.push(createContainerToolset(context));
+  if (context.agentId) {
+    toolsets.push(createExecToolset(context));
+  }
+  if (context.userStore) {
+    toolsets.push(createUserToolset(context));
+  }
+  if (context.sessionStore) {
+    toolsets.push(createSessionToolset(context));
+  }
+  // working_memory_update is intentionally excluded from the main agent —
+  // it is only available to the introspection agent to prevent overwrite conflicts.
+
+  // Apply withApproval to all tools in all toolsets
+  return toolsets.map((ts) => ({
+    ...ts,
+    tools: ts.tools.map((tool) =>
+      withApproval(
+        tool,
+        security,
+        approvalCallback,
+        onToolRequested,
+        onToolStarted,
+        approvedCache,
+      ),
     ),
-  );
+  }));
 };

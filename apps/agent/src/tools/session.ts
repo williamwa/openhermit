@@ -3,6 +3,7 @@ import { Type, type Static } from '@mariozechner/pi-ai';
 import { ValidationError } from '@openhermit/shared';
 
 import {
+  type Toolset,
   type ToolContext,
   asTextContent,
   formatJson,
@@ -183,4 +184,26 @@ export const createSessionSummaryTool = (context: ToolContext): AgentTool<typeof
       },
     };
   },
+});
+
+// ── Toolset ────────────────────────────────────────────────────────
+
+const SESSION_DESCRIPTION = `\
+### Session Management
+
+You can inspect sessions across all channels. Only the owner can use these tools.
+
+These tools let you review what happened in other sessions without switching context. For example:
+- "show me recent sessions" → \`session_list\`
+- "what happened in that Telegram chat?" → \`session_list\` (filter by telegram) → \`session_summary\`
+- "read me the last messages from session X" → \`session_read\``;
+
+export const createSessionToolset = (context: ToolContext): Toolset => ({
+  id: 'session',
+  description: SESSION_DESCRIPTION,
+  tools: [
+    createSessionListTool(context),
+    createSessionReadTool(context),
+    createSessionSummaryTool(context),
+  ],
 });

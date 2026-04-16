@@ -97,7 +97,7 @@ The introspection agent also has access to all memory tools (`memory_get`, `memo
 
 ## Role-based Access
 
-Tool availability is filtered by user role in `createBuiltInTools()`:
+Tool availability is filtered by user role in `createBuiltInToolsets()`:
 
 | Role | Available Tools |
 |------|----------------|

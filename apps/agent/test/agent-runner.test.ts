@@ -315,26 +315,25 @@ test('AgentRunner builds dynamic system prompt based on available tools', async 
   await runner.waitForSessionIdle('cli:prompt-guidance');
 
   // Preamble always present
-  assert.match(capturedSystemPrompt, /You are a pragmatic AI agent operating inside a dedicated workspace/);
-  assert.match(capturedSystemPrompt, /Your primary job is to help the user accomplish real tasks safely and effectively/);
+  assert.match(capturedSystemPrompt, /You are an AI agent with your own persistent identity/);
+  assert.match(capturedSystemPrompt, /Your primary job is to help your owner and authorized users accomplish real tasks safely and effectively/);
 
   // Instruction section present (instructionStore is always provided)
   assert.match(capturedSystemPrompt, /Your specific identity, role, style, and priorities are defined by the instruction entries below/);
   assert.match(capturedSystemPrompt, /use the `instruction_update` tool to persist the change/);
 
-  // Container section present (container tools are always included)
-  assert.match(capturedSystemPrompt, /Service Containers/);
-  assert.match(capturedSystemPrompt, /Ephemeral Containers.*container_run/);
-  assert.match(capturedSystemPrompt, /Mounting files into service containers/);
-  assert.match(capturedSystemPrompt, /containers\/<name>\/data/);
+  // Principles section present
   assert.match(capturedSystemPrompt, /Built-in tools are execution primitives, not product goals/);
 
+  // Container section absent (container tools are currently disabled)
+  assert.doesNotMatch(capturedSystemPrompt, /Service Containers/);
+
   // Exec section absent (no workspace_container configured in test fixture)
-  assert.doesNotMatch(capturedSystemPrompt, /## Execution/);
+  assert.doesNotMatch(capturedSystemPrompt, /### Execution/);
 
   // Memory section present (memoryProvider is always provided)
-  assert.match(capturedSystemPrompt, /memory_add/);
   assert.match(capturedSystemPrompt, /memory_recall/);
+  assert.match(capturedSystemPrompt, /ID namespacing/);
 });
 
 test('AgentRunner injects session working memory but not long-term memory', async (t) => {

@@ -3,6 +3,7 @@ import { Type, type Static } from '@mariozechner/pi-ai';
 import { ValidationError } from '@openhermit/shared';
 
 import {
+  type Toolset,
   type ToolContext,
   asTextContent,
   ensureAutonomyAllows,
@@ -53,7 +54,7 @@ const MemoryAddParams = Type.Object({
   id: Type.Optional(
     Type.String({
       description:
-        'Stable memory ID. Prefer semantic keys such as "project/openhermit/plan" or "user/preferences/style". If omitted, one is generated automatically.',
+        'Stable memory ID following the namespacing rules in the Memory section (e.g. "agent/name", "user/{userId}/preferences", "project/conventions"). If omitted, one is generated automatically.',
     }),
   ),
   content: Type.String({
@@ -243,4 +244,44 @@ export const createMemoryDeleteTool = ({
       details: { id },
     };
   },
+});
+
+// ── Toolset ────────────────────────────────────────────────────────
+
+const MEMORY_DESCRIPTION = `\
+### Memory
+
+You have persistent memory across sessions. The most valuable memory is one that prevents the user from having to correct or remind you again.
+
+**Priority:** user preferences and corrections > project decisions and constraints > environment facts > procedural knowledge.
+
+**When to save** (do this proactively, don't wait to be asked):
+- User corrects you or says "remember this" / "don't do that again"
+- User shares a preference, habit, or personal detail
+- You discover a project decision, architectural constraint, or convention
+- You learn something about the user's environment or workflow
+
+**Do NOT save:** task progress, session outcomes, completed-work logs, content the user browsed, trivially re-discoverable facts, or raw data dumps.
+
+**When to recall:** Use \`memory_recall\` proactively when the user's question or task might relate to previously stored knowledge — preferences, project decisions, prior context. Memory is not automatically injected; you must search for it when relevant.
+
+**ID namespacing (strict):**
+- \`agent/…\` — the agent's own identity and configuration (e.g. \`agent/name\`, \`agent/identity\`)
+- \`user/{userId}/…\` — per-user data, MUST include the actual userId (e.g. \`user/usr-abc/preferences\`, \`user/usr-abc/name\`)
+- \`project/…\` — project-wide knowledge (e.g. \`project/plan\`, \`project/conventions\`)
+
+**Never** use bare \`user/…\` without a userId — this is a multi-user system, so \`user/name\` is ambiguous. Always use \`user/{userId}/name\` with the specific user's ID from the Current User section.
+
+When recalling user-specific information, search with the user's ID prefix. This keeps per-user data isolated and retrievable.`;
+
+export const createMemoryToolset = (context: ToolContext): Toolset => ({
+  id: 'memory',
+  description: MEMORY_DESCRIPTION,
+  tools: [
+    createMemoryGetTool(context),
+    createMemoryRecallTool(context),
+    createMemoryAddTool(context),
+    createMemoryUpdateTool(context),
+    createMemoryDeleteTool(context),
+  ],
 });

@@ -48,9 +48,11 @@ import { type SessionDescriptor, SessionEventBroker, type SessionRuntime } from 
 import {
   type ApprovalCallback,
   type ApprovalDecision,
+  type Toolset,
   type ToolRequestedCallback,
   type ToolStartedCallback,
-  createBuiltInTools,
+  createBuiltInToolsets,
+  toolsFromToolsets,
 } from './tools.js';
 import {
   compactContextIfNeeded,
@@ -854,7 +856,7 @@ export class AgentRunner implements SessionRuntime {
     onToolRequested?: ToolRequestedCallback;
     onToolStarted?: ToolStartedCallback;
     extraSystemPrompt?: string;
-    tools?: ReturnType<typeof createBuiltInTools>;
+    tools?: any[];
     langfuseTurnContext?: LangfuseTurnContext;
     userRole?: UserRole;
     userId?: string;
@@ -871,9 +873,14 @@ export class AgentRunner implements SessionRuntime {
     const isOwnerOrUnresolved = !role || role === 'owner';
     const isGuestRole = role === 'guest';
 
-    const tools =
-      input.tools
-      ?? createBuiltInTools({
+    // When tools are provided directly (introspection, compaction), skip toolset creation
+    let toolsets: Toolset[];
+    let tools: any[];
+    if (input.tools) {
+      toolsets = [];
+      tools = input.tools;
+    } else {
+      toolsets = createBuiltInToolsets({
         security: this.options.security,
         containerManager: this.containerManager,
         ...(!isGuestRole ? { memoryProvider: this.store.memories } : {}),
@@ -894,30 +901,24 @@ export class AgentRunner implements SessionRuntime {
         ...(input.onToolRequested ? { onToolRequested: input.onToolRequested } : {}),
         ...(input.onToolStarted ? { onToolStarted: input.onToolStarted } : {}),
       });
+      tools = toolsFromToolsets(toolsets);
+    }
 
     // Guest role: strip exec and container tools
     const GUEST_BLOCKED_TOOLS = new Set([
       'exec', 'container_run', 'container_start', 'container_stop', 'container_exec', 'container_status',
     ]);
     const filteredTools = isGuestRole
-      ? tools.filter((t) => !GUEST_BLOCKED_TOOLS.has(t.name))
+      ? tools.filter((t: any) => !GUEST_BLOCKED_TOOLS.has(t.name))
       : tools;
-    const toolNames = new Set(filteredTools.map((t) => t.name));
+
     const currentUser = input.userId && input.userRole
       ? { userId: input.userId, role: input.userRole, ...(input.userName ? { name: input.userName } : {}) }
       : undefined;
     const baseSystemPrompt = await buildSystemPrompt(
       input.config,
       this.options.security,
-      {
-        hasMemoryTools: toolNames.has('memory_add'),
-        hasInstructionTools: toolNames.has('instruction_read'),
-        hasExecTool: toolNames.has('exec'),
-        hasContainerTools: toolNames.has('container_start'),
-        hasWebTools: toolNames.has('web_search'),
-        hasUserTools: toolNames.has('user_list'),
-        hasSessionTools: toolNames.has('session_list'),
-      },
+      toolsets,
       {
         instructionStore: this.store.instructions,
         storeScope: this.scope,

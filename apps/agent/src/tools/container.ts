@@ -6,6 +6,7 @@ import {
   type ContainerRegistryEntry,
 } from '../core/index.js';
 import {
+  type Toolset,
   type ToolContext,
   asTextContent,
   ensureAutonomyAllows,
@@ -284,3 +285,67 @@ export const summarizeContainerList = (
 export const summarizeContainerEntry = (
   container: ContainerRegistryEntry,
 ): string => formatJson(container);
+
+// ── Toolset ────────────────────────────────────────────────────────
+
+const CONTAINER_DESCRIPTION = `\
+### Containers
+
+#### Service Containers
+
+For long-running background services (databases, caches, web servers):
+- \`container_start\` to launch a named service (e.g. postgres, redis, nginx)
+- \`container_exec\` to run commands inside a running service
+- \`container_stop\` to stop a service (preserved for restart)
+- \`container_status\` to list all containers and their state
+
+Service containers persist across agent restarts until explicitly stopped.
+
+##### Mounting files into service containers
+
+Each service container gets a dedicated data directory at \`containers/<name>/data\` in the workspace. This is the **only** path you may mount. The workspace root or other arbitrary paths cannot be mounted.
+
+When starting a service, the \`mount\` field defaults to \`containers/<name>/data\` and \`mount_target\` defaults to \`/data\` inside the container. You **must** set \`mount_target\` to the path the service actually expects its files at.
+
+**Example — nginx serving a static site:**
+
+1. Prepare files:
+   \`\`\`
+   mkdir -p /workspace/containers/web/data
+   echo '<h1>Hello</h1>' > /workspace/containers/web/data/index.html
+   \`\`\`
+2. Start the service with the correct \`mount_target\`:
+   \`\`\`json
+   {
+     "name": "web",
+     "image": "nginx:alpine",
+     "ports": {"80": 8080},
+     "mount_target": "/usr/share/nginx/html"
+   }
+   \`\`\`
+   This mounts \`containers/web/data\` → \`/usr/share/nginx/html\` so nginx finds the files.
+
+**Common mount_target values:**
+- nginx static files: \`/usr/share/nginx/html\`
+- postgres data: \`/var/lib/postgresql/data\`
+- generic data: \`/data\` (the default)
+
+If you omit \`mount_target\`, files end up at \`/data\` and the service likely won't find them. Always check what path the service image expects.
+
+#### Ephemeral Containers (\`container_run\`)
+
+One-off, disposable containers for isolated tasks. Use them only when you need a specific image or clean-room environment that differs from the workspace.
+
+Ephemeral containers are automatically removed after execution.`;
+
+export const createContainerToolset = (context: ToolContext): Toolset => ({
+  id: 'container',
+  description: CONTAINER_DESCRIPTION,
+  tools: [
+    createContainerRunTool(context),
+    createContainerStatusTool(context),
+    createContainerStartTool(context),
+    createContainerStopTool(context),
+    createContainerExecTool(context),
+  ],
+});
