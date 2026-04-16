@@ -7,6 +7,8 @@ import {
   isSessionMessage,
   isSessionSpec,
   type SessionListQuery,
+  type SyncResponse,
+  type SyncToolCall,
   isToolApprovalRequest,
 } from '@openhermit/protocol';
 import {
@@ -25,6 +27,7 @@ import {
 import type { AgentRunner } from './agent-runner.js';
 
 const SSE_PING_INTERVAL_MS = 15_000;
+const SYNC_DEFAULT_TIMEOUT_MS = 300_000;
 
 const writeEvent = async (
   stream: SSEStreamingApi,
@@ -165,7 +168,7 @@ export const createAgentApp = (
   app.get(agentLocalRoutes.health, (c) =>
     c.json({
       ok: true,
-      transport: 'http+sse',
+      transport: 'http+sse+ws',
     }),
   );
 
@@ -194,6 +197,148 @@ export const createAgentApp = (
       throw new ValidationError('Invalid SessionMessage payload.');
     }
 
+    const url = new URL(c.req.url);
+    const waitMode = url.searchParams.get('wait') === 'true';
+    const streamMode = url.searchParams.get('stream') === 'true';
+
+    if (waitMode) {
+      // HTTP sync: block until agent_end, return structured SyncResponse.
+      // Subscribe BEFORE posting so we capture events even if postMessage
+      // resolves synchronously (e.g. InMemoryAgentRuntime).
+      const timeoutMs = parsePositiveIntegerQuery(
+        url.searchParams.get('timeout') ?? undefined,
+        'timeout',
+      ) ?? SYNC_DEFAULT_TIMEOUT_MS;
+
+      const toolCalls: SyncToolCall[] = [];
+      let text: string | null = null;
+      let error: string | undefined;
+      let messageId: string | undefined;
+      let done = false;
+      let resolvePromise: ((response: Response) => void) | undefined;
+
+      const timer = setTimeout(() => {
+        cleanup();
+        const response: SyncResponse = {
+          sessionId,
+          ...(messageId ? { messageId } : {}),
+          text,
+          toolCalls,
+          error: 'Timeout waiting for agent response.',
+        };
+        resolvePromise?.(c.json(response, 504));
+      }, timeoutMs);
+
+      const cleanup = (): void => {
+        clearTimeout(timer);
+        unsubscribe();
+      };
+
+      const unsubscribe = runtime.events.subscribe(sessionId, (envelope) => {
+        const ev = envelope.event;
+        switch (ev.type) {
+          case 'tool_result':
+            toolCalls.push({
+              tool: ev.tool,
+              isError: ev.isError,
+              ...(ev.text !== undefined ? { text: ev.text } : {}),
+              ...(ev.details !== undefined ? { details: ev.details } : {}),
+            });
+            break;
+          case 'text_final':
+            text = ev.text;
+            break;
+          case 'error':
+            error = ev.message;
+            break;
+          case 'agent_end':
+            done = true;
+            cleanup();
+            resolvePromise?.(c.json({
+              sessionId,
+              ...(messageId ? { messageId } : {}),
+              text,
+              toolCalls,
+              ...(error !== undefined ? { error } : {}),
+            } satisfies SyncResponse));
+            break;
+        }
+      });
+
+      const result = await runtime.postMessage(sessionId, payload);
+      messageId = result.messageId;
+
+      // If events already fired synchronously, resolve immediately.
+      if (done) {
+        cleanup();
+        return c.json({
+          sessionId,
+          ...(messageId ? { messageId } : {}),
+          text,
+          toolCalls,
+          ...(error !== undefined ? { error } : {}),
+        } satisfies SyncResponse);
+      }
+
+      return new Promise<Response>((resolve) => {
+        resolvePromise = resolve;
+      });
+    }
+
+    if (streamMode) {
+      // HTTP stream: inline SSE in POST response body, scoped to this turn.
+      // Buffer events that fire during postMessage, then flush them into the
+      // SSE stream once it's ready.
+      const buffered: SessionEventEnvelope[] = [];
+      let streamReady = false;
+      let streamApi: SSEStreamingApi | undefined;
+
+      const unsubscribe = runtime.events.subscribe(sessionId, async (envelope) => {
+        if (streamReady && streamApi) {
+          await writeEvent(streamApi, envelope);
+          if (envelope.event.type === 'agent_end') {
+            unsubscribe();
+            void streamApi.close();
+          }
+        } else {
+          buffered.push(envelope);
+        }
+      });
+
+      const result = await runtime.postMessage(sessionId, payload);
+
+      return streamSSE(c, async (stream) => {
+        streamApi = stream;
+
+        // If the message had an ID, send it as the first event so callers can correlate.
+        if (result.messageId) {
+          await stream.writeSSE({
+            event: 'message_ack',
+            data: JSON.stringify({ sessionId, messageId: result.messageId }),
+          });
+        }
+
+        // Flush buffered events.
+        let closed = false;
+        for (const envelope of buffered) {
+          await writeEvent(stream, envelope);
+          if (envelope.event.type === 'agent_end') {
+            unsubscribe();
+            closed = true;
+            break;
+          }
+        }
+        buffered.length = 0;
+        streamReady = true;
+
+        if (!closed) {
+          await waitForAbort(c.req.raw.signal);
+          unsubscribe();
+        }
+      });
+    }
+
+    // Default: fire-and-forget (existing behavior).
     const result = await runtime.postMessage(sessionId, payload);
     return c.json(result);
   });

@@ -10,6 +10,7 @@ import { createAdaptorServer } from '@hono/node-server';
 import { AgentRegistry } from './agent-registry.js';
 import { AgentLifecycle } from './agent-lifecycle.js';
 import { createGatewayApp } from './app.js';
+import { attachGatewayWsProxy } from './ws-proxy.js';
 
 const defaultPort = 4000;
 
@@ -135,6 +136,12 @@ export const main = async (): Promise<void> => {
   }
 
   const { server, info } = await listen(app.fetch, port);
+
+  attachGatewayWsProxy(server as import('node:http').Server, {
+    registry,
+    lifecycle,
+    logger: logStartup,
+  });
 
   const shutdownHandler = async (): Promise<void> => {
     logStartup('shutting down...');

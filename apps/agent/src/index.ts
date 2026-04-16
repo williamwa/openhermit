@@ -13,6 +13,7 @@ import type { RuntimeStateFile } from '@openhermit/shared';
 import { AgentRunner } from './agent-runner.js';
 import { parseAgentCliArgs } from './args.js';
 import { createAgentApp } from './app.js';
+import { attachWebSocketServer } from './ws-handler.js';
 import { startChannels, stopChannels } from './channels.js';
 import { AgentSecurity, AgentWorkspace } from './core/index.js';
 import {
@@ -207,6 +208,8 @@ export const main = async (): Promise<void> => {
   const apiToken = randomBytes(24).toString('hex');
   const app = createAgentApp(runner, { apiToken });
   const { server, info, usedFallback } = await listen(app.fetch, preferredPort);
+
+  attachWebSocketServer(server as import('node:http').Server, runner, { apiToken });
 
   let activeChannelHandles: Awaited<ReturnType<typeof startChannels>> = [];
 

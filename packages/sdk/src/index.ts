@@ -2,13 +2,19 @@ import {
   agentLocalRoutes,
   gatewayRoutes,
   type AgentInfo,
+  type OutboundEvent,
   type SessionHistoryMessage,
   type SessionCheckpointRequest,
   type SessionListQuery,
   type SessionMessage,
   type SessionSummary,
   type SessionSpec,
+  type SyncResponse,
   type ToolApprovalRequest,
+  type WsRequest,
+  type WsEvent,
+  type WsServerMessage,
+  isWsRequest,
 } from '@openhermit/protocol';
 import {
   OpenHermitError,
@@ -86,8 +92,80 @@ export class AgentLocalClient {
     return this.postJson(agentLocalRoutes.sessionCheckpoint(sessionId), request);
   }
 
+  async postMessageSync(
+    sessionId: string,
+    message: SessionMessage,
+    options?: { timeout?: number },
+  ): Promise<SyncResponse> {
+    const params = new URLSearchParams({ wait: 'true' });
+    if (options?.timeout) params.set('timeout', String(options.timeout));
+    const path = `${agentLocalRoutes.sessionMessages(sessionId)}?${params.toString()}`;
+    return this.postJson(path, message);
+  }
+
+  async *postMessageStream(
+    sessionId: string,
+    message: SessionMessage,
+    options?: { signal?: AbortSignal },
+  ): AsyncIterable<OutboundEvent> {
+    const path = `${agentLocalRoutes.sessionMessages(sessionId)}?stream=true`;
+    const url = joinUrl(this.options.baseUrl, path);
+
+    const response = await this.fetchImpl(url, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${this.options.token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(message),
+      signal: options?.signal ?? null,
+    });
+
+    if (!response.ok || !response.body) {
+      const text = await response.text();
+      throw new OpenHermitError(
+        `Stream request failed (${response.status}): ${text || response.statusText}`,
+        'agent_api_error',
+        500,
+      );
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() ?? '';
+
+        for (const part of parts) {
+          const dataLine = part.split('\n').find((l) => l.startsWith('data: '));
+          if (!dataLine) continue;
+          const json = dataLine.slice(6);
+          try {
+            yield JSON.parse(json) as OutboundEvent;
+          } catch {
+            // skip non-JSON frames (ping, etc.)
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
   buildEventsUrl(sessionId: string): string {
     return joinUrl(this.options.baseUrl, agentLocalRoutes.eventsUrl(sessionId));
+  }
+
+  buildWsUrl(): string {
+    const base = this.options.baseUrl.replace(/^http/, 'ws');
+    return `${joinUrl(base, agentLocalRoutes.ws)}?token=${encodeURIComponent(this.options.token)}`;
   }
 
   private buildFetchFailedError(path: string, error: unknown): OpenHermitError {
@@ -299,5 +377,185 @@ export class GatewayClient {
     }
 
     return (await response.json()) as T;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// AgentWsClient — WebSocket transport
+// ---------------------------------------------------------------------------
+
+type WsEventHandler = (event: WsEvent) => void;
+type WsCloseHandler = () => void;
+type WsErrorHandler = (error: Error) => void;
+
+export interface AgentWsClientOptions {
+  url: string;
+  token: string;
+  WebSocket?: typeof globalThis.WebSocket;
+}
+
+export class AgentWsClient {
+  private ws: WebSocket | null = null;
+  private nextId = 1;
+  private readonly pending = new Map<string, {
+    resolve: (result: unknown) => void;
+    reject: (error: Error) => void;
+  }>();
+  private readonly eventHandlers: WsEventHandler[] = [];
+  private readonly closeHandlers: WsCloseHandler[] = [];
+  private readonly errorHandlers: WsErrorHandler[] = [];
+  private readonly wsUrl: string;
+  private readonly WsImpl: typeof globalThis.WebSocket;
+
+  constructor(private readonly options: AgentWsClientOptions) {
+    const sep = options.url.includes('?') ? '&' : '?';
+    this.wsUrl = `${options.url}${sep}token=${encodeURIComponent(options.token)}`;
+    this.WsImpl = options.WebSocket ?? globalThis.WebSocket;
+  }
+
+  connect(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const ws = new this.WsImpl(this.wsUrl);
+      this.ws = ws as unknown as WebSocket;
+
+      const onOpen = (): void => {
+        ws.removeEventListener('error', onError);
+        resolve();
+      };
+
+      const onError = (ev: Event): void => {
+        ws.removeEventListener('open', onOpen);
+        reject(new Error(`WebSocket connection failed: ${String(ev)}`));
+      };
+
+      ws.addEventListener('open', onOpen, { once: true });
+      ws.addEventListener('error', onError, { once: true });
+
+      ws.addEventListener('message', (ev: MessageEvent) => {
+        let msg: WsServerMessage;
+        try {
+          msg = JSON.parse(String(ev.data)) as WsServerMessage;
+        } catch {
+          return;
+        }
+
+        if (msg.kind === 'response') {
+          const p = this.pending.get(msg.id);
+          if (p) {
+            this.pending.delete(msg.id);
+            if ('error' in msg) {
+              p.reject(new Error(`${msg.error.code}: ${msg.error.message}`));
+            } else {
+              p.resolve(msg.result);
+            }
+          }
+        } else if (msg.kind === 'event') {
+          for (const handler of this.eventHandlers) {
+            handler(msg);
+          }
+        }
+      });
+
+      ws.addEventListener('close', () => {
+        for (const handler of this.closeHandlers) handler();
+        // Reject all pending requests.
+        for (const [, p] of this.pending) {
+          p.reject(new Error('WebSocket closed'));
+        }
+        this.pending.clear();
+      });
+
+      ws.addEventListener('error', (ev: Event) => {
+        const err = new Error(`WebSocket error: ${String(ev)}`);
+        for (const handler of this.errorHandlers) handler(err);
+      });
+    });
+  }
+
+  close(): void {
+    this.ws?.close();
+  }
+
+  on(event: 'event', handler: WsEventHandler): void;
+  on(event: 'close', handler: WsCloseHandler): void;
+  on(event: 'error', handler: WsErrorHandler): void;
+  on(event: 'event' | 'close' | 'error', handler: WsEventHandler | WsCloseHandler | WsErrorHandler): void {
+    switch (event) {
+      case 'event':
+        this.eventHandlers.push(handler as WsEventHandler);
+        break;
+      case 'close':
+        this.closeHandlers.push(handler as WsCloseHandler);
+        break;
+      case 'error':
+        this.errorHandlers.push(handler as WsErrorHandler);
+        break;
+    }
+  }
+
+  private request(method: string, params?: Record<string, unknown>): Promise<unknown> {
+    if (!this.ws) {
+      return Promise.reject(new Error('WebSocket not connected.'));
+    }
+
+    const id = String(this.nextId++);
+    const msg: WsRequest = { kind: 'request', id, method: method as WsRequest['method'], ...(params ? { params } : {}) };
+    this.ws.send(JSON.stringify(msg));
+
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+    });
+  }
+
+  async sessionOpen(params: {
+    sessionId: string;
+    source: { kind: string; interactive: boolean; platform?: string; type?: string };
+    metadata?: Record<string, unknown>;
+  }): Promise<{ sessionId: string }> {
+    return this.request('session.open', params as Record<string, unknown>) as Promise<{ sessionId: string }>;
+  }
+
+  async sessionMessage(params: {
+    sessionId: string;
+    text: string;
+    messageId?: string;
+  }): Promise<{ sessionId: string; messageId?: string }> {
+    return this.request('session.message', params) as Promise<{ sessionId: string; messageId?: string }>;
+  }
+
+  async sessionApprove(params: {
+    sessionId: string;
+    toolCallId: string;
+    approved: boolean;
+  }): Promise<{ resolved: boolean }> {
+    return this.request('session.approve', params) as Promise<{ resolved: boolean }>;
+  }
+
+  async sessionCheckpoint(params: {
+    sessionId: string;
+    reason?: string;
+  }): Promise<{ checkpointed: boolean }> {
+    return this.request('session.checkpoint', params) as Promise<{ checkpointed: boolean }>;
+  }
+
+  async sessionList(params?: Record<string, unknown>): Promise<SessionSummary[]> {
+    return this.request('session.list', params) as Promise<SessionSummary[]>;
+  }
+
+  async sessionHistory(params: {
+    sessionId: string;
+  }): Promise<SessionHistoryMessage[]> {
+    return this.request('session.history', params) as Promise<SessionHistoryMessage[]>;
+  }
+
+  async subscribe(sessionId: string, lastEventId?: number): Promise<void> {
+    await this.request('session.subscribe', {
+      sessionId,
+      ...(lastEventId !== undefined ? { lastEventId } : {}),
+    });
+  }
+
+  async unsubscribe(sessionId: string): Promise<void> {
+    await this.request('session.unsubscribe', { sessionId });
   }
 }

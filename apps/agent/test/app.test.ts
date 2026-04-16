@@ -55,7 +55,7 @@ test('createAgentApp exposes an unauthenticated health endpoint', async () => {
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), {
     ok: true,
-    transport: 'http+sse',
+    transport: 'http+sse+ws',
   });
 });
 
@@ -233,6 +233,90 @@ test('createAgentApp exposes the session checkpoint endpoint', async () => {
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), {
     checkpointed: false,
+  });
+});
+
+test('POST messages?wait=true returns SyncResponse after agent_end', async () => {
+  const runtime = new InMemoryAgentRuntime();
+  const app = createAgentApp(runtime, { apiToken: bearer });
+
+  await runtime.openSession({
+    sessionId: 'cli:sync-test',
+    source: { kind: 'cli', interactive: true },
+  });
+
+  const response = await app.request(
+    `${agentLocalRoutes.sessionMessages('cli:sync-test')}?wait=true`,
+    {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ text: 'sync hello' }),
+    },
+  );
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.sessionId, 'cli:sync-test');
+  assert.equal(typeof body.text, 'string');
+  assert.match(body.text, /sync hello/);
+  assert.ok(Array.isArray(body.toolCalls));
+  assert.equal(body.error, undefined);
+});
+
+test('POST messages?stream=true returns inline SSE stream', async () => {
+  const runtime = new InMemoryAgentRuntime();
+  const app = createAgentApp(runtime, { apiToken: bearer });
+
+  await runtime.openSession({
+    sessionId: 'cli:stream-test',
+    source: { kind: 'cli', interactive: true },
+  });
+
+  const abortController = new AbortController();
+  const response = await app.request(
+    `${agentLocalRoutes.sessionMessages('cli:stream-test')}?stream=true`,
+    {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ text: 'stream hello' }),
+      signal: abortController.signal,
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.match(
+    response.headers.get('content-type') ?? '',
+    /^text\/event-stream/i,
+  );
+
+  const sseText = await readSseChunk(response, abortController);
+  assert.match(sseText, /event: text_final/);
+  assert.match(sseText, /event: agent_end/);
+  assert.match(sseText, /stream hello/);
+});
+
+test('POST messages without query params returns fire-and-forget JSON (backward compat)', async () => {
+  const runtime = new InMemoryAgentRuntime();
+  const app = createAgentApp(runtime, { apiToken: bearer });
+
+  await runtime.openSession({
+    sessionId: 'cli:compat-test',
+    source: { kind: 'cli', interactive: true },
+  });
+
+  const response = await app.request(
+    agentLocalRoutes.sessionMessages('cli:compat-test'),
+    {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ messageId: 'msg-compat', text: 'compat hello' }),
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    sessionId: 'cli:compat-test',
+    messageId: 'msg-compat',
   });
 });
 

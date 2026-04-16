@@ -55,7 +55,7 @@ export interface SessionRuntime {
   ): Promise<{ sessionId: string; messageId?: string }>;
 }
 
-type SessionSubscriber = (
+export type SessionSubscriber = (
   envelope: SessionEventEnvelope,
 ) => void | Promise<void>;
 
@@ -89,6 +89,25 @@ export class SessionEventBroker {
 
   getBacklog(sessionId: string): SessionEventEnvelope[] {
     return this.backlog.get(sessionId) ?? [];
+  }
+
+  /**
+   * Atomically subscribe and replay backlog events with id > afterEventId.
+   * Eliminates the race between getBacklog() and subscribe().
+   */
+  subscribeFrom(
+    sessionId: string,
+    afterEventId: number,
+    subscriber: SessionSubscriber,
+  ): () => void {
+    const unsubscribe = this.subscribe(sessionId, subscriber);
+    const backlog = this.backlog.get(sessionId) ?? [];
+    for (const envelope of backlog) {
+      if (envelope.id > afterEventId) {
+        void subscriber(envelope);
+      }
+    }
+    return unsubscribe;
   }
 
   async publish(event: OutboundEvent): Promise<void> {

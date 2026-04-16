@@ -106,8 +106,14 @@ export const proxyToAgent = async (
     );
   }
 
-  // For SSE, stream the response body through.
-  if (isSSE && upstreamResponse.body) {
+  // Stream through SSE responses (GET with Accept: text/event-stream,
+  // or POST ?stream=true which returns Content-Type: text/event-stream).
+  const isStreamingResponse =
+    (isSSE && upstreamResponse.body) ||
+    (upstreamResponse.body &&
+      upstreamResponse.headers.get('content-type')?.includes('text/event-stream'));
+
+  if (isStreamingResponse && upstreamResponse.body) {
     return stream(c, async (s) => {
       const reader = upstreamResponse.body!.getReader();
 

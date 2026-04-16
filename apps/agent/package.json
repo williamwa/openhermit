@@ -21,9 +21,13 @@
     "defuddle": "^0.11.0",
     "hono": "^4.7.2",
     "jsdom": "^24.0.0",
-    "langfuse": "^3.38.6"
+    "langfuse": "^3.38.6",
+    "ws": "^8.20.0"
   },
   "optionalDependencies": {
     "@openhermit/channel-telegram": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
   }
 }

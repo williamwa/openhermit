@@ -122,6 +122,7 @@ export const agentLocalRoutes = {
     `/sessions/${encodeURIComponent(sessionId)}/checkpoint`,
   eventsUrl: (sessionId: string): string =>
     `/sessions/${encodeURIComponent(sessionId)}/events`,
+  ws: '/ws',
 } as const;
 
 export type AgentStatus =
@@ -301,6 +302,83 @@ export const isToolApprovalRequest = (
     typeof value.toolCallId === 'string' &&
     typeof value.approved === 'boolean'
   );
+};
+
+// ---------------------------------------------------------------------------
+// HTTP sync response (POST /sessions/:id/messages?wait=true)
+// ---------------------------------------------------------------------------
+
+export interface SyncToolCall {
+  tool: string;
+  args?: unknown;
+  isError: boolean;
+  text?: string;
+  details?: unknown;
+}
+
+export interface SyncResponse {
+  sessionId: string;
+  messageId?: string;
+  text: string | null;
+  toolCalls: SyncToolCall[];
+  error?: string;
+}
+
+// ---------------------------------------------------------------------------
+// WebSocket protocol
+// ---------------------------------------------------------------------------
+
+export type WsMethod =
+  | 'session.open'
+  | 'session.message'
+  | 'session.approve'
+  | 'session.checkpoint'
+  | 'session.list'
+  | 'session.history'
+  | 'session.subscribe'
+  | 'session.unsubscribe';
+
+export interface WsRequest {
+  kind: 'request';
+  id: string;
+  method: WsMethod;
+  params?: Record<string, unknown>;
+}
+
+export interface WsResponseOk {
+  kind: 'response';
+  id: string;
+  result: unknown;
+}
+
+export interface WsResponseError {
+  kind: 'response';
+  id: string;
+  error: { code: WsErrorCode; message: string };
+}
+
+export type WsResponse = WsResponseOk | WsResponseError;
+
+export type WsErrorCode =
+  | 'INVALID_PARAMS'
+  | 'SESSION_NOT_FOUND'
+  | 'NOT_SUBSCRIBED'
+  | 'UNAUTHORIZED'
+  | 'INTERNAL_ERROR';
+
+export interface WsEvent {
+  kind: 'event';
+  eventId: number;
+  sessionId: string;
+  event: OutboundEvent;
+}
+
+export type WsServerMessage = WsResponse | WsEvent;
+export type WsClientMessage = WsRequest;
+
+export const isWsRequest = (value: unknown): value is WsRequest => {
+  if (!isRecord(value)) return false;
+  return value.kind === 'request' && typeof value.id === 'string' && typeof value.method === 'string';
 };
 
 export const isSessionCheckpointRequest = (
