@@ -1,32 +1,19 @@
 # Transport Protocol Design
 
-This document defines the three-layer transport model for OpenHermit agent communication.
+This document defines the four transport modes for OpenHermit agent communication.
 
 ## Motivation
 
-The current architecture uses HTTP+SSE: POST endpoints for client→server actions, a separate GET SSE stream for server→client events. This works but has limitations:
+Different callers need different transport modes. Automation scripts want sync HTTP. Interactive clients benefit from streaming. Long-lived sessions benefit from WebSocket.
 
-- No synchronous "send message, wait for result" mode — callers must open a separate SSE connection and correlate events
-- The approval gate is inherently bidirectional but split across two channels (SSE + HTTP POST)
-- Gateway/proxy must handle two connection types separately
-- Reconnection requires manual event ID tracking, backlog replay, and deduplication
+## Four Transport Modes
 
-After analyzing competing projects:
-
-- **Claude Code** uses stdio (subprocess JSON, no streaming, sync by default)
-- **Hermes Agent** uses HTTP+SSE with OpenAI-compatible API (`stream: true/false`)
-- Neither uses WebSocket
-
-The key insight: different callers need different transport modes. Automation scripts want sync HTTP. Simple integrations want SSE. Interactive clients (CLI, web) benefit from WebSocket.
-
-## Three-Layer Transport Model
-
-| Layer | Transport | Use Case |
-|-------|-----------|----------|
-| **HTTP sync** | `POST /sessions/:id/messages?wait=true` | Automation, cron jobs, API integrations, Telegram webhooks — send command, block until complete |
-| **HTTP stream** | `POST /sessions/:id/messages?stream=true` | Inline SSE in POST response — no separate event connection needed |
-| **SSE** | `GET /sessions/:id/events` (existing) | Browser EventSource, simple clients, backward compatibility |
-| **WebSocket** | `ws://host/ws` | Interactive sessions — CLI, web chat, approval flow, multi-session on one connection |
+| # | Mode | Endpoint | Use Case |
+|---|------|----------|----------|
+| 1 | **HTTP sync** | `POST /sessions/:id/messages?wait=true` | Automation, cron jobs, Telegram webhooks — send command, block until complete, get JSON result |
+| 2 | **HTTP async** | `POST /sessions/:id/messages` (default) | Fire-and-forget POST + separate `GET /sessions/:id/events` SSE stream for events. Legacy mode, retained for backward compatibility |
+| 3 | **HTTP stream** | `POST /sessions/:id/messages?stream=true` | Inline SSE in POST response — single request, events stream back in response body. Used by CLI |
+| 4 | **WebSocket** | `ws://host/ws` | Bidirectional, multi-session on one connection — RPC + event subscriptions |
 
 All four modes share the same `SessionEventBroker` internally. The agent runner publishes events identically regardless of transport.
 

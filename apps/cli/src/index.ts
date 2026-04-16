@@ -8,7 +8,7 @@ import { parseSlashCommand } from './commands.js';
 import { formatSessionList } from './formatting.js';
 import { readRuntimeState, readWorkspaceRoot } from './runtime-files.js';
 import { listCliSessions, selectStartupSession } from './sessions.js';
-import { parseSseFrames, waitForAssistantTurn } from './sse.js';
+import { parseSseFrames, waitForAssistantTurn, streamAssistantTurn } from './sse.js';
 import { runTuiChatLoop } from './tui/index.js';
 
 export {
@@ -17,6 +17,7 @@ export {
   formatSessionList,
   parseSseFrames,
   selectStartupSession,
+  streamAssistantTurn,
   waitForAssistantTurn,
 };
 

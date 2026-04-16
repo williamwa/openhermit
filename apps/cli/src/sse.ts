@@ -1,6 +1,7 @@
 import { stderr, stdout } from 'node:process';
 
 import { AgentLocalClient } from '@openhermit/sdk';
+import type { OutboundEvent, SessionMessage } from '@openhermit/protocol';
 
 import {
   formatDebugValue,
@@ -270,4 +271,158 @@ export const waitForAssistantTurn = async (
   }
 
   throw new Error('SSE stream ended before the assistant produced a final event.');
+};
+
+/**
+ * Post a message and consume the inline SSE stream (POST ?stream=true).
+ * Replaces the two-step postMessage + waitForAssistantTurn flow.
+ */
+export const streamAssistantTurn = async (
+  client: AgentLocalClient,
+  sessionId: string,
+  message: SessionMessage,
+  options?: AssistantTurnOptions,
+): Promise<void> => {
+  const out = options?.output;
+  const abortSignal = options?.signal;
+  let sawDelta = false;
+  let sawAgentEnd = false;
+  let lastActivityTs = Date.now();
+  let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+
+  if (abortSignal?.aborted) {
+    throw new Error('Assistant turn cancelled.');
+  }
+
+  if (!out) {
+    stdout.write('[thinking...]\n');
+    heartbeatTimer = setInterval(() => {
+      if (sawAgentEnd) return;
+      const now = Date.now();
+      if (now - lastActivityTs >= 10_000) {
+        stdout.write('[thinking...]\n');
+        lastActivityTs = now;
+      }
+    }, 2_000);
+  }
+
+  try {
+    const eventStream = client.postMessageStream(sessionId, message,
+      abortSignal ? { signal: abortSignal } : undefined,
+    );
+
+    for await (const event of eventStream) {
+      lastActivityTs = Date.now();
+
+      if (event.type === 'tool_approval_required') {
+        const toolName = String(event.toolName ?? 'unknown');
+        const toolCallId = String(event.toolCallId ?? '');
+
+        let approved = false;
+
+        if (options?.onApprovalRequired) {
+          if (out?.onApprovalPrompt) {
+            out.onApprovalPrompt(toolName, event.args);
+          } else {
+            stdout.write(`\n[approval required] ${toolName}`);
+            if (event.args !== undefined) {
+              const formatted = formatDebugValue(event.args);
+              if (formatted) {
+                stdout.write(formatted.includes('\n') ? `\n${formatted}` : ` ${formatted}`);
+              }
+            }
+            stdout.write('\n');
+          }
+          approved = await options.onApprovalRequired(toolName, toolCallId, event.args);
+        } else {
+          if (out) {
+            out.onError?.('[approval required] No approval handler configured — auto-denying.');
+          } else {
+            stdout.write('[approval required] No approval handler configured — auto-denying.\n');
+          }
+        }
+
+        await client.submitApproval(sessionId, { toolCallId, approved });
+        continue;
+      }
+
+      if (event.type === 'tool_requested') {
+        continue;
+      }
+
+      if (event.type === 'tool_started') {
+        if (out?.onToolStarted) {
+          out.onToolStarted(String(event.tool ?? 'unknown'), event.args);
+        } else {
+          writeToolStarted(String(event.tool ?? 'unknown'), event.args);
+        }
+        continue;
+      }
+
+      if (event.type === 'tool_result') {
+        if (out?.onToolResult) {
+          out.onToolResult(
+            String(event.tool ?? 'unknown'),
+            Boolean(event.isError),
+            event.text,
+            event.details,
+          );
+        }
+        continue;
+      }
+
+      if (event.type === 'text_delta') {
+        const text = String(event.text ?? '');
+        if (out?.onTextDelta) {
+          out.onTextDelta(text);
+        } else {
+          stdout.write(text);
+        }
+        sawDelta = true;
+        continue;
+      }
+
+      if (event.type === 'text_final') {
+        const text = String(event.text ?? '').trim();
+        if (out?.onTextFinal) {
+          out.onTextFinal(text, sawDelta);
+        } else {
+          if (!sawDelta) {
+            stdout.write(text);
+          }
+          stdout.write('\n');
+        }
+        continue;
+      }
+
+      if (event.type === 'error') {
+        const message = String(event.message ?? 'Unknown error');
+        if (out?.onError) {
+          out.onError(message);
+        } else {
+          stderr.write(`\n[error] ${message}\n`);
+        }
+        continue;
+      }
+
+      if (event.type === 'agent_end') {
+        sawAgentEnd = true;
+        if (!out) {
+          stdout.write('[done]\n');
+        }
+        break;
+      }
+    }
+  } finally {
+    if (heartbeatTimer !== undefined) {
+      clearInterval(heartbeatTimer);
+    }
+  }
+
+  if (!sawAgentEnd) {
+    if (abortSignal?.aborted) {
+      throw new Error('Assistant turn cancelled.');
+    }
+    throw new Error('Stream ended before the assistant produced a final event.');
+  }
 };

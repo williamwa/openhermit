@@ -14,7 +14,7 @@ import {
   findCliSession,
   listCliSessions,
 } from '../sessions.js';
-import { waitForAssistantTurn } from '../sse.js';
+import { streamAssistantTurn } from '../sse.js';
 import type { StartupSessionSelection } from '../types.js';
 import { createTuiLayout } from './layout.js';
 import { bold, cyan, dim, gray, green, red, yellow } from './theme.js';
@@ -33,7 +33,7 @@ export interface TuiChatLoopOptions {
 // ─── Main loop ────────────────────────────────────────────────────────────────
 
 export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> => {
-  const { client, token, agentId, workspaceRoot, startupSession, resumeFlag } = opts;
+  const { client, agentId, workspaceRoot, startupSession, resumeFlag } = opts;
 
   const layout = createTuiLayout();
   const {
@@ -224,14 +224,10 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
 
     // ── regular message ───────────────────────────────────────────────────
     addText(`${bold(cyan('you'))}> ${input}`);
-
-    const currentLastEventId = knownEventIds.get(currentSessionId) ?? 0;
-
-    await client.postMessage(currentSessionId, { text: input });
     addAgentLabel();
 
     // Create a fresh abort controller for this turn so we can cancel
-    // waitForAssistantTurn when the user hits Ctrl-C.
+    // streamAssistantTurn when the user hits Ctrl-C.
     currentTurnAbort = new AbortController();
     let thinkingHandle: ReturnType<typeof addStatusLine> | null = addStatusLine(
       gray('[thinking...]'),
@@ -254,15 +250,13 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
       addAgentLabel();
       agentLabelShown = true;
     };
-    let nextEventId: number | null = null;
     let streamedAssistantText = '';
 
     try {
-      nextEventId = await waitForAssistantTurn(
+      await streamAssistantTurn(
         client,
-        token,
         currentSessionId,
-        currentLastEventId,
+        { text: input },
         {
           signal: currentTurnAbort.signal,
           onApprovalRequired: async (toolName, _toolCallId, args) => {
@@ -306,7 +300,6 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
             },
             onApprovalPrompt: (toolName, args) => {
               ensureAgentLabel();
-              // Layout will show overlay; we just show a label in the feed too
               const formatted = formatDebugValue(args);
               const suffix = formatted ? ` ${gray(formatted)}` : '';
               addText(`${yellow('[approval required]')} ${bold(toolName)}${suffix}`);
@@ -323,10 +316,6 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
         thinkingHandle.remove();
       }
       currentTurnAbort = null;
-    }
-
-    if (nextEventId !== null) {
-      knownEventIds.set(currentSessionId, nextEventId);
     }
   };
 
