@@ -178,7 +178,31 @@ export class AgentSecurity {
 
   async readConfig(): Promise<AgentRuntimeConfig> {
     const content = await fs.readFile(this.configFilePath, 'utf8');
-    return parseJsonFile<AgentRuntimeConfig>(content, this.configFilePath);
+    const config = parseJsonFile<AgentRuntimeConfig>(content, this.configFilePath);
+    return this.interpolateSecrets(config);
+  }
+
+  /**
+   * Recursively replace `${{SECRET_NAME}}` placeholders in string values
+   * with the corresponding secret. Unknown secret names are left as-is.
+   */
+  private interpolateSecrets<T>(value: T): T {
+    if (typeof value === 'string') {
+      return value.replace(/\$\{\{(\w+)\}\}/g, (_match, name: string) => {
+        return this.secrets[name] ?? _match;
+      }) as T;
+    }
+    if (Array.isArray(value)) {
+      return value.map((item) => this.interpolateSecrets(item)) as T;
+    }
+    if (value !== null && typeof value === 'object') {
+      const result: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(value)) {
+        result[k] = this.interpolateSecrets(v);
+      }
+      return result as T;
+    }
+    return value;
   }
 
   async writeConfig(config: AgentRuntimeConfig): Promise<void> {
