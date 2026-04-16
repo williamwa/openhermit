@@ -872,7 +872,7 @@ export class AgentRunner implements SessionRuntime {
     // CLI / web: use explicit metadata username or OS username as fallback
     if (meta?.username) return String(meta.username);
 
-    if (spec.source.kind === 'cli' || spec.source.kind === 'web') {
+    if (spec.source.kind === 'cli') {
       try {
         return userInfo().username;
       } catch {
