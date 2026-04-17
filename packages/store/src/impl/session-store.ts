@@ -11,13 +11,19 @@ export class DbSessionStore implements SessionStore {
     // Prisma handles connection management internally.
   }
 
-  async list(scope: StoreScope): Promise<PersistedSessionIndexEntry[]> {
+  async list(scope: StoreScope, options?: { userId?: string }): Promise<PersistedSessionIndexEntry[]> {
     const rows = await this.prisma.session.findMany({
       where: { agentId: scope.agentId },
       orderBy: { lastActivityAt: 'desc' },
     });
 
-    return rows.map((row) => this.rowToEntry(row));
+    let entries = rows.map((row) => this.rowToEntry(row));
+
+    if (options?.userId) {
+      entries = entries.filter((e) => e.userIds?.includes(options.userId!));
+    }
+
+    return entries;
   }
 
   async get(scope: StoreScope, sessionId: string): Promise<PersistedSessionIndexEntry | undefined> {
@@ -44,6 +50,7 @@ export class DbSessionStore implements SessionStore {
       metadataJson: JSON.stringify(entry.metadata ?? {}),
       status: entry.status ?? 'idle',
       type: entry.type ?? entry.source.type ?? 'direct',
+      userIdsJson: JSON.stringify(entry.userIds ?? []),
     };
 
     await this.prisma.session.upsert({
@@ -78,6 +85,7 @@ export class DbSessionStore implements SessionStore {
     lastMessagePreview: string | null;
     metadataJson: string;
     type: string;
+    userIdsJson: string;
   }): PersistedSessionIndexEntry {
     const metadata = JSON.parse(row.metadataJson || '{}') as Record<string, unknown>;
     const entry: PersistedSessionIndexEntry = {
@@ -109,6 +117,11 @@ export class DbSessionStore implements SessionStore {
 
     if (Object.keys(metadata).length > 0) {
       entry.metadata = metadata as Record<string, MetadataValue>;
+    }
+
+    const userIds = JSON.parse(row.userIdsJson || '[]') as string[];
+    if (userIds.length > 0) {
+      entry.userIds = userIds;
     }
 
     return entry;

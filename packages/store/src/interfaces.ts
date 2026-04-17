@@ -19,7 +19,7 @@ import type {
 export interface SessionStore {
   upsert(scope: StoreScope, entry: PersistedSessionIndexEntry): Promise<void>;
   get(scope: StoreScope, sessionId: string): Promise<PersistedSessionIndexEntry | undefined>;
-  list(scope: StoreScope): Promise<PersistedSessionIndexEntry[]>;
+  list(scope: StoreScope, options?: { userId?: string }): Promise<PersistedSessionIndexEntry[]>;
   updateDescription(scope: StoreScope, sessionId: string, description: string, source: 'fallback' | 'ai'): Promise<void>;
   waitForIdle(): Promise<void>;
 }

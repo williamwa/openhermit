@@ -44,7 +44,10 @@ export const createSessionListTool = (context: ToolContext): AgentTool<typeof Se
       throw new ValidationError('session_list is unavailable: no session store is configured.');
     }
 
-    let sessions = await context.sessionStore.list(context.storeScope);
+    let sessions = await context.sessionStore.list(
+      context.storeScope,
+      context.currentUserId ? { userId: context.currentUserId } : undefined,
+    );
 
     // Filter by channel/platform if specified
     if (args.channel) {
@@ -99,6 +102,13 @@ export const createSessionReadTool = (context: ToolContext): AgentTool<typeof Se
       throw new ValidationError('session_read requires a non-empty session_id.');
     }
 
+    if (context.currentUserId && context.sessionStore) {
+      const target = await context.sessionStore.get(context.storeScope!, sessionId);
+      if (!target?.userIds?.includes(context.currentUserId)) {
+        throw new ValidationError(`Access denied: you are not a participant in session ${sessionId}.`);
+      }
+    }
+
     const limit = args.limit ?? 50;
     const offset = args.offset ?? 0;
     const messages = await context.messageStore.listRecentMessages(context.storeScope, sessionId, limit, offset);
@@ -141,6 +151,10 @@ export const createSessionSummaryTool = (context: ToolContext): AgentTool<typeof
     const session = await context.sessionStore.get(context.storeScope, sessionId);
     if (!session) {
       throw new ValidationError(`Session not found: ${sessionId}`);
+    }
+
+    if (context.currentUserId && !session.userIds?.includes(context.currentUserId)) {
+      throw new ValidationError(`Access denied: you are not a participant in session ${sessionId}.`);
     }
 
     const workingMemory = await context.messageStore.getSessionWorkingMemory(context.storeScope, sessionId);
@@ -191,7 +205,7 @@ export const createSessionSummaryTool = (context: ToolContext): AgentTool<typeof
 const SESSION_DESCRIPTION = `\
 ### Session Management
 
-You can inspect sessions across all channels. Only the owner can use these tools.
+You can inspect sessions across all channels. Non-owner users can only see sessions they participated in.
 
 These tools let you review what happened in other sessions without switching context. For example:
 - "show me recent sessions" → \`session_list\`

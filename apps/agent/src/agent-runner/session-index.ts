@@ -22,6 +22,7 @@ export const createPersistedSessionIndexEntry = (
     ? { lastMessagePreview: session.lastMessagePreview }
     : {}),
   ...(session.spec.metadata ? { metadata: session.spec.metadata } : {}),
+  ...(session.userIds.length > 0 ? { userIds: session.userIds } : {}),
 });
 
 const createSessionSummary = (

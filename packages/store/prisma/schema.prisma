@@ -44,6 +44,7 @@ model Session {
   metadataJson         String  @default("{}") @map("metadata_json")
   status               String  @default("idle")
   type                 String  @default("direct")
+  userIdsJson          String  @default("[]") @map("user_ids_json")
 
   events SessionEvent[]
 

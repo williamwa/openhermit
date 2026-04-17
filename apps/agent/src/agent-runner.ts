@@ -65,6 +65,11 @@ import {
 import { createWebProvider, type WebProvider } from './web/index.js';
 import { runIntrospection } from './introspection/index.js';
 
+const addUserIdToList = (existing: string[], userId: string | undefined): string[] => {
+  if (!userId) return existing;
+  return existing.includes(userId) ? existing : [...existing, userId];
+};
+
 export class AgentRunner implements SessionRuntime {
   readonly events = new SessionEventBroker();
 
@@ -185,6 +190,7 @@ export class AgentRunner implements SessionRuntime {
       if (userId) existing.resolvedUserId = userId;
       if (role) existing.resolvedUserRole = role;
       if (userName) existing.resolvedUserName = userName;
+      existing.userIds = addUserIdToList(existing.userIds, userId);
 
       await this.persistSessionIndex(existing);
 
@@ -287,6 +293,7 @@ export class AgentRunner implements SessionRuntime {
         ? { lastMessagePreview: persisted.lastMessagePreview }
         : {}),
       resumed: Boolean(persisted),
+      userIds: addUserIdToList(persisted?.userIds ?? [], resolvedUserId),
       ...(resolvedUserId ? { resolvedUserId } : {}),
       ...(resolvedUserRole ? { resolvedUserRole } : {}),
       ...(resolvedUserName ? { resolvedUserName } : {}),
@@ -545,6 +552,7 @@ export class AgentRunner implements SessionRuntime {
         session.resolvedUserId = resolved.userId;
         if (resolved.role) session.resolvedUserRole = resolved.role;
         if (resolved.userName) session.resolvedUserName = resolved.userName;
+        session.userIds = addUserIdToList(session.userIds, resolved.userId);
       }
     }
 
@@ -955,7 +963,8 @@ export class AgentRunner implements SessionRuntime {
         webProvider,
         ...(isOwnerOrUnresolved ? { instructionStore: this.store.instructions } : {}),
         ...(isOwnerOrUnresolved ? { userStore: this.store.users } : {}),
-        ...(isOwnerOrUnresolved ? { sessionStore: this.store.sessions } : {}),
+        ...(!isGuestRole ? { sessionStore: this.store.sessions } : {}),
+        ...(!isOwnerOrUnresolved && input.userId ? { currentUserId: input.userId } : {}),
         storeScope: this.scope,
         ...(!isGuestRole && input.config.workspace_container ? {
           agentId: this.scope.agentId,

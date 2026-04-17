@@ -23,6 +23,7 @@ export interface RunnerSession extends SessionDescriptor {
   descriptionSource?: 'fallback' | 'ai';
   lastMessagePreview?: string;
   resumed: boolean;
+  userIds: string[];
   resolvedUserId?: string;
   resolvedUserRole?: UserRole;
   resolvedUserName?: string;

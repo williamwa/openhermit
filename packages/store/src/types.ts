@@ -37,6 +37,7 @@ export interface PersistedSessionIndexEntry {
   lastMessagePreview?: string;
   metadata?: Record<string, MetadataValue>;
   type?: SessionType;
+  userIds?: string[];
 }
 
 export interface SessionLogEntry {

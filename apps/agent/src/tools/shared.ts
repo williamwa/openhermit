@@ -56,6 +56,7 @@ export interface ToolContext {
   messageStore?: MessageStore | undefined;
   sessionStore?: SessionStore | undefined;
   sessionId?: string | undefined;
+  currentUserId?: string | undefined;
   webProvider?: WebProvider | undefined;
   instructionStore?: InstructionStore;
   userStore?: UserStore;
