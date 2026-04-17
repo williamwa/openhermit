@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,8 +7,11 @@ import type { TestContext } from 'node:test';
 import { AgentSecurity, AgentWorkspace } from '../src/core/index.js';
 import type { SecretsMap, SecurityPolicy } from '../src/core/types.js';
 
+const uniqueAgentId = () => `agent-test-${randomBytes(4).toString('hex')}`;
+
 export interface WorkspaceFixture {
   root: string;
+  agentId: string;
   workspace: AgentWorkspace;
 }
 
@@ -33,13 +37,15 @@ export const createWorkspaceFixture = async (
   const root = await createTempDir(t, 'openhermit-workspace-');
   const workspace = new AgentWorkspace(root);
 
+  const agentId = uniqueAgentId();
   await workspace.init({
-    agentId: 'agent-test',
+    agentId,
     createdAt: '2026-03-08T00:00:00.000Z',
   });
 
   return {
     root,
+    agentId,
     workspace,
   };
 };
@@ -55,7 +61,7 @@ export const createSecurityFixture = async (
   const workspaceFixture = await createWorkspaceFixture(t);
   const openHermitHome = await createTempDir(t, 'openhermit-home-');
   const security = new AgentSecurity({
-    agentId: 'agent-test',
+    agentId: workspaceFixture.agentId,
     workspace: workspaceFixture.workspace,
     openHermitHome,
   });

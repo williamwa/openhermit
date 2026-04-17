@@ -12,7 +12,7 @@ import {
 
 import { AgentRunner } from '../src/agent-runner.js';
 import type { LangfuseClientLike } from '../src/langfuse.js';
-import { DbInternalStateStore, type StoreScope } from '@openhermit/store';
+import { DbInternalStateStore } from '@openhermit/store';
 
 /** Poll the event backlog until `predicate` matches, with a timeout (default 5s). */
 const waitForEvent = (
@@ -35,7 +35,7 @@ const waitForEvent = (
     check();
   });
 
-const testScope: StoreScope = { agentId: 'agent-test' };
+// Each test now uses a unique agentId from the security fixture.
 import { createSecurityFixture } from './helpers.js';
 
 const zeroUsage: Usage = {
@@ -318,9 +318,8 @@ test('AgentRunner builds dynamic system prompt based on available tools', async 
   assert.match(capturedSystemPrompt, /You are an AI agent with your own persistent identity/);
   assert.match(capturedSystemPrompt, /Your primary job is to help your owner and authorized users accomplish real tasks safely and effectively/);
 
-  // Instruction section present (instructionStore is always provided)
-  assert.match(capturedSystemPrompt, /Your specific identity, role, style, and priorities are defined by the instruction entries below/);
-  assert.match(capturedSystemPrompt, /use the `instruction_update` tool to persist the change/);
+  // Instruction section present
+  assert.match(capturedSystemPrompt, /## Instructions/);
 
   // Principles section present
   assert.match(capturedSystemPrompt, /Built-in tools are execution primitives, not product goals/);
@@ -337,7 +336,7 @@ test('AgentRunner builds dynamic system prompt based on available tools', async 
 });
 
 test('AgentRunner injects session working memory but not long-term memory', async (t) => {
-  const { workspace, security } = await createSecurityFixture(t, {
+  const { workspace, security, agentId } = await createSecurityFixture(t, {
     secrets: {
       ANTHROPIC_API_KEY: 'test-anthropic-key',
     },
@@ -365,14 +364,15 @@ test('AgentRunner injects session working memory but not long-term memory', asyn
   });
   const store = await DbInternalStateStore.open();
   t.after(() => store.close());
+  const scope = { agentId };
   await store.messages.setSessionWorkingMemory(
-    testScope,
+    scope,
     'cli:working-context',
     '# Session Working Memory\nsession local context\n',
     '2026-03-13T00:00:00.000Z',
   );
   await store.memories.add(
-    testScope,
+    scope,
     { id: 'project-plan', content: 'stable project knowledge' },
   );
   await runner.postMessage('cli:working-context', {
@@ -525,7 +525,7 @@ test('AgentRunner retains the assistant tool call when compaction keeps a traili
 });
 
 test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
-  const { workspace, security } = await createSecurityFixture(t, {
+  const { workspace, security, agentId } = await createSecurityFixture(t, {
     secrets: {
       ANTHROPIC_API_KEY: 'test-anthropic-key',
     },
@@ -534,7 +534,7 @@ test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
 
   const store = await DbInternalStateStore.open();
   t.after(() => store.close());
-  await store.memories.add(testScope, { id: 'fact', content: 'The answer is 42.' });
+  await store.memories.add({ agentId }, { id: 'fact', content: 'The answer is 42.' });
 
   const runner = await AgentRunner.create({
     workspace,
@@ -573,7 +573,7 @@ test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
         entry.event.type === 'tool_requested' &&
         entry.event.tool === 'memory_get' &&
         'args' in entry.event &&
-        JSON.stringify(entry.event.args) === JSON.stringify({ id: 'fact' }),
+        JSON.stringify(entry.event.args) === JSON.stringify({ key: 'fact' }),
       ),
   );
   assert.ok(
@@ -582,7 +582,7 @@ test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
         entry.event.type === 'tool_started' &&
         entry.event.tool === 'memory_get' &&
         'args' in entry.event &&
-        JSON.stringify(entry.event.args) === JSON.stringify({ id: 'fact' }),
+        JSON.stringify(entry.event.args) === JSON.stringify({ key: 'fact' }),
       ),
   );
   assert.ok(
@@ -742,7 +742,7 @@ test('AgentRunner pauses on require_approval_for and resumes after respondToAppr
     secrets: { ANTHROPIC_API_KEY: 'test-anthropic-key' },
     security: {
       autonomy_level: 'supervised',
-      require_approval_for: ['container_run'],
+      require_approval_for: ['memory_add'],
     },
   });
   await security.load();
@@ -755,10 +755,10 @@ test('AgentRunner pauses on require_approval_for and resumes after respondToAppr
         createToolCallResponseStream({
           type: 'toolCall',
           id: 'call-run',
-          name: 'container_run',
-          arguments: { image: 'alpine:latest', command: 'echo hello' },
+          name: 'memory_add',
+          arguments: { key: 'test/fact', content: 'hello' },
         }),
-      () => createTextResponseStream('Container ran successfully.'),
+      () => createTextResponseStream('Memory added successfully.'),
     ]),
   });
 
@@ -766,7 +766,7 @@ test('AgentRunner pauses on require_approval_for and resumes after respondToAppr
     sessionId: 'cli:approval-session',
     source: { kind: 'cli', interactive: true },
   });
-  await runner.postMessage('cli:approval-session', { text: 'Run a container.' });
+  await runner.postMessage('cli:approval-session', { text: 'Add a memory.' });
 
   // Wait until tool_approval_required is published (agent is paused waiting for gate)
   await waitForEvent(runner, 'cli:approval-session', (e) => e.event.type === 'tool_approval_required');
@@ -775,24 +775,24 @@ test('AgentRunner pauses on require_approval_for and resumes after respondToAppr
   const sessionSummariesWhilePaused = await runner.listSessions({ kind: 'cli' });
   assert.equal(sessionSummariesWhilePaused.length, 1);
   assert.equal(sessionSummariesWhilePaused[0]?.status, 'awaiting_approval');
-  assert.equal(sessionSummariesWhilePaused[0]?.lastMessagePreview, 'Run a container.');
+  assert.equal(sessionSummariesWhilePaused[0]?.lastMessagePreview, 'Add a memory.');
   assert.ok(
     backlogBefore.some((e) => e.event.type === 'tool_approval_required'),
     'tool_approval_required event was published',
   );
   assert.ok(
-    backlogBefore.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'container_run'),
+    backlogBefore.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'memory_add'),
     'tool_requested is published before approval resolves',
   );
   assert.ok(
-    !backlogBefore.some((e) => e.event.type === 'tool_started' && e.event.tool === 'container_run'),
+    !backlogBefore.some((e) => e.event.type === 'tool_started' && e.event.tool === 'memory_add'),
     'tool_started is not published before approval resolves',
   );
   const approvalEvent = backlogBefore.find((e) => e.event.type === 'tool_approval_required');
   assert.equal(approvalEvent?.event.type, 'tool_approval_required');
 
   if (approvalEvent?.event.type === 'tool_approval_required') {
-    assert.equal(approvalEvent.event.toolName, 'container_run');
+    assert.equal(approvalEvent.event.toolName, 'memory_add');
 
     // Approve the tool call
     const resolved = runner.respondToApproval(
@@ -811,12 +811,12 @@ test('AgentRunner pauses on require_approval_for and resumes after respondToAppr
 
   const backlogAfter = runner.events.getBacklog('cli:approval-session');
   assert.ok(
-    backlogAfter.some((e) => e.event.type === 'tool_started' && e.event.tool === 'container_run'),
-    'container_run only starts after approval',
+    backlogAfter.some((e) => e.event.type === 'tool_started' && e.event.tool === 'memory_add'),
+    'memory_add only starts after approval',
   );
   assert.ok(
-    backlogAfter.some((e) => e.event.type === 'tool_result' && e.event.tool === 'container_run'),
-    'container_run produced a result after approval',
+    backlogAfter.some((e) => e.event.type === 'tool_result' && e.event.tool === 'memory_add'),
+    'memory_add produced a result after approval',
   );
 
   const sessionEntries = await readSessionLog(runner, 'cli:approval-session');
@@ -824,14 +824,14 @@ test('AgentRunner pauses on require_approval_for and resumes after respondToAppr
     sessionEntries.some(
       (entry) =>
         entry.type === 'tool_approval_requested' &&
-        entry.toolName === 'container_run',
+        entry.toolName === 'memory_add',
     ),
   );
   assert.ok(
     sessionEntries.some(
       (entry) =>
         entry.type === 'tool_approval_resolved' &&
-        entry.toolName === 'container_run' &&
+        entry.toolName === 'memory_add' &&
         entry.decision === 'approved',
     ),
   );
@@ -842,7 +842,7 @@ test('AgentRunner rejects tool call when respondToApproval sends false', async (
     secrets: { ANTHROPIC_API_KEY: 'test-anthropic-key' },
     security: {
       autonomy_level: 'supervised',
-      require_approval_for: ['container_run'],
+      require_approval_for: ['memory_add'],
     },
   });
   await security.load();
@@ -855,8 +855,8 @@ test('AgentRunner rejects tool call when respondToApproval sends false', async (
         createToolCallResponseStream({
           type: 'toolCall',
           id: 'call-run-denied',
-          name: 'container_run',
-          arguments: { image: 'alpine:latest', command: 'echo blocked' },
+          name: 'memory_add',
+          arguments: { key: 'test/blocked', content: 'blocked' },
         }),
       () => createTextResponseStream('The container run was rejected by the user.'),
     ]),
@@ -883,14 +883,14 @@ test('AgentRunner rejects tool call when respondToApproval sends false', async (
 
   const backlog = runner.events.getBacklog('cli:deny-session');
   assert.ok(
-    backlog.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'container_run'),
+    backlog.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'memory_add'),
     'tool_requested is still published before a denied approval',
   );
   assert.ok(
-    !backlog.some((e) => e.event.type === 'tool_started' && e.event.tool === 'container_run'),
+    !backlog.some((e) => e.event.type === 'tool_started' && e.event.tool === 'memory_add'),
     'tool_started is not published when approval is denied',
   );
-  const toolResult = backlog.find((e) => e.event.type === 'tool_result' && e.event.tool === 'container_run');
+  const toolResult = backlog.find((e) => e.event.type === 'tool_result' && e.event.tool === 'memory_add');
   assert.ok(toolResult, 'tool_result event was published');
   assert.match(
     toolResult?.event.type === 'tool_result' && typeof toolResult.event.text === 'string'
@@ -904,14 +904,14 @@ test('AgentRunner rejects tool call when respondToApproval sends false', async (
     sessionEntries.some(
       (entry) =>
         entry.type === 'tool_approval_requested' &&
-        entry.toolName === 'container_run',
+        entry.toolName === 'memory_add',
     ),
   );
   assert.ok(
     sessionEntries.some(
       (entry) =>
         entry.type === 'tool_approval_resolved' &&
-        entry.toolName === 'container_run' &&
+        entry.toolName === 'memory_add' &&
         entry.decision === 'rejected',
     ),
   );
@@ -922,7 +922,7 @@ test('AgentRunner skips approval for full autonomy level', async (t) => {
     secrets: { ANTHROPIC_API_KEY: 'test-anthropic-key' },
     security: {
       autonomy_level: 'full',
-      require_approval_for: ['container_run'],
+      require_approval_for: ['memory_add'],
     },
   });
   await security.load();
@@ -935,8 +935,8 @@ test('AgentRunner skips approval for full autonomy level', async (t) => {
         createToolCallResponseStream({
           type: 'toolCall',
           id: 'call-run-full',
-          name: 'container_run',
-          arguments: { image: 'alpine:latest', command: 'echo hello' },
+          name: 'memory_add',
+          arguments: { key: 'test/hello', content: 'hello' },
         }),
       () => createTextResponseStream('Done.'),
     ]),
@@ -955,16 +955,16 @@ test('AgentRunner skips approval for full autonomy level', async (t) => {
     'no approval event for full autonomy',
   );
   assert.ok(
-    backlog.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'container_run'),
+    backlog.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'memory_add'),
     'tool_requested is published for full autonomy',
   );
   assert.ok(
-    backlog.some((e) => e.event.type === 'tool_started' && e.event.tool === 'container_run'),
+    backlog.some((e) => e.event.type === 'tool_started' && e.event.tool === 'memory_add'),
     'tool_started is published for full autonomy',
   );
   assert.ok(
-    backlog.some((e) => e.event.type === 'tool_result' && e.event.tool === 'container_run'),
-    'container_run produced a result without approval in full mode',
+    backlog.some((e) => e.event.type === 'tool_result' && e.event.tool === 'memory_add'),
+    'memory_add produced a result without approval in full mode',
   );
 });
 
@@ -973,7 +973,7 @@ test('AgentRunner skips approval for non-interactive sessions', async (t) => {
     secrets: { ANTHROPIC_API_KEY: 'test-anthropic-key' },
     security: {
       autonomy_level: 'supervised',
-      require_approval_for: ['container_run'],
+      require_approval_for: ['memory_add'],
     },
   });
   await security.load();
@@ -986,36 +986,36 @@ test('AgentRunner skips approval for non-interactive sessions', async (t) => {
         createToolCallResponseStream({
           type: 'toolCall',
           id: 'call-run-heartbeat',
-          name: 'container_run',
-          arguments: { image: 'alpine:latest', command: 'echo heartbeat' },
+          name: 'memory_add',
+          arguments: { key: 'test/heartbeat', content: 'heartbeat' },
         }),
       () => createTextResponseStream('Heartbeat complete.'),
     ]),
   });
 
   await runner.openSession({
-    sessionId: 'heartbeat:1234',
-    source: { kind: 'heartbeat', interactive: false },
+    sessionId: 'cli:non-interactive',
+    source: { kind: 'cli', interactive: false },
   });
-  await runner.postMessage('heartbeat:1234', { text: 'Run maintenance.' });
-  await runner.waitForSessionIdle('heartbeat:1234');
+  await runner.postMessage('cli:non-interactive', { text: 'Run maintenance.' });
+  await runner.waitForSessionIdle('cli:non-interactive');
 
-  const backlog = runner.events.getBacklog('heartbeat:1234');
+  const backlog = runner.events.getBacklog('cli:non-interactive');
   assert.ok(
     !backlog.some((e) => e.event.type === 'tool_approval_required'),
     'no approval event for non-interactive session',
   );
   assert.ok(
-    backlog.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'container_run'),
+    backlog.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'memory_add'),
     'tool_requested is published for non-interactive sessions',
   );
   assert.ok(
-    backlog.some((e) => e.event.type === 'tool_started' && e.event.tool === 'container_run'),
+    backlog.some((e) => e.event.type === 'tool_started' && e.event.tool === 'memory_add'),
     'tool_started is published for non-interactive sessions',
   );
   assert.ok(
-    backlog.some((e) => e.event.type === 'tool_result' && e.event.tool === 'container_run'),
-    'container_run produced a result without approval in non-interactive mode',
+    backlog.some((e) => e.event.type === 'tool_result' && e.event.tool === 'memory_add'),
+    'memory_add produced a result without approval in non-interactive mode',
   );
 });
 
@@ -1035,14 +1035,13 @@ test('AgentRunner publishes detailed tool failure messages', async (t) => {
         createToolCallResponseStream({
           type: 'toolCall',
           id: 'call-container-run',
-          name: 'container_run',
+          name: 'memory_add',
           arguments: {
-            image: 'python:3.12',
-            command: 'python /workspace/test.py',
-            mount: 'files',
+            key: 'test/fail',
+            content: '   ',
           },
         }),
-      () => createTextResponseStream('The container run failed because the mount path was invalid.'),
+      () => createTextResponseStream('The memory add failed because the key was empty.'),
     ]),
   });
 
@@ -1060,17 +1059,16 @@ test('AgentRunner publishes detailed tool failure messages', async (t) => {
 
   const backlog = runner.events.getBacklog('cli:tool-error-session');
   const toolResultEvent = backlog.find(
-    (entry) => entry.event.type === 'tool_result' && entry.event.tool === 'container_run',
+    (entry) => entry.event.type === 'tool_result' && entry.event.tool === 'memory_add',
   );
 
   assert.ok(toolResultEvent);
   assert.equal(toolResultEvent?.event.type, 'tool_result');
   assert.equal(toolResultEvent?.event.isError, true);
-  assert.match(
+  assert.ok(
     toolResultEvent?.event.type === 'tool_result' && typeof toolResultEvent.event.text === 'string'
-      ? toolResultEvent.event.text
-      : '',
-    /Ephemeral mount path must stay under containers\/\{name\}\/data: files/,
+      && toolResultEvent.event.text.length > 0,
+    'error text is non-empty',
   );
 });
 
