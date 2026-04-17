@@ -1317,3 +1317,67 @@ test('AgentRunner uses a dedicated Langfuse trace name for internal checkpoints'
   // Second trace: standalone trace from the introspection agent's LLM call
   assert.equal(langfuse.traces[1]?.body.name, 'openhermit.introspection');
 });
+
+test('AgentRunner denies memory tools when no user role is resolved (guest-level)', async (t) => {
+  const { workspace, security } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'test-anthropic-key' },
+  });
+  await security.load();
+
+  // Capture the tools available to the agent
+  let capturedTools: string[] = [];
+  const runner = await AgentRunner.create({
+    workspace,
+    security,
+    streamFn: async (_model, context) => {
+      capturedTools = (context as any).tools?.map((t: any) => t.name) ?? [];
+      return createTextResponseStream('ok');
+    },
+  });
+
+  // heartbeat source has no channel user ID → no user resolved → guest
+  await runner.openSession({
+    sessionId: 'heartbeat:guest-check',
+    source: { kind: 'heartbeat', interactive: false },
+  });
+  await runner.postMessage('heartbeat:guest-check', { text: 'hi' });
+  await runner.waitForSessionIdle('heartbeat:guest-check');
+
+  assert.ok(!capturedTools.includes('memory_add'), 'guest should not have memory_add');
+  assert.ok(!capturedTools.includes('memory_recall'), 'guest should not have memory_recall');
+  assert.ok(!capturedTools.includes('instruction_update'), 'guest should not have instruction_update');
+  assert.ok(!capturedTools.includes('session_list'), 'guest should not have session_list');
+});
+
+test('AgentRunner populates userIds on session open and reopen', async (t) => {
+  const { workspace, security, agentId } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'test-anthropic-key' },
+  });
+  await security.load();
+
+  const runner = await AgentRunner.create({
+    workspace,
+    security,
+    streamFn: createSequentialStreamFn([
+      () => createTextResponseStream('first reply'),
+      () => createTextResponseStream('second reply'),
+    ]),
+  });
+
+  // CLI source bootstraps owner
+  await runner.openSession({
+    sessionId: 'cli:userids-test',
+    source: { kind: 'cli', interactive: true },
+  });
+  await runner.postMessage('cli:userids-test', { text: 'hello' });
+  await runner.waitForSessionIdle('cli:userids-test');
+
+  // Check session in DB has userIds populated
+  const store = await DbInternalStateStore.open();
+  t.after(() => store.close());
+  const session = await store.sessions.get({ agentId }, 'cli:userids-test');
+  assert.ok(session, 'session should exist in DB');
+  assert.ok(Array.isArray(session.userIds), 'userIds should be an array');
+  assert.ok(session.userIds!.length > 0, 'userIds should have at least one entry');
+  assert.ok(session.userIds!.includes('usr-owner'), 'userIds should include the owner');
+});

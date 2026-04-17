@@ -14,6 +14,7 @@ import {
 } from '../src/core/index.js';
 import { DbInternalStateStore, standaloneScope } from '@openhermit/store';
 import { createBuiltInTools, withApproval } from '../src/tools.js';
+import { createSessionListTool, createSessionReadTool, createSessionSummaryTool } from '../src/tools/session.js';
 import { DefuddleWebProvider } from '../src/web/index.js';
 import { createSecurityFixture, createTempDir } from './helpers.js';
 
@@ -1067,4 +1068,146 @@ test('container_exec is blocked in readonly mode', async (t) => {
   );
 
   assert.equal(docker.calls.length, 0);
+});
+
+// ── Session tool access control tests ──────────────────────────────
+
+test('session_list filters sessions by currentUserId', async (t) => {
+  const { security, agentId } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  const store = await DbInternalStateStore.open();
+  t.after(() => store.close());
+  const scope = { agentId };
+
+  // Create two sessions: one with user-A, one with user-B
+  const now = new Date().toISOString();
+  await store.sessions.upsert(scope, {
+    sessionId: 'sess-a',
+    source: { kind: 'cli', interactive: true },
+    createdAt: now,
+    lastActivityAt: now,
+    messageCount: 1,
+    userIds: ['user-A'],
+  });
+  await store.sessions.upsert(scope, {
+    sessionId: 'sess-only-b',
+    source: { kind: 'telegram', interactive: true, platform: 'telegram' },
+    createdAt: now,
+    lastActivityAt: now,
+    messageCount: 2,
+    userIds: ['user-B'],
+  });
+  await store.sessions.upsert(scope, {
+    sessionId: 'sess-both',
+    source: { kind: 'cli', interactive: true },
+    createdAt: now,
+    lastActivityAt: now,
+    messageCount: 3,
+    userIds: ['user-A', 'user-B'],
+  });
+
+  // user-A should see sess-a and sess-both, not sess-b
+  const listTool = createSessionListTool({
+    security,
+    containerManager: null as any,
+    sessionStore: store.sessions,
+    storeScope: scope,
+    currentUserId: 'user-A',
+  });
+
+  const result = await listTool.execute('call-list-a', {});
+  const details = result.details as { count: number; total: number };
+  assert.equal(details.count, 2, 'user-A should see 2 sessions');
+
+  const text = getFirstText(result);
+  assert.match(text, /sess-a/);
+  assert.match(text, /sess-both/);
+  assert.ok(!text.includes('sess-only-b'), 'sess-only-b should not be visible to user-A');
+
+  // Owner (no currentUserId) should see all 3
+  const ownerListTool = createSessionListTool({
+    security,
+    containerManager: null as any,
+    sessionStore: store.sessions,
+    storeScope: scope,
+  });
+
+  const ownerResult = await ownerListTool.execute('call-list-owner', {});
+  const ownerDetails = ownerResult.details as { count: number; total: number };
+  assert.equal(ownerDetails.count, 3, 'owner should see all 3 sessions');
+});
+
+test('session_read denies access when user is not a participant', async (t) => {
+  const { security, agentId } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  const store = await DbInternalStateStore.open();
+  t.after(() => store.close());
+  const scope = { agentId };
+
+  const now = new Date().toISOString();
+  await store.sessions.upsert(scope, {
+    sessionId: 'sess-private',
+    source: { kind: 'cli', interactive: true },
+    createdAt: now,
+    lastActivityAt: now,
+    messageCount: 1,
+    userIds: ['user-owner'],
+  });
+
+  const readTool = createSessionReadTool({
+    security,
+    containerManager: null as any,
+    sessionStore: store.sessions,
+    messageStore: store.messages,
+    storeScope: scope,
+    currentUserId: 'user-intruder',
+  });
+
+  await assert.rejects(
+    () => readTool.execute('call-read-denied', { session_id: 'sess-private' }),
+    (err: any) => err.message.includes('Access denied'),
+    'should reject access for non-participant',
+  );
+});
+
+test('session_summary denies access when user is not a participant', async (t) => {
+  const { security, agentId } = await createSecurityFixture(t, {
+    secrets: { ANTHROPIC_API_KEY: 'key' },
+  });
+  await security.load();
+
+  const store = await DbInternalStateStore.open();
+  t.after(() => store.close());
+  const scope = { agentId };
+
+  const now = new Date().toISOString();
+  await store.sessions.upsert(scope, {
+    sessionId: 'sess-summary-private',
+    source: { kind: 'cli', interactive: true },
+    createdAt: now,
+    lastActivityAt: now,
+    messageCount: 1,
+    userIds: ['user-owner'],
+  });
+
+  const summaryTool = createSessionSummaryTool({
+    security,
+    containerManager: null as any,
+    sessionStore: store.sessions,
+    messageStore: store.messages,
+    storeScope: scope,
+    currentUserId: 'user-intruder',
+  });
+
+  await assert.rejects(
+    () => summaryTool.execute('call-summary-denied', { session_id: 'sess-summary-private' }),
+    (err: any) => err.message.includes('Access denied'),
+    'should reject access for non-participant',
+  );
 });
