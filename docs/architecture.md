@@ -130,9 +130,8 @@ Current shape:
 
 This file is used by:
 
-- CLI
-- local web launcher
-- future bridges and adapters
+- standalone agent-local clients
+- future bridges and adapters that connect directly to one agent
 
 Lifecycle rules:
 
@@ -155,6 +154,11 @@ It is not responsible for:
 - owning the external workspace as a source of internal truth
 - embedding scheduling policy inside heartbeat-specific logic
 - acting as a multi-agent gateway
+
+OpenHermit currently supports two runtime shapes:
+
+- standalone `apps/agent`, which exposes the agent-local API directly and writes `runtime.json`
+- managed `apps/gateway`, which hosts multiple `AgentRunner` instances in-process and exposes them under `/agents/{agentId}/...`
 
 ## LLM Stack
 
@@ -212,6 +216,22 @@ Notes:
 - callers discover that port via `runtime.json`
 - route paths do not repeat `{agentId}`
 - the API is agent-local, not a multi-agent gateway
+
+Gateway routes wrap the same session model under an agent prefix:
+
+```text
+GET /agents
+GET /agents/{agentId}/health
+POST /agents/{agentId}/sessions
+GET /agents/{agentId}/sessions
+POST /agents/{agentId}/sessions/{sessionId}/messages
+POST /agents/{agentId}/sessions/{sessionId}/approve
+POST /agents/{agentId}/sessions/{sessionId}/checkpoint
+GET /agents/{agentId}/sessions/{sessionId}/events
+WS  /agents/{agentId}/ws
+```
+
+The current CLI uses the gateway path by default. The web app is currently a static frontend server and does not read `runtime.json`.
 
 ## Containers
 

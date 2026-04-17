@@ -233,7 +233,7 @@ test('waitForAssistantTurn keeps streaming after error events until agent_end', 
   }
 });
 
-test('waitForAssistantTurn prints tool requests, starts, and result labels without bodies', async () => {
+test('waitForAssistantTurn prints tool starts and result labels without result bodies', async () => {
   const encoder = new TextEncoder();
   const originalFetch = globalThis.fetch;
   const originalStdoutWrite = process.stdout.write;
@@ -288,7 +288,6 @@ test('waitForAssistantTurn prints tool requests, starts, and result labels witho
     );
 
     assert.equal(nextEventId, 5);
-    assert.match(stdoutChunks.join(''), /\[tool requested\] write_file/);
     assert.match(stdoutChunks.join(''), /\[tool\] write_file/);
     assert.match(stdoutChunks.join(''), /"path":"files\/test.py"/);
     assert.match(stdoutChunks.join(''), /\[tool result\] write_file/);

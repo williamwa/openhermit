@@ -4,13 +4,13 @@ Status: draft plan, under discussion.
 
 ## Context
 
-OpenHermit is a single-agent-per-process runtime today. The goal is to evolve it to support:
+OpenHermit started as a single-agent-per-process runtime. The current implementation now supports managed multi-agent operation inside the gateway process, while standalone `apps/agent` remains available. The longer-term goal is still to support:
 1. **Multi-agent with shared database** — all tables scoped by `agent_id`
 2. **Workspace container** — each agent gets a persistent Docker container with the workspace mounted in
 3. **Plugin architecture** — tools, channels, webhooks, skills, hooks are per-agent configurable
 
-The three confirmed design constraints:
-- Gateway and Agent stay **separate processes** — agent can run standalone, gateway manages multiple agents
+The three current design constraints:
+- Standalone agent and managed gateway modes both remain supported
 - Workspace files are **mounted into** the workspace container from the storage volume
 - Plugin mechanism covers **more than tools** — webhooks, channels, skills, hooks — and each agent may have different plugins
 
@@ -138,31 +138,30 @@ Existing per-agent DBs get the default `'__standalone__'` — zero data migratio
 
 ## Phase 2: Multi-Agent Gateway
 
-**Goal**: Gateway manages multiple agent processes and provides a unified API.
+**Goal**: Gateway manages multiple agents and provides a unified API.
 
-**Key decision**: Each agent is its own independent process. Gateway is a reverse proxy + process manager, not an in-process host for AgentRunner instances.
+**Current implementation**: Gateway hosts `AgentRunner` instances in-process and exposes them under `/agents/{agentId}/...`.
+**Original design alternative**: Separate agent processes behind a reverse proxy. That remains a possible future direction, but it is not the current implementation.
 
 ### 2.1 Architecture
 
-```
+```text
 Gateway process (Hono)
   ├─ /agents                         — list registered agents
-  ├─ /agents/:agentId/health         — health check (proxied)
-  ├─ /agents/:agentId/sessions/...   — proxied to agent process
+  ├─ /agents/:agentId/health         — health check
+  ├─ /agents/:agentId/sessions/...   — agent-local routes with agent prefix
   └─ /agents/:agentId/manage/...     — lifecycle: start, stop, restart
         │
-        ├─ Agent process A (port 3001)  ← standalone apps/agent
-        ├─ Agent process B (port 3002)  ← standalone apps/agent
-        └─ Agent process C (port 3003)  ← standalone apps/agent
+        ├─ AgentRunner A (in-process)
+        ├─ AgentRunner B (in-process)
+        └─ AgentRunner C (in-process)
 ```
 
-Gateway does NOT import AgentRunner. It:
-- Manages agent process lifecycle (spawn, stop, health check, restart)
-- Maintains an agent registry (config + runtime state)
-- Proxies `/agents/:agentId/...` requests to the correct agent's `localhost:{port}/...`
-- Discovers agent ports via `runtime.json` or internal registry
-
-Each agent process is exactly the current `apps/agent` — no changes needed to agent code for gateway support.
+Gateway currently:
+- imports `AgentRunner` and starts runners in-process
+- maintains an agent registry in PostgreSQL
+- routes `/agents/:agentId/...` directly to the matching runner
+- sets the base URL used by channel adapters
 
 ### 2.2 Protocol Changes
 
@@ -198,8 +197,8 @@ apps/gateway/src/
   index.ts              — main entry, boot Hono server
   app.ts                — Hono app with proxy routes
   agent-registry.ts     — agent config registry (from config file or DB)
-  agent-lifecycle.ts    — spawn/stop/health-check agent processes
-  proxy.ts              — HTTP + SSE proxy to agent processes
+  agent-instance.ts     — start/stop in-process AgentRunner instances
+  ws-handler.ts         — WebSocket bridge for managed agents
 ```
 
 Agent registry stores per-agent config:
@@ -208,7 +207,7 @@ interface AgentRegistryEntry {
   agentId: string;
   workspaceRoot: string;
   status: 'registered' | 'starting' | 'running' | 'stopped' | 'error';
-  port?: number;         // discovered from runtime.json or assigned
+  port?: number;         // reserved for standalone routing / future process mode
   config?: Record<string, unknown>;  // agent-specific overrides
 }
 ```
@@ -217,14 +216,13 @@ interface AgentRegistryEntry {
 
 | | Standalone | Managed (via Gateway) |
 |---|---|---|
-| Process | One per agent | One per agent + gateway process |
+| Runtime host | `apps/agent` process | `apps/gateway` process |
+| Agent execution | One `AgentRunner` | Multiple in-process `AgentRunner`s |
 | Database | Shared PostgreSQL (scoped by `agent_id`) | Shared PostgreSQL (scoped by `agent_id`) |
-| Agent routes | `/sessions/...` | `/sessions/...` (unchanged) |
 | Client connects to | Agent directly | Gateway at `/agents/:agentId/...` |
 | Discovery | `runtime.json` | Gateway API |
-| Agent code changes | None | None |
 
-The agent process is identical in both modes. Gateway is purely additive — it proxies and manages, but never modifies agent behavior.
+Standalone and managed modes now share the same runner implementation, but not the same process topology.
 
 ---
 

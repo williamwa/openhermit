@@ -212,6 +212,49 @@ interface LiveDockerContainer {
   statusText: string;
 }
 
+class InMemoryContainerStore implements ContainerStore {
+  private readonly entries = new Map<string, ContainerRegistryEntry>();
+
+  private key(scope: StoreScope, name: string): string {
+    return `${scope.agentId}:${name}`;
+  }
+
+  async readAll(scope: StoreScope): Promise<ContainerRegistryEntry[]> {
+    const prefix = `${scope.agentId}:`;
+    return [...this.entries.entries()]
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([, entry]) => ({ ...entry }));
+  }
+
+  async findByName(
+    scope: StoreScope,
+    name: string,
+  ): Promise<ContainerRegistryEntry | undefined> {
+    const entry = this.entries.get(this.key(scope, name));
+    return entry ? { ...entry } : undefined;
+  }
+
+  async upsert(scope: StoreScope, entry: ContainerRegistryEntry): Promise<void> {
+    this.entries.set(this.key(scope, entry.name), { ...entry });
+  }
+
+  async updateByName(
+    scope: StoreScope,
+    name: string,
+    updater: (entry: ContainerRegistryEntry) => ContainerRegistryEntry,
+  ): Promise<ContainerRegistryEntry> {
+    const existing = this.entries.get(this.key(scope, name));
+
+    if (!existing) {
+      throw new NotFoundError(`Container not found in registry: ${name}`);
+    }
+
+    const updated = updater({ ...existing });
+    this.entries.set(this.key(scope, name), { ...updated });
+    return { ...updated };
+  }
+}
+
 export class DockerContainerManager {
   private readonly docker: DockerRunner;
   private readonly agentId: string;
@@ -233,9 +276,12 @@ export class DockerContainerManager {
         options.containerStore,
         options.storeScope ?? standaloneScope,
       );
+    } else {
+      this.registry = new ScopedContainerRegistry(
+        new InMemoryContainerStore(),
+        options.storeScope ?? standaloneScope,
+      );
     }
-    // When neither is provided, registry stays unset.
-    // Use DockerContainerManager.create() for the file-based fallback path.
   }
 
   static async create(

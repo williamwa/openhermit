@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { test } from 'node:test';
+import { test, type TestContext } from 'node:test';
 
 import { DbInternalStateStore } from '@openhermit/store';
 import type { StoreScope, MemoryProvider } from '@openhermit/store';
 
-async function createTestStore(t: Parameters<typeof test>[0] extends (...args: infer A) => unknown ? A extends [infer _, infer T] ? T : never : never) {
+async function createTestStore(t: TestContext) {
   const store = await DbInternalStateStore.open();
-  (t as import('node:test').TestContext).after(() => store.close());
+  t.after(() => store.close());
   return store;
 }
 
@@ -27,7 +27,7 @@ test('memory search: multi-word query matches across key and content', async (t)
 
   const results = await provider.search(scope, 'anthropic quota');
   assert.equal(results.length, 1);
-  assert.equal(results[0].id, 'incident/anthropic-quota-2026-03');
+  assert.equal(results[0]?.id, 'incident/anthropic-quota-2026-03');
 });
 
 test('memory search: individual words match even when not adjacent', async (t) => {
@@ -73,7 +73,7 @@ test('memory search: scoped to agent_id', async (t) => {
 
   const results = await provider.search(scope, 'deployment');
   assert.equal(results.length, 1);
-  assert.equal(results[0].content, 'Agent 1 memory about deployment.');
+  assert.equal(results[0]?.content, 'Agent 1 memory about deployment.');
 });
 
 test('memory search: updated content is searchable', async (t) => {

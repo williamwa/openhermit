@@ -6,6 +6,7 @@ import type { OutboundEvent, SessionMessage } from '@openhermit/protocol';
 import {
   formatDebugValue,
   writeToolStarted,
+  writeToolResult,
 } from './formatting.js';
 import type { AssistantTurnOptions, SseFrame } from './types.js';
 
@@ -203,6 +204,11 @@ export const waitForAssistantTurn = async (
               payload.text,
               payload.details,
             );
+          } else {
+            writeToolResult(
+              String(payload.tool ?? 'unknown'),
+              Boolean(payload.isError),
+            );
           }
           continue;
         }
@@ -366,6 +372,11 @@ export const streamAssistantTurn = async (
             Boolean(event.isError),
             event.text,
             event.details,
+          );
+        } else {
+          writeToolResult(
+            String(event.tool ?? 'unknown'),
+            Boolean(event.isError),
           );
         }
         continue;

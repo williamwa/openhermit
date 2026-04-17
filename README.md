@@ -136,7 +136,7 @@ That `runtime.json` is now treated as live runtime metadata:
 - agent startup refuses to continue if the file already exists
 - if startup finds a stale file, it reports that explicitly instead of silently overwriting it
 
-4. Or start the local web client:
+4. Or start the local web UI:
 
 ```bash
 npm run dev:web
@@ -144,16 +144,20 @@ npm run dev:web
 
 Then open [http://127.0.0.1:4310](http://127.0.0.1:4310).
 
-Web options:
+The current web app is a minimal static frontend served from `apps/web/public/`.
+It no longer accepts `--agent-id` or `--workspace`; only the port is configurable:
 
 ```bash
-npm run dev:web -- --agent-id main
-npm run dev:web -- --workspace /absolute/path/to/workspace
-npm run dev:web -- --port 4310
+OPENHERMIT_WEB_PORT=4310 npm run dev:web
+PORT=4310 npm run dev:web
 ```
 
-The web launcher also reads:
+5. Or start the multi-agent gateway:
 
-- `~/.openhermit/{agent-id}/runtime.json`
+```bash
+npm run dev:gateway
+```
+
+Then point the CLI at the gateway (default: `http://127.0.0.1:4000`). The current CLI talks to the gateway first, then selects an agent via `/agents/{agentId}/...`.
 
 If `tsx` is not suitable in your environment, you can build first and run the compiled entrypoints from `apps/agent/dist/`, `apps/cli/dist/`, and `apps/web/dist/`.

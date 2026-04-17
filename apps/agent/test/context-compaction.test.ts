@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
+import type { Api, Provider, StopReason, Usage } from '@mariozechner/pi-ai';
 
 import {
   estimateTextTokens,
@@ -24,9 +25,33 @@ const makeUserMessage = (text: string, ts = Date.now()): AgentMessage => ({
   timestamp: ts,
 });
 
+const stubUsage: Usage = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 0,
+  cost: {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    total: 0,
+  },
+};
+
+const assistantDefaults = {
+  api: 'anthropic-messages' as Api,
+  provider: 'anthropic' as Provider,
+  model: 'claude-sonnet-4-20250514',
+  usage: stubUsage,
+  stopReason: 'stop' as StopReason,
+};
+
 const makeAssistantMessage = (text: string, ts = Date.now()): AgentMessage => ({
   role: 'assistant',
   content: [{ type: 'text', text }],
+  ...assistantDefaults,
   timestamp: ts,
 });
 
@@ -35,6 +60,7 @@ const makeToolCallMessage = (toolName: string, ts = Date.now()): AgentMessage =>
   content: [
     { type: 'toolCall', id: `call-${toolName}`, name: toolName, arguments: {} },
   ],
+  ...assistantDefaults,
   timestamp: ts,
 });
 
@@ -43,6 +69,7 @@ const makeToolResultMessage = (toolName: string, text: string, ts = Date.now()):
   toolCallId: `call-${toolName}`,
   toolName,
   content: [{ type: 'text', text }],
+  isError: false,
   timestamp: ts,
 });
 
