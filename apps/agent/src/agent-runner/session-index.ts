@@ -9,6 +9,7 @@ export const createPersistedSessionIndexEntry = (
 ): PersistedSessionIndexEntry => ({
   sessionId: session.spec.sessionId,
   source: session.spec.source,
+  status: session.status,
   createdAt: session.createdAt,
   lastActivityAt: session.updatedAt,
   messageCount: session.messageCount,

@@ -3,6 +3,7 @@ import type {
   SessionHistoryMessage,
   SessionSource,
   SessionSpec,
+  SessionStatus,
   SessionType,
 } from '@openhermit/protocol';
 
@@ -26,6 +27,7 @@ export const standaloneScope: StoreScope = { agentId: STANDALONE_AGENT_ID };
 export interface PersistedSessionIndexEntry {
   sessionId: string;
   source: SessionSource;
+  status?: SessionStatus;
   createdAt: string;
   lastActivityAt: string;
   messageCount: number;

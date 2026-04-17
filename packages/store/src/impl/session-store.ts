@@ -42,7 +42,7 @@ export class DbSessionStore implements SessionStore {
       completedTurnCount: entry.completedTurnCount ?? 0,
       lastMessagePreview: entry.lastMessagePreview ?? null,
       metadataJson: JSON.stringify(entry.metadata ?? {}),
-      status: 'idle',
+      status: entry.status ?? 'idle',
       type: entry.type ?? entry.source.type ?? 'direct',
     };
 
