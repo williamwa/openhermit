@@ -1,10 +1,13 @@
 import type { AddressInfo } from 'node:net';
-import { pathToFileURL } from 'node:url';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { stderr } from 'node:process';
 
 import { createAdaptorServer } from '@hono/node-server';
 
 import { DbAgentStore } from '@openhermit/store';
+
+import { loadEnvironmentFile } from '@openhermit/agent/langfuse';
 
 import { AgentInstanceManager } from './agent-instance.js';
 import { createGatewayApp } from './app.js';
@@ -54,6 +57,13 @@ const listen = (
   });
 
 export const main = async (): Promise<void> => {
+  // Load .env from the project root (falls back gracefully if missing).
+  const gatewayEnvPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../.env');
+  const loadedEnvCount = await loadEnvironmentFile(gatewayEnvPath);
+  if (loadedEnvCount > 0) {
+    logStartup(`loaded ${loadedEnvCount} env var(s) from ${gatewayEnvPath}`);
+  }
+
   const instances = new AgentInstanceManager();
 
   // Open agent store if DATABASE_URL is available.

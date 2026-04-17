@@ -475,4 +475,4 @@ export const loadEnvironmentFile = async (
 };
 
 export const resolveAgentEnvPath = (): string =>
-  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.env');
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../.env');
