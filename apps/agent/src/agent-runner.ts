@@ -89,7 +89,7 @@ export class AgentRunner implements SessionRuntime {
   private static DEBUG = false;
 
   private logRuntime(message: string): void {
-    console.log(`[openhermit-agent] ${message}`);
+    console.log(`[openhermit-agent] [${this.scope.agentId}] ${message}`);
   }
 
   private logDebug(message: string): void {
