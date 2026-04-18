@@ -73,6 +73,22 @@ export interface SessionListQuery {
   limit?: number;
 }
 
+/**
+ * Identity of the caller making a WS/HTTP request.
+ * Used to resolve the internal userId before session operations.
+ * Channels attach this based on their authentication mechanism
+ * (e.g. Telegram user_id, web device UUID, OS username for CLI).
+ */
+export interface CallerIdentity {
+  channel: string;
+  channelUserId: string;
+}
+
+export const isCallerIdentity = (value: unknown): value is CallerIdentity =>
+  isRecord(value) &&
+  typeof value.channel === 'string' &&
+  typeof value.channelUserId === 'string';
+
 export type OutboundEvent =
   | { type: 'text_delta'; sessionId: string; text: string }
   | { type: 'text_final'; sessionId: string; text: string }

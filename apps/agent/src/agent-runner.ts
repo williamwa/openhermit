@@ -335,12 +335,17 @@ export class AgentRunner implements SessionRuntime {
     };
   }
 
-  async listSessions(query: SessionListQuery = {}): Promise<SessionSummary[]> {
-    const persistedSessions = await this.store.sessions.list(this.scope);
+  async listSessions(query: SessionListQuery = {}, callerUserId?: string): Promise<SessionSummary[]> {
+    const persistedSessions = await this.store.sessions.list(
+      this.scope,
+      callerUserId ? { userId: callerUserId } : undefined,
+    );
     const limit = query.limit;
     const summaries = buildSessionSummaries(
       persistedSessions,
-      this.sessions.values(),
+      callerUserId
+        ? [...this.sessions.values()].filter((s) => s.userIds.includes(callerUserId))
+        : this.sessions.values(),
       query,
       (sessionId) => this.events.getBacklog(sessionId).at(-1)?.id ?? 0,
     );
@@ -348,7 +353,22 @@ export class AgentRunner implements SessionRuntime {
     return limit !== undefined ? summaries.slice(0, limit) : summaries;
   }
 
-  async listSessionMessages(sessionId: string): Promise<SessionHistoryMessage[]> {
+  async listSessionMessages(sessionId: string, callerUserId?: string): Promise<SessionHistoryMessage[]> {
+    // Access control: if callerUserId is set, verify participation
+    if (callerUserId) {
+      const session = this.sessions.get(sessionId);
+      if (session) {
+        if (!session.userIds.includes(callerUserId)) {
+          throw new NotFoundError(`Session not found: ${sessionId}`);
+        }
+      } else {
+        const persisted = await this.store.sessions.get(this.scope, sessionId);
+        if (!persisted || !persisted.userIds?.includes(callerUserId)) {
+          throw new NotFoundError(`Session not found: ${sessionId}`);
+        }
+      }
+    }
+
     const activeSession = this.sessions.get(sessionId);
 
     if (activeSession) {
@@ -862,6 +882,17 @@ export class AgentRunner implements SessionRuntime {
   }
 
   /**
+   * Resolve a CallerIdentity to an internal userId (read-only, no auto-creation).
+   * Used by WS handlers to scope session.list / session.history before any
+   * session is opened.  Returns undefined if the identity is unknown.
+   */
+  async resolveCallerUserId(
+    caller: { channel: string; channelUserId: string },
+  ): Promise<string | undefined> {
+    return this.store.users.resolve(this.scope, caller.channel, caller.channelUserId);
+  }
+
+  /**
    * Derive a channel user ID from a session spec's metadata and source.
    * Returns undefined if no identity can be extracted.
    */
@@ -939,10 +970,10 @@ export class AgentRunner implements SessionRuntime {
     const webProvider = this.resolveWebProvider(input.config);
 
     // Role-based tool filtering:
-    // - owner: all tools (memory, instructions, exec, containers, web, user management)
-    // - user: memory, exec, containers, web (no instructions, no user management)
-    // - guest: web only (no memory, no exec, no containers, no instructions, no user management)
-    // - undefined (no user resolved): guest-level access (deny by default)
+    // - owner: all tools (memory, instructions, exec, containers, web, sessions, user management)
+    // - user: memory, exec, containers, web, sessions (no instructions, no user management)
+    // - guest (with userId): web, sessions (filtered by userId)
+    // - undefined (no user resolved): web only (no sessions — can't identify caller)
     const role = input.userRole;
     const isOwnerOrUnresolved = role === 'owner';
     const isGuestRole = !role || role === 'guest';
@@ -963,7 +994,7 @@ export class AgentRunner implements SessionRuntime {
         webProvider,
         ...(isOwnerOrUnresolved ? { instructionStore: this.store.instructions } : {}),
         ...(isOwnerOrUnresolved ? { userStore: this.store.users } : {}),
-        ...(!isGuestRole ? { sessionStore: this.store.sessions } : {}),
+        ...(isOwnerOrUnresolved || input.userId ? { sessionStore: this.store.sessions } : {}),
         ...(!isOwnerOrUnresolved && input.userId ? { currentUserId: input.userId } : {}),
         storeScope: this.scope,
         ...(!isGuestRole && input.config.workspace_container ? {

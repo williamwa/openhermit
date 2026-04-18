@@ -4,6 +4,7 @@ import type { Server as HttpServer } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 
 import {
+  isCallerIdentity,
   isSessionSpec,
   isSessionMessage,
   isToolApprovalRequest,
@@ -145,7 +146,10 @@ const handleRequest = async (
         if (typeof p.platform === 'string') query.platform = p.platform;
         if (typeof p.interactive === 'boolean') query.interactive = p.interactive;
         if (typeof p.limit === 'number') query.limit = p.limit;
-        const sessions = await runtime.listSessions(query);
+        const callerUserId = isCallerIdentity(p.caller)
+          ? await runtime.resolveCallerUserId(p.caller)
+          : undefined;
+        const sessions = await runtime.listSessions(query, callerUserId);
         sendResult(ws, id, sessions);
         return;
       }
@@ -156,7 +160,10 @@ const handleRequest = async (
           sendError(ws, id, 'INVALID_PARAMS', 'Missing sessionId.');
           return;
         }
-        const messages = await runtime.listSessionMessages(sessionId);
+        const historyCallerUserId = isCallerIdentity(p.caller)
+          ? await runtime.resolveCallerUserId(p.caller)
+          : undefined;
+        const messages = await runtime.listSessionMessages(sessionId, historyCallerUserId);
         sendResult(ws, id, messages);
         return;
       }
