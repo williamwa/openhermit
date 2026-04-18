@@ -304,17 +304,11 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
       { key: 'rules', content: 'Follow the user\'s instructions carefully. Ask for clarification when the request is ambiguous. Do not make up information.' },
     ], now);
 
-    // Start the agent runner in-process.
-    try {
-      await instances.start(record.agentId, record.configDir, record.workspaceDir);
-      log(`agent created and started: ${record.agentId}`);
-    } catch (error) {
-      log(`agent created but failed to start: ${record.agentId}: ${getErrorMessage(error)}`);
-    }
+    log(`agent created: ${record.agentId}`);
 
     return c.json({
       agentId: record.agentId,
-      status: instances.getRunner(record.agentId) ? 'running' : 'stopped',
+      status: 'stopped' as const,
       ...(record.name ? { name: record.name } : {}),
       configDir: record.configDir,
       workspaceDir: record.workspaceDir,

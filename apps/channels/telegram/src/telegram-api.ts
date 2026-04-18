@@ -51,10 +51,12 @@ export class TelegramApi {
   private async call<T>(
     method: string,
     params?: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<T> {
     const init: RequestInit = {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
+      ...(signal ? { signal } : {}),
     };
     if (params) {
       init.body = JSON.stringify(params);
@@ -79,12 +81,13 @@ export class TelegramApi {
   async getUpdates(
     offset?: number,
     timeout = 30,
+    signal?: AbortSignal,
   ): Promise<TelegramUpdate[]> {
     return this.call<TelegramUpdate[]>('getUpdates', {
       ...(offset !== undefined ? { offset } : {}),
       timeout,
       allowed_updates: ['message'],
-    });
+    }, signal);
   }
 
   async sendMessage(

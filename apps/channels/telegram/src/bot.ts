@@ -23,6 +23,7 @@ export class TelegramBot {
   private readonly log: (message: string) => void;
   private running = false;
   private pollOffset: number | undefined;
+  private pollAbort: AbortController | undefined;
   private webhookServer: Server | undefined;
 
   constructor(private readonly options: BotOptions) {
@@ -39,12 +40,14 @@ export class TelegramBot {
     if (this.options.mode === 'webhook') {
       await this.startWebhook();
     } else {
-      await this.startPolling();
+      // Fire-and-forget: polling loop runs in background so start() resolves immediately.
+      void this.startPolling();
     }
   }
 
   async stop(): Promise<void> {
     this.running = false;
+    this.pollAbort?.abort();
 
     if (this.webhookServer) {
       await new Promise<void>((resolve) => {
@@ -64,15 +67,18 @@ export class TelegramBot {
     await this.api.deleteWebhook();
     this.log('polling mode started');
 
+    this.pollAbort = new AbortController();
+
     while (this.running) {
       try {
-        const updates = await this.api.getUpdates(this.pollOffset, 30);
+        const updates = await this.api.getUpdates(this.pollOffset, 30, this.pollAbort.signal);
         for (const update of updates) {
           await this.handleUpdate(update);
           this.pollOffset = update.update_id + 1;
         }
       } catch (error) {
         if (!this.running) break;
+        if (error instanceof DOMException && error.name === 'AbortError') break;
         const message =
           error instanceof Error ? error.message : String(error);
         this.log(`polling error: ${message}`);
