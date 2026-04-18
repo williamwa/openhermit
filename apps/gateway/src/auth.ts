@@ -23,7 +23,7 @@ import { SignJWT, jwtVerify, type JWTPayload } from 'jose';
 /** Verified identity attached to every authenticated request. */
 export interface AuthContext {
   /** Authentication mode that produced this context. */
-  mode: 'user' | 'channel';
+  mode: 'user' | 'channel' | 'admin';
 
   /** Resolved internal userId (may be undefined for first-time users). */
   userId?: string;
@@ -295,6 +295,8 @@ export interface AuthResolverOptions {
   channels: ChannelRegistry;
   /** JWT configuration. */
   jwt: JwtConfig;
+  /** Admin token — grants full access when used as Bearer token. */
+  adminToken?: string | undefined;
 }
 
 /**
@@ -331,6 +333,11 @@ export const resolveAuth = async (
   }
 
   if (bearerToken) {
+    // 0. Admin token — full access
+    if (options.adminToken && bearerToken === options.adminToken) {
+      return { mode: 'admin' as const, channel: 'admin', channelUserId: 'admin' };
+    }
+
     // 1. Try JWT
     const jwtPayload = await verifyJwt(options.jwt, bearerToken);
     if (jwtPayload) {

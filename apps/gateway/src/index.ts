@@ -89,13 +89,14 @@ export const main = async (): Promise<void> => {
   if (!process.env.GATEWAY_JWT_SECRET) {
     logStartup('GATEWAY_JWT_SECRET not set — using ephemeral secret (tokens will not survive restarts)');
   }
+  const adminToken = process.env.GATEWAY_ADMIN_TOKEN;
+
   const auth: AuthResolverOptions = {
     userProviders: [new DeviceKeyAuthProvider()],
     channels,
     jwt: jwtConfig,
+    adminToken,
   };
-
-  const adminToken = process.env.GATEWAY_ADMIN_TOKEN;
   if (!adminToken) {
     logStartup('GATEWAY_ADMIN_TOKEN not set — admin API endpoints are disabled');
   }
