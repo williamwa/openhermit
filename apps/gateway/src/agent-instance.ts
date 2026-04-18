@@ -93,7 +93,7 @@ export class AgentInstanceManager {
           const handles = await startChannels(config.channels, {
             agentBaseUrl,
             agentToken: '', // In-process, no auth needed for now
-            logger: log,
+            logger: (msg) => log(`[${agentId}] [telegram] ${msg}`),
           });
           if (handles.length > 0) {
             this.channelHandles.set(agentId, handles);
