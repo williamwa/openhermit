@@ -2,7 +2,7 @@ import type { AgentTool } from '@mariozechner/pi-agent-core';
 import { ValidationError } from '@openhermit/shared';
 import type { InstructionStore, MemoryProvider, MessageStore, SessionStore, StoreScope, UserStore } from '@openhermit/store';
 
-import { AgentSecurity, type DockerContainerManager, type WorkspaceContainerConfig } from '../core/index.js';
+import { AgentSecurity, type DockerContainerManager, type ExecBackendManager, type WorkspaceContainerConfig } from '../core/index.js';
 import type { WebProvider } from '../web/index.js';
 
 export interface Toolset {
@@ -63,6 +63,7 @@ export interface ToolContext {
   storeScope?: StoreScope;
   agentId?: string;
   workspaceContainerConfig?: WorkspaceContainerConfig;
+  execBackendManager?: ExecBackendManager;
   onExec?: () => void;
   approvalCallback?: ApprovalCallback;
   approvedCache?: Set<string>;

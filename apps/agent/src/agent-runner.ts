@@ -15,6 +15,7 @@ import {
   AgentWorkspace,
   DEFAULT_INTROSPECTION_CONFIG,
   DockerContainerManager,
+  ExecBackendManager,
   type AgentConfig,
 } from './core/index.js';
 import { ApprovalGate } from './agent-runner/approval-gate.js';
@@ -75,6 +76,8 @@ export class AgentRunner implements SessionRuntime {
 
   private readonly containerManager: DockerContainerManager;
 
+  private execBackendManager: ExecBackendManager | undefined;
+
   private readonly store: InternalStateStore;
 
   private readonly scope: StoreScope;
@@ -117,6 +120,21 @@ export class AgentRunner implements SessionRuntime {
     return new AgentRunner(options, store);
   }
 
+  private getOrCreateExecBackendManager(config: AgentConfig): ExecBackendManager {
+    if (!this.execBackendManager) {
+      this.execBackendManager = ExecBackendManager.fromConfig(
+        config.exec,
+        config.workspace_container,
+        {
+          containerManager: this.containerManager,
+          agentId: this.scope.agentId,
+          workspaceDir: this.options.workspace.root,
+        },
+      );
+    }
+    return this.execBackendManager;
+  }
+
   resetWorkspaceIdleTimer(config: import('./core/types.js').WorkspaceContainerConfig): void {
     if (this.workspaceIdleTimer) {
       clearTimeout(this.workspaceIdleTimer);
@@ -152,8 +170,13 @@ export class AgentRunner implements SessionRuntime {
       config.workspace_container &&
       (config.workspace_container.lifecycle?.stop ?? 'idle') === 'session'
     ) {
-      await this.containerManager.stopWorkspaceContainer(this.scope.agentId);
-      this.logRuntime('workspace container stopped (session end)');
+      if (this.execBackendManager) {
+        await this.execBackendManager.shutdownAll();
+        this.logRuntime('exec backends shut down (session end)');
+      } else {
+        await this.containerManager.stopWorkspaceContainer(this.scope.agentId);
+        this.logRuntime('workspace container stopped (session end)');
+      }
     }
   }
 
@@ -1009,10 +1032,13 @@ export class AgentRunner implements SessionRuntime {
         ...(isOwnerOrUnresolved || input.userId ? { sessionStore: this.store.sessions } : {}),
         ...(!isOwnerOrUnresolved && input.userId ? { currentUserId: input.userId } : {}),
         storeScope: this.scope,
-        ...(!isGuestRole && input.config.workspace_container ? {
+        ...(!isGuestRole ? {
           agentId: this.scope.agentId,
-          workspaceContainerConfig: input.config.workspace_container,
-          onExec: () => this.resetWorkspaceIdleTimer(input.config.workspace_container!),
+          execBackendManager: this.getOrCreateExecBackendManager(input.config),
+          ...(input.config.workspace_container ? {
+            workspaceContainerConfig: input.config.workspace_container,
+            onExec: () => this.resetWorkspaceIdleTimer(input.config.workspace_container!),
+          } : {}),
         } : {}),
         ...(input.approvalCallback ? { approvalCallback: input.approvalCallback } : {}),
         ...(input.approvedCache ? { approvedCache: input.approvedCache } : {}),
