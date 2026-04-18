@@ -66,6 +66,7 @@ export type ExecBackendConfig =
 export interface ExecConfig {
   backends: ExecBackendConfig[];
   default_backend?: string;
+  lifecycle?: WorkspaceContainerLifecycle;
 }
 
 // ── Backend factory registry ──────────────────────────────────────────────
@@ -302,10 +303,9 @@ export class ExecBackendManager {
     }
   }
 
-  /** Create from config, normalizing legacy workspace_container if needed. */
+  /** Create from config. Falls back to a local backend when no config is provided. */
   static fromConfig(
     execConfig: ExecConfig | undefined,
-    legacyContainer: WorkspaceContainerConfig | undefined,
     context: BackendFactoryContext,
   ): ExecBackendManager {
     let configs: ExecBackendConfig[];
@@ -314,15 +314,6 @@ export class ExecBackendManager {
     if (execConfig && execConfig.backends.length > 0) {
       configs = execConfig.backends;
       defaultId = execConfig.default_backend;
-    } else if (legacyContainer) {
-      configs = [{
-        type: 'docker' as const,
-        id: 'docker',
-        image: legacyContainer.image,
-        ...(legacyContainer.memory_limit ? { memory_limit: legacyContainer.memory_limit } : {}),
-        ...(legacyContainer.cpu_shares ? { cpu_shares: legacyContainer.cpu_shares } : {}),
-        ...(legacyContainer.lifecycle ? { lifecycle: legacyContainer.lifecycle } : {}),
-      }];
     } else {
       // No exec config at all — create a local backend as fallback.
       configs = [{ type: 'local', id: 'local' }];

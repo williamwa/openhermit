@@ -113,7 +113,6 @@ export interface AgentRuntimeConfig {
   model: AgentModelConfig;
   http_api: HttpApiConfig;
   memory: MemoryConfig;
-  workspace_container?: WorkspaceContainerConfig;
   exec?: import('./exec-backend.js').ExecConfig;
   web?: WebConfig;
   channels?: ChannelsConfig;

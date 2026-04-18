@@ -32,31 +32,7 @@ export const createWorkspaceExecTool = (
   execute: async (_toolCallId, args: WorkspaceExecArgs) => {
     ensureAutonomyAllows(context.security, 'exec');
 
-    // Prefer ExecBackendManager if available, fall back to legacy containerManager.
-    if (context.execBackendManager) {
-      const backend = context.execBackendManager.get(args.backend);
-      await backend.ensure();
-      context.onExec?.();
-      const result = await backend.exec(args.command);
-
-      const details = {
-        stdout: result.stdout,
-        stderr: result.stderr,
-        exitCode: result.exitCode,
-        durationMs: result.durationMs,
-        ...(result.parsedOutput !== undefined
-          ? { parsedOutput: result.parsedOutput }
-          : {}),
-      };
-
-      return {
-        content: asTextContent(formatJson(details)),
-        details,
-      };
-    }
-
-    // Legacy path: direct containerManager usage.
-    if (!context.agentId || !context.workspaceContainerConfig) {
+    if (!context.execBackendManager) {
       return {
         content: asTextContent(
           'exec is unavailable: no execution backend configured for this agent.',
@@ -65,17 +41,10 @@ export const createWorkspaceExecTool = (
       };
     }
 
-    await context.containerManager.ensureWorkspaceContainer(
-      context.agentId,
-      context.workspaceContainerConfig,
-    );
-
+    const backend = context.execBackendManager.get(args.backend);
+    await backend.ensure();
     context.onExec?.();
-
-    const result = await context.containerManager.execInWorkspace(
-      context.agentId,
-      args.command,
-    );
+    const result = await backend.exec(args.command);
 
     const details = {
       stdout: result.stdout,

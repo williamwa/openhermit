@@ -124,7 +124,6 @@ export class AgentRunner implements SessionRuntime {
     if (!this.execBackendManager) {
       this.execBackendManager = ExecBackendManager.fromConfig(
         config.exec,
-        config.workspace_container,
         {
           containerManager: this.containerManager,
           agentId: this.scope.agentId,
@@ -135,19 +134,19 @@ export class AgentRunner implements SessionRuntime {
     return this.execBackendManager;
   }
 
-  resetWorkspaceIdleTimer(config: import('./core/types.js').WorkspaceContainerConfig): void {
+  resetWorkspaceIdleTimer(lifecycle: import('./core/types.js').WorkspaceContainerLifecycle | undefined): void {
     if (this.workspaceIdleTimer) {
       clearTimeout(this.workspaceIdleTimer);
       this.workspaceIdleTimer = undefined;
     }
 
-    const stopPolicy = config.lifecycle?.stop ?? 'idle';
+    const stopPolicy = lifecycle?.stop ?? 'idle';
 
     if (stopPolicy !== 'idle') {
       return;
     }
 
-    const timeoutMs = (config.lifecycle?.idle_timeout_minutes ?? 30) * 60_000;
+    const timeoutMs = (lifecycle?.idle_timeout_minutes ?? 30) * 60_000;
 
     this.workspaceIdleTimer = setTimeout(() => {
       this.workspaceIdleTimer = undefined;
@@ -167,8 +166,7 @@ export class AgentRunner implements SessionRuntime {
     }
 
     if (
-      config.workspace_container &&
-      (config.workspace_container.lifecycle?.stop ?? 'idle') === 'session'
+      (config.exec?.lifecycle?.stop ?? 'idle') === 'session'
     ) {
       if (this.execBackendManager) {
         await this.execBackendManager.shutdownAll();
@@ -263,14 +261,11 @@ export class AgentRunner implements SessionRuntime {
     }
 
     if (
-      config.workspace_container &&
-      (config.workspace_container.lifecycle?.start ?? 'ondemand') === 'session'
+      (config.exec?.lifecycle?.start ?? 'ondemand') === 'session'
     ) {
-      await this.containerManager.ensureWorkspaceContainer(
-        this.scope.agentId,
-        config.workspace_container,
-      );
-      this.logRuntime(`workspace container ensured for agent ${this.scope.agentId}`);
+      const manager = this.getOrCreateExecBackendManager(config);
+      await manager.getDefault().ensure();
+      this.logRuntime(`exec backend ensured for agent ${this.scope.agentId}`);
     }
 
     const approvalGate = new ApprovalGate();
@@ -1035,10 +1030,7 @@ export class AgentRunner implements SessionRuntime {
         ...(!isGuestRole ? {
           agentId: this.scope.agentId,
           execBackendManager: this.getOrCreateExecBackendManager(input.config),
-          ...(input.config.workspace_container ? {
-            workspaceContainerConfig: input.config.workspace_container,
-            onExec: () => this.resetWorkspaceIdleTimer(input.config.workspace_container!),
-          } : {}),
+          onExec: () => this.resetWorkspaceIdleTimer(input.config.exec?.lifecycle),
         } : {}),
         ...(input.approvalCallback ? { approvalCallback: input.approvalCallback } : {}),
         ...(input.approvedCache ? { approvedCache: input.approvedCache } : {}),
