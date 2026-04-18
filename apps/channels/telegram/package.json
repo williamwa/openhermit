@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@openhermit/sdk": "0.1.0",
-    "@openhermit/shared": "0.1.0"
-  }
+    "@openhermit/shared": "0.1.0",
+    "marked": "^15.0.12"
+  },
+  "devDependencies": {}
 }

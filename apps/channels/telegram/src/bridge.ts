@@ -6,7 +6,7 @@
 import { AgentLocalClient } from '@openhermit/sdk';
 
 import type { TelegramApi, TelegramMessage } from './telegram-api.js';
-import { formatAgentResponse } from './formatting.js';
+import { formatAgentResponse, markdownToTelegramHtml } from './formatting.js';
 
 /** SSE frame parsed from the agent event stream. */
 interface SseFrame {
@@ -168,7 +168,7 @@ export class TelegramBridge {
     } else if (result.text) {
       const chunks = formatAgentResponse(result.text);
       for (const chunk of chunks) {
-        await this.telegram.sendMessage(chatId, chunk);
+        await this.telegram.sendMessage(chatId, chunk.text, { parseMode: chunk.parseMode });
       }
     }
   }
@@ -337,11 +337,12 @@ export class TelegramBridge {
 
     this.lastEventIds.set(sessionId, nextLastEventId);
 
-    // Final edit to show complete text (remove trailing " ...").
+    // Final edit to show complete text with HTML formatting (remove trailing " ...").
     const responseText = finalText ?? (accumulatedText.trim() || undefined);
     if (sentMessageId && responseText) {
+      const html = markdownToTelegramHtml(responseText);
       void this.telegram
-        .editMessageText(chatId, sentMessageId, responseText)
+        .editMessageText(chatId, sentMessageId, html, { parseMode: 'HTML' })
         .catch(() => undefined);
     }
 
