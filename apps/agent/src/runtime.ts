@@ -43,8 +43,10 @@ export interface SessionDescriptor {
 export interface SessionRuntime {
   readonly events: SessionEventBroker;
   openSession(spec: SessionSpec): Promise<SessionDescriptor>;
-  listSessions(query?: SessionListQuery): Promise<SessionSummary[]>;
-  listSessionMessages(sessionId: string): Promise<SessionHistoryMessage[]>;
+  listSessions(query?: SessionListQuery, callerUserId?: string): Promise<SessionSummary[]>;
+  listSessionMessages(sessionId: string, callerUserId?: string): Promise<SessionHistoryMessage[]>;
+  /** Resolve a channel identity to an internal userId (read-only). */
+  resolveCallerUserId?(caller: { channel: string; channelUserId: string }): Promise<string | undefined>;
   checkpointSession(
     sessionId: string,
     reason?: 'manual' | 'new_session' | 'turn_limit' | 'idle',
@@ -188,7 +190,7 @@ export class InMemoryAgentRuntime implements SessionRuntime {
     return this.sessions.get(sessionId);
   }
 
-  async listSessions(query: SessionListQuery = {}): Promise<SessionSummary[]> {
+  async listSessions(query: SessionListQuery = {}, _callerUserId?: string): Promise<SessionSummary[]> {
     const limit = query.limit;
     const summaries = [...this.sessions.values()]
       .map((session) => ({
@@ -211,7 +213,7 @@ export class InMemoryAgentRuntime implements SessionRuntime {
     return limit !== undefined ? summaries.slice(0, limit) : summaries;
   }
 
-  async listSessionMessages(sessionId: string): Promise<SessionHistoryMessage[]> {
+  async listSessionMessages(sessionId: string, _callerUserId?: string): Promise<SessionHistoryMessage[]> {
     const session = this.sessions.get(sessionId);
 
     if (!session) {

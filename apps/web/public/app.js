@@ -1,15 +1,48 @@
 // ─── Storage ────────────────────────────────────────────────────────────────
 
 const STORAGE_KEY = 'openhermit_connection';
-const DEVICE_ID_KEY = 'openhermit_device_id';
+const DEVICE_KEY_STORAGE = 'openhermit_device_key';
 
-const getDeviceId = () => {
-  let id = localStorage.getItem(DEVICE_ID_KEY);
-  if (!id) {
-    id = `web:${crypto.randomUUID()}`;
-    localStorage.setItem(DEVICE_ID_KEY, id);
+// ─── Device Key (ECDSA P-256) ───────────────────────────────────────────────
+
+const bufToBase64url = (buf) => {
+  const bytes = new Uint8Array(buf);
+  let binary = '';
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+};
+
+const loadOrCreateKeyPair = async () => {
+  const stored = localStorage.getItem(DEVICE_KEY_STORAGE);
+  if (stored) {
+    try {
+      const { publicKey, privateKey } = JSON.parse(stored);
+      return {
+        publicKey: await crypto.subtle.importKey('jwk', publicKey, { name: 'ECDSA', namedCurve: 'P-256' }, true, ['verify']),
+        privateKey: await crypto.subtle.importKey('jwk', privateKey, { name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign']),
+      };
+    } catch {
+      localStorage.removeItem(DEVICE_KEY_STORAGE);
+    }
   }
-  return id;
+  const keyPair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  const exported = {
+    publicKey: await crypto.subtle.exportKey('jwk', keyPair.publicKey),
+    privateKey: await crypto.subtle.exportKey('jwk', keyPair.privateKey),
+  };
+  localStorage.setItem(DEVICE_KEY_STORAGE, JSON.stringify(exported));
+  return keyPair;
+};
+
+let deviceKeyPair = null;
+
+const getDeviceKeyHeader = async () => {
+  if (!deviceKeyPair) deviceKeyPair = await loadOrCreateKeyPair();
+  const rawPub = await crypto.subtle.exportKey('raw', deviceKeyPair.publicKey);
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const payload = new TextEncoder().encode(timestamp);
+  const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, deviceKeyPair.privateKey, payload);
+  return `${bufToBase64url(rawPub)}.${timestamp}.${bufToBase64url(signature)}`;
 };
 
 const loadConnection = () => {
@@ -36,15 +69,14 @@ let authHeaders = {};
 const setConnection = (conn) => {
   const base = conn.gatewayUrl.replace(/\/+$/, '');
   apiBase = `${base}/agents/${encodeURIComponent(conn.agentId)}`;
-  authHeaders = conn.token
-    ? { authorization: `Bearer ${conn.token}` }
-    : {};
+  authHeaders = conn.token ? { authorization: `Bearer ${conn.token}` } : {};
 };
 
 // ─── Fetch helper ───────────────────────────────────────────────────────────
 
-const apiFetch = (path, options = {}) => {
-  const headers = { ...authHeaders, ...(options.headers || {}) };
+const apiFetch = async (path, options = {}) => {
+  const deviceKey = await getDeviceKeyHeader();
+  const headers = { ...authHeaders, 'x-device-key': deviceKey, ...(options.headers || {}) };
   return fetch(`${apiBase}${path}`, { ...options, headers });
 };
 
@@ -421,7 +453,7 @@ const selectSession = async (sessionId) => {
   await apiFetch('/sessions', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ sessionId, source: { kind: 'web', interactive: true }, metadata: { username: getDeviceId() } }),
+    body: JSON.stringify({ sessionId, source: { kind: 'web', interactive: true }, metadata: {} }),
   });
 
   const summary = state.sessions.find((s) => s.sessionId === sessionId);
@@ -447,7 +479,7 @@ const createAndSelectSession = async () => {
   await apiFetch('/sessions', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ sessionId, source: { kind: 'web', interactive: true }, metadata: { username: getDeviceId() } }),
+    body: JSON.stringify({ sessionId, source: { kind: 'web', interactive: true }, metadata: {} }),
   });
   await refreshSessions();
   await selectSession(sessionId);

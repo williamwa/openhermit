@@ -6,7 +6,11 @@
 import { AgentLocalClient } from '@openhermit/sdk';
 
 import type { TelegramApi, TelegramMessage } from './telegram-api.js';
-import { formatAgentResponse } from './formatting.js';
+import {
+  formatAgentResponse,
+  markdownToTelegramHtml,
+  streamingMarkdownToTelegramHtml,
+} from './formatting.js';
 
 /** SSE frame parsed from the agent event stream. */
 interface SseFrame {
@@ -168,7 +172,7 @@ export class TelegramBridge {
     } else if (result.text) {
       const chunks = formatAgentResponse(result.text);
       for (const chunk of chunks) {
-        await this.telegram.sendMessage(chatId, chunk);
+        await this.telegram.sendMessage(chatId, chunk.text, { parseMode: chunk.parseMode });
       }
     }
   }
@@ -289,9 +293,11 @@ export class TelegramBridge {
             const now = Date.now();
             if (!sentMessageId && accumulatedText.length > 0) {
               try {
+                const html = streamingMarkdownToTelegramHtml(accumulatedText);
                 const sent = await this.telegram.sendMessage(
                   chatId,
-                  accumulatedText + ' ...',
+                  html + ' ...',
+                  { parseMode: 'HTML' },
                 );
                 sentMessageId = sent.message_id;
                 lastEditTime = now;
@@ -302,8 +308,9 @@ export class TelegramBridge {
               sentMessageId &&
               now - lastEditTime >= EDIT_THROTTLE_MS
             ) {
+              const html = streamingMarkdownToTelegramHtml(accumulatedText);
               void this.telegram
-                .editMessageText(chatId, sentMessageId, accumulatedText + ' ...')
+                .editMessageText(chatId, sentMessageId, html + ' ...', { parseMode: 'HTML' })
                 .catch(() => undefined);
               lastEditTime = now;
             }
@@ -337,12 +344,18 @@ export class TelegramBridge {
 
     this.lastEventIds.set(sessionId, nextLastEventId);
 
-    // Final edit to show complete text (remove trailing " ...").
+    // Final edit to show complete text with HTML formatting (remove trailing " ...").
     const responseText = finalText ?? (accumulatedText.trim() || undefined);
     if (sentMessageId && responseText) {
-      void this.telegram
-        .editMessageText(chatId, sentMessageId, responseText)
-        .catch(() => undefined);
+      try {
+        const html = markdownToTelegramHtml(responseText);
+        await this.telegram.editMessageText(chatId, sentMessageId, html, { parseMode: 'HTML' });
+      } catch {
+        // HTML parse failed — fall back to plain text.
+        void this.telegram
+          .editMessageText(chatId, sentMessageId, responseText)
+          .catch(() => undefined);
+      }
     }
 
     return {
