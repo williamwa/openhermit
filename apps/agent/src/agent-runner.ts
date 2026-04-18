@@ -385,20 +385,25 @@ export class AgentRunner implements SessionRuntime {
     return limit !== undefined ? summaries.slice(0, limit) : summaries;
   }
 
+  /** Verify that callerUserId is a participant of the session. Throws NotFoundError if not. */
+  async verifySessionAccess(sessionId: string, callerUserId: string): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (session) {
+      if (!session.userIds.includes(callerUserId)) {
+        throw new NotFoundError(`Session not found: ${sessionId}`);
+      }
+      return;
+    }
+    const persisted = await this.store.sessions.get(this.scope, sessionId);
+    if (!persisted || !persisted.userIds?.includes(callerUserId)) {
+      throw new NotFoundError(`Session not found: ${sessionId}`);
+    }
+  }
+
   async listSessionMessages(sessionId: string, callerUserId?: string): Promise<SessionHistoryMessage[]> {
     // Access control: if callerUserId is set, verify participation
     if (callerUserId) {
-      const session = this.sessions.get(sessionId);
-      if (session) {
-        if (!session.userIds.includes(callerUserId)) {
-          throw new NotFoundError(`Session not found: ${sessionId}`);
-        }
-      } else {
-        const persisted = await this.store.sessions.get(this.scope, sessionId);
-        if (!persisted || !persisted.userIds?.includes(callerUserId)) {
-          throw new NotFoundError(`Session not found: ${sessionId}`);
-        }
-      }
+      await this.verifySessionAccess(sessionId, callerUserId);
     }
 
     const activeSession = this.sessions.get(sessionId);

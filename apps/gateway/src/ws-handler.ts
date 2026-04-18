@@ -61,6 +61,18 @@ const sendEvent = (ws: WebSocket, envelope: SessionEventEnvelope): void => {
   } as WsEvent);
 };
 
+/** Require auth on the connection, returning callerUserId. */
+const requireWsAuth = async (
+  conn: WsConnection,
+  runtime: AgentRunner,
+): Promise<string | undefined> => {
+  if (!conn.auth) return undefined;
+  return runtime.resolveCallerUserId({
+    channel: conn.auth.channel,
+    channelUserId: conn.auth.channelUserId,
+  });
+};
+
 const handleRequest = async (
   conn: WsConnection,
   request: WsRequest,
@@ -71,6 +83,14 @@ const handleRequest = async (
   const p = (params ?? {}) as Record<string, unknown>;
 
   try {
+    // All methods require authentication
+    if (!conn.auth) {
+      sendError(ws, id, 'INVALID_PARAMS', 'Authentication required.');
+      return;
+    }
+
+    const callerUserId = await requireWsAuth(conn, runtime);
+
     switch (method) {
       case 'session.open': {
         if (!isSessionSpec(p)) {
@@ -78,7 +98,7 @@ const handleRequest = async (
           return;
         }
         // Inject authenticated identity into session metadata
-        if (conn.auth?.mode === 'user' && conn.auth.channelUserId) {
+        if (conn.auth.mode === 'user' && conn.auth.channelUserId) {
           p.metadata = { ...(p.metadata as Record<string, unknown> ?? {}), username: conn.auth.channelUserId };
         }
         const session = await runtime.openSession(p);
@@ -91,6 +111,10 @@ const handleRequest = async (
         if (typeof sessionId !== 'string') {
           sendError(ws, id, 'INVALID_PARAMS', 'Missing sessionId.');
           return;
+        }
+        // Verify caller is a participant
+        if (callerUserId) {
+          await runtime.verifySessionAccess(sessionId, callerUserId);
         }
         const message = {
           text: p.text,
@@ -113,6 +137,9 @@ const handleRequest = async (
           sendError(ws, id, 'INVALID_PARAMS', 'Missing sessionId.');
           return;
         }
+        if (callerUserId) {
+          await runtime.verifySessionAccess(sessionId, callerUserId);
+        }
         const approval = { toolCallId: p.toolCallId, approved: p.approved };
         if (!isToolApprovalRequest(approval)) {
           sendError(ws, id, 'INVALID_PARAMS', 'Invalid approval params.');
@@ -133,6 +160,9 @@ const handleRequest = async (
           sendError(ws, id, 'INVALID_PARAMS', 'Missing sessionId.');
           return;
         }
+        if (callerUserId) {
+          await runtime.verifySessionAccess(sessionId, callerUserId);
+        }
         const body = { reason: p.reason };
         if (!isSessionCheckpointRequest(body)) {
           sendError(ws, id, 'INVALID_PARAMS', 'Invalid checkpoint params.');
@@ -152,8 +182,6 @@ const handleRequest = async (
         if (typeof p.platform === 'string') query.platform = p.platform;
         if (typeof p.interactive === 'boolean') query.interactive = p.interactive;
         if (typeof p.limit === 'number') query.limit = p.limit;
-        if (!conn.auth) { sendResult(ws, id, []); return; }
-        const callerUserId = await runtime.resolveCallerUserId({ channel: conn.auth.channel, channelUserId: conn.auth.channelUserId });
         if (!callerUserId) { sendResult(ws, id, []); return; }
         sendResult(ws, id, await runtime.listSessions(query, callerUserId));
         return;
@@ -165,10 +193,8 @@ const handleRequest = async (
           sendError(ws, id, 'INVALID_PARAMS', 'Missing sessionId.');
           return;
         }
-        if (!conn.auth) { sendError(ws, id, 'INVALID_PARAMS', 'Session not found.'); return; }
-        const historyCallerUserId = await runtime.resolveCallerUserId({ channel: conn.auth.channel, channelUserId: conn.auth.channelUserId });
-        if (!historyCallerUserId) { sendError(ws, id, 'INVALID_PARAMS', 'Session not found.'); return; }
-        sendResult(ws, id, await runtime.listSessionMessages(sessionId, historyCallerUserId));
+        if (!callerUserId) { sendError(ws, id, 'INVALID_PARAMS', 'Session not found.'); return; }
+        sendResult(ws, id, await runtime.listSessionMessages(sessionId, callerUserId));
         return;
       }
 
@@ -177,6 +203,10 @@ const handleRequest = async (
         if (typeof sessionId !== 'string') {
           sendError(ws, id, 'INVALID_PARAMS', 'Missing sessionId.');
           return;
+        }
+        // Verify caller is a participant before subscribing to events
+        if (callerUserId) {
+          await runtime.verifySessionAccess(sessionId, callerUserId);
         }
         conn.subscriptions.get(sessionId)?.();
         const afterEventId = typeof p.lastEventId === 'number' ? p.lastEventId : 0;
@@ -256,7 +286,7 @@ export const attachGatewayWs = (
       return;
     }
 
-    // Resolve auth from the upgrade request headers.
+    // Resolve auth from the upgrade request (headers + query param).
     let auth: AuthContext | undefined;
     if (options.auth) {
       const headers = new Headers();
@@ -269,8 +299,15 @@ export const attachGatewayWs = (
       if (resolved) auth = resolved;
     }
 
+    // Reject unauthenticated WS connections
+    if (!auth) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+
     wss.handleUpgrade(request, socket, head, (ws) => {
-      log(`[ws] client connected for agent ${agentId}${auth ? ` (${auth.mode}:${auth.channelUserId || 'channel'})` : ''}`);
+      log(`[ws] client connected for agent ${agentId} (${auth!.mode}:${auth!.channelUserId || 'channel'})`);
 
       const conn: WsConnection = {
         ws,
@@ -280,7 +317,7 @@ export const attachGatewayWs = (
             ws.ping();
           }
         }, WS_PING_INTERVAL_MS),
-        ...(auth ? { auth } : {}),
+        auth,
       };
 
       ws.on('message', (data) => {

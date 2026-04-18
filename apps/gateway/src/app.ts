@@ -421,6 +421,15 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const sessionId = c.req.param('sessionId') ?? '';
     const auth = requireAuth(c);
     const runtime = resolveRunner(instances, agentId);
+
+    // Verify caller is a participant (user mode only; channels handle identity per-message)
+    if (auth.mode === 'user') {
+      const msgCallerUserId = await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId });
+      if (msgCallerUserId) {
+        await runtime.verifySessionAccess(sessionId, msgCallerUserId);
+      }
+    }
+
     const payload = await c.req.json().catch(() => null);
 
     if (!isSessionMessage(payload)) {
@@ -589,8 +598,12 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   app.post(gatewayRoutes.agentSessionApprovePattern, async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     const sessionId = c.req.param('sessionId') ?? '';
-    requireAuth(c);
+    const approveAuth = requireAuth(c);
     const runtime = resolveRunner(instances, agentId);
+    const approveCallerId = await runtime.resolveCallerUserId({ channel: approveAuth.channel, channelUserId: approveAuth.channelUserId });
+    if (approveCallerId) {
+      await runtime.verifySessionAccess(sessionId, approveCallerId);
+    }
     const payload = await c.req.json().catch(() => null);
 
     if (!isToolApprovalRequest(payload)) {
@@ -611,8 +624,12 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   app.post(gatewayRoutes.agentSessionCheckpointPattern, async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     const sessionId = c.req.param('sessionId') ?? '';
-    requireAuth(c);
+    const cpAuth = requireAuth(c);
     const runtime = resolveRunner(instances, agentId);
+    const cpCallerId = await runtime.resolveCallerUserId({ channel: cpAuth.channel, channelUserId: cpAuth.channelUserId });
+    if (cpCallerId) {
+      await runtime.verifySessionAccess(sessionId, cpCallerId);
+    }
     const payload = await c.req.json().catch(() => ({}));
 
     if (!isSessionCheckpointRequest(payload)) {
@@ -632,8 +649,13 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   app.get(gatewayRoutes.agentSessionEventsPattern, async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     const sessionId = c.req.param('sessionId') ?? '';
-    requireAuth(c);
+    const auth = requireAuth(c);
     const runtime = resolveRunner(instances, agentId);
+    // Verify caller is a participant
+    const eventsCallerUserId = await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId });
+    if (eventsCallerUserId) {
+      await runtime.verifySessionAccess(sessionId, eventsCallerUserId);
+    }
 
     return streamSSE(c, async (stream) => {
       for (const envelope of runtime.events.getBacklog(sessionId)) {
