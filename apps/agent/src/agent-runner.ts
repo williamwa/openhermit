@@ -187,6 +187,13 @@ export class AgentRunner implements SessionRuntime {
       // since the session was first created.
       await this.ensureOwnerBootstrap(existing.spec, now);
       const { userId, role, userName } = await this.resolveSessionUser(existing.spec, now);
+
+      // Access control: only allow reopen if the resolved user is already
+      // a participant or is the owner.  Don't silently add strangers.
+      if (userId && !existing.userIds.includes(userId) && role !== 'owner') {
+        throw new NotFoundError(`Session not found: ${spec.sessionId}`);
+      }
+
       if (userId) existing.resolvedUserId = userId;
       if (role) existing.resolvedUserRole = role;
       if (userName) existing.resolvedUserName = userName;
@@ -226,6 +233,11 @@ export class AgentRunner implements SessionRuntime {
     // Resolve user identity for this session
     const { userId: resolvedUserId, role: resolvedUserRole, userName: resolvedUserName } =
       await this.resolveSessionUser(effectiveSpec, now);
+
+    // Access control on reopen: non-owner users must already be participants
+    if (persisted && resolvedUserId && !persisted.userIds?.includes(resolvedUserId) && resolvedUserRole !== 'owner') {
+      throw new NotFoundError(`Session not found: ${spec.sessionId}`);
+    }
 
     if (
       config.workspace_container &&
