@@ -5,6 +5,7 @@
  */
 
 import { marked } from 'marked';
+import remend from 'remend';
 
 const TELEGRAM_MAX_LENGTH = 4096;
 
@@ -83,6 +84,14 @@ export interface FormattedChunk {
 }
 
 export { markdownToTelegramHtml };
+
+/**
+ * Convert incomplete streaming Markdown to Telegram HTML.
+ * Uses remend to auto-close unclosed formatting before converting.
+ */
+export function streamingMarkdownToTelegramHtml(partial: string): string {
+  return markdownToTelegramHtml(remend(partial, { linkMode: 'text-only' }));
+}
 
 export const formatAgentResponse = (text: string): FormattedChunk[] => {
   const html = markdownToTelegramHtml(text);

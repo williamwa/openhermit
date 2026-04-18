@@ -6,7 +6,11 @@
 import { AgentLocalClient } from '@openhermit/sdk';
 
 import type { TelegramApi, TelegramMessage } from './telegram-api.js';
-import { formatAgentResponse, markdownToTelegramHtml } from './formatting.js';
+import {
+  formatAgentResponse,
+  markdownToTelegramHtml,
+  streamingMarkdownToTelegramHtml,
+} from './formatting.js';
 
 /** SSE frame parsed from the agent event stream. */
 interface SseFrame {
@@ -289,9 +293,11 @@ export class TelegramBridge {
             const now = Date.now();
             if (!sentMessageId && accumulatedText.length > 0) {
               try {
+                const html = streamingMarkdownToTelegramHtml(accumulatedText);
                 const sent = await this.telegram.sendMessage(
                   chatId,
-                  accumulatedText + ' ...',
+                  html + ' ...',
+                  { parseMode: 'HTML' },
                 );
                 sentMessageId = sent.message_id;
                 lastEditTime = now;
@@ -302,8 +308,9 @@ export class TelegramBridge {
               sentMessageId &&
               now - lastEditTime >= EDIT_THROTTLE_MS
             ) {
+              const html = streamingMarkdownToTelegramHtml(accumulatedText);
               void this.telegram
-                .editMessageText(chatId, sentMessageId, accumulatedText + ' ...')
+                .editMessageText(chatId, sentMessageId, html + ' ...', { parseMode: 'HTML' })
                 .catch(() => undefined);
               lastEditTime = now;
             }
