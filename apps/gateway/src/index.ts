@@ -2,6 +2,7 @@ import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { stderr } from 'node:process';
+import { LogBuffer } from './log-buffer.js';
 
 import { createAdaptorServer } from '@hono/node-server';
 
@@ -23,9 +24,10 @@ const defaultPort = 4000;
 
 type NodeFetchCallback = Parameters<typeof createAdaptorServer>[0]['fetch'];
 
-const logStartup = (message: string): void => {
+const logBuffer = new LogBuffer();
+const logStartup = logBuffer.wrap((message: string): void => {
   console.log(`[openhermit-gateway] ${message}`);
-};
+});
 
 
 const listen = (
@@ -101,12 +103,17 @@ export const main = async (): Promise<void> => {
     logStartup('GATEWAY_ADMIN_TOKEN not set — admin API endpoints are disabled');
   }
 
+  const gatewayDir = path.dirname(fileURLToPath(import.meta.url));
+  const publicDir = path.resolve(gatewayDir, '../public');
+
   const app = createGatewayApp({
     instances,
     ...(agentStore ? { agentStore } : {}),
     auth,
     adminToken,
     logger: logStartup,
+    logBuffer,
+    publicDir,
   });
 
   const rawPort = process.env.GATEWAY_PORT ?? process.env.PORT;

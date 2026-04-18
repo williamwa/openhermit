@@ -83,6 +83,15 @@ export class DbAgentStore implements AgentStore {
     });
   }
 
+  async counts(): Promise<{ users: number; sessions: number; sessionEvents: number }> {
+    const [users, sessions, sessionEvents] = await Promise.all([
+      this.prisma.user.count(),
+      this.prisma.session.count(),
+      this.prisma.sessionEvent.count(),
+    ]);
+    return { users, sessions, sessionEvents };
+  }
+
   async delete(agentId: string): Promise<void> {
     await this.prisma.agent.deleteMany({ where: { agentId } });
   }

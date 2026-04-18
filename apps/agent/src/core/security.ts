@@ -298,6 +298,17 @@ export class AgentSecurity {
     return Object.keys(this.secrets).sort();
   }
 
+  /** Return the full secrets map (admin use only). */
+  readSecrets(): SecretsMap {
+    return { ...this.secrets };
+  }
+
+  /** Overwrite the entire secrets file and reload. */
+  async writeSecrets(secrets: SecretsMap): Promise<void> {
+    await fs.writeFile(this.secretsFilePath, JSON.stringify(secrets, null, 2) + '\n', 'utf8');
+    await this.load();
+  }
+
   async readConfig(): Promise<AgentRuntimeConfig> {
     // Reload security policy and secrets from disk on every config read,
     // so changes to security.json and secrets.json take effect without restart.

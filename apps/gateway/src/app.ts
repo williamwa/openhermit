@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { streamSSE, type SSEStreamingApi } from 'hono/streaming';
 import { cors } from 'hono/cors';
+import { serveStatic } from '@hono/node-server/serve-static';
 
 import {
   gatewayRoutes,
@@ -26,6 +27,7 @@ import {
 import type { AgentRunner, SessionEventEnvelope } from '@openhermit/agent/agent-runner';
 
 import type { AgentInstanceManager } from './agent-instance.js';
+import type { LogBuffer } from './log-buffer.js';
 import {
   type AuthContext,
   type AuthResolverOptions,
@@ -121,6 +123,9 @@ export interface GatewayAppOptions {
   auth?: AuthResolverOptions | undefined;
   adminToken?: string | undefined;
   logger?: ((message: string) => void) | undefined;
+  logBuffer?: LogBuffer | undefined;
+  /** Absolute path to the public directory for serving static UI files. */
+  publicDir?: string | undefined;
 }
 
 // ─── Resolve runner helper ────────────────────────────────────────────────────
@@ -678,6 +683,100 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
         unsubscribe();
       }
     });
+  });
+
+  // --- admin UI: static files ---
+
+  if (options.publicDir) {
+    app.get('/ui', (c) => c.redirect('/ui/'));
+    app.use('/ui/*', serveStatic({
+      root: options.publicDir,
+      rewriteRequestPath: (p) => p.replace(/^\/ui/, ''),
+    }));
+  }
+
+  // --- admin API ---
+
+  app.get('/admin/stats', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const memoryUsage = process.memoryUsage();
+    const counts = agentStore ? await agentStore.counts() : { users: 0, sessions: 0, sessionEvents: 0 };
+    return c.json({
+      uptime: process.uptime(),
+      memory: {
+        rss: memoryUsage.rss,
+        heapUsed: memoryUsage.heapUsed,
+        heapTotal: memoryUsage.heapTotal,
+      },
+      agents: {
+        running: instances.listRunnerIds().length,
+      },
+      counts,
+    });
+  });
+
+  app.get('/admin/logs', (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const lines = parsePositiveIntegerQuery(
+      c.req.query('lines') ?? undefined,
+      'lines',
+    ) ?? 200;
+    const entries = options.logBuffer?.tail(lines) ?? [];
+    return c.json(entries);
+  });
+
+  app.get('/admin/agents/:agentId/config', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const agentId = c.req.param('agentId') ?? '';
+    const runner = instances.getRunner(agentId);
+    if (!runner) {
+      throw new NotFoundError(`Agent ${agentId} is not running. Start the agent to read its config.`);
+    }
+    const config = await runner.security.readConfig();
+    return c.json(config);
+  });
+
+  app.put('/admin/agents/:agentId/config', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const agentId = c.req.param('agentId') ?? '';
+    const runner = instances.getRunner(agentId);
+    if (!runner) {
+      throw new NotFoundError(`Agent ${agentId} is not running. Start the agent to update its config.`);
+    }
+    const body = await c.req.json();
+    await runner.security.writeConfig(body);
+    return c.json({ ok: true });
+  });
+
+  app.get('/admin/agents/:agentId/secrets', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const agentId = c.req.param('agentId') ?? '';
+    const runner = instances.getRunner(agentId);
+    if (!runner) {
+      throw new NotFoundError(`Agent ${agentId} is not running.`);
+    }
+    await runner.security.load();
+    return c.json(runner.security.readSecrets());
+  });
+
+  app.put('/admin/agents/:agentId/secrets', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const agentId = c.req.param('agentId') ?? '';
+    const runner = instances.getRunner(agentId);
+    if (!runner) {
+      throw new NotFoundError(`Agent ${agentId} is not running.`);
+    }
+    const body = await c.req.json();
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      throw new ValidationError('Secrets must be a JSON object of string key-value pairs.');
+    }
+    for (const [k, v] of Object.entries(body)) {
+      if (typeof v !== 'string') {
+        throw new ValidationError(`Secret value for "${k}" must be a string.`);
+      }
+    }
+    await runner.security.writeSecrets(body as Record<string, string>);
+    return c.json({ ok: true });
   });
 
   // --- error handler ---

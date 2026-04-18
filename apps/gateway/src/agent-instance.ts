@@ -113,6 +113,11 @@ export class AgentInstanceManager {
     return this.runners.get(agentId);
   }
 
+  /** List all running agent IDs. */
+  listRunnerIds(): string[] {
+    return [...this.runners.keys()];
+  }
+
   /** Stop a single agent, flushing Langfuse and cleaning up resources. */
   async stop(agentId: string): Promise<void> {
     const runner = this.runners.get(agentId);

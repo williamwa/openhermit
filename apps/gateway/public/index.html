@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OpenHermit Gateway</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <!-- Auth screen -->
+    <div class="auth-screen" id="auth-screen">
+      <form class="auth-form" id="auth-form">
+        <p class="eyebrow">OpenHermit</p>
+        <h1>Gateway Admin</h1>
+        <label class="field">
+          <span class="field__label">Admin Token</span>
+          <input class="field__input" id="auth-token" type="password" placeholder="Enter admin token" required />
+        </label>
+        <p class="auth-form__error" id="auth-error"></p>
+        <button class="btn btn--primary" type="submit">Sign In</button>
+      </form>
+    </div>
+
+    <!-- Main shell -->
+    <div class="shell" id="shell" hidden>
+      <nav class="topbar">
+        <span class="topbar__brand">OpenHermit Gateway</span>
+        <div class="topbar__tabs">
+          <button class="tab active" data-tab="agents">Agents</button>
+          <button class="tab" data-tab="stats">Stats</button>
+          <button class="tab" data-tab="logs">Logs</button>
+        </div>
+        <button class="btn btn--ghost btn--sm" id="sign-out">Sign Out</button>
+      </nav>
+
+      <!-- Agents tab -->
+      <div class="panel" id="panel-agents">
+        <div class="panel__header">
+          <h2>Agents</h2>
+          <button class="btn btn--primary btn--sm" id="create-agent-btn">Create Agent</button>
+        </div>
+        <div class="agent-list" id="agent-list"></div>
+
+        <!-- Create agent dialog -->
+        <dialog class="dialog" id="create-agent-dialog">
+          <form class="dialog__form" id="create-agent-form">
+            <h3>Create Agent</h3>
+            <label class="field">
+              <span class="field__label">Agent ID</span>
+              <input class="field__input" id="new-agent-id" type="text" required />
+            </label>
+            <label class="field">
+              <span class="field__label">Name (optional)</span>
+              <input class="field__input" id="new-agent-name" type="text" />
+            </label>
+            <div class="dialog__actions">
+              <button class="btn btn--ghost" type="button" id="cancel-create">Cancel</button>
+              <button class="btn btn--primary" type="submit">Create</button>
+            </div>
+          </form>
+        </dialog>
+
+        <!-- Secrets editor dialog -->
+        <dialog class="dialog dialog--wide" id="secrets-dialog">
+          <div class="dialog__form">
+            <h3>Secrets: <span id="secrets-agent-id"></span></h3>
+            <div class="secrets-list" id="secrets-list"></div>
+            <div class="secrets-add">
+              <input class="field__input field__input--inline" id="new-secret-key" type="text" placeholder="Key" />
+              <input class="field__input field__input--inline" id="new-secret-value" type="text" placeholder="Value" />
+              <button class="btn btn--sm" type="button" id="add-secret-btn">Add</button>
+            </div>
+            <p class="config-error" id="secrets-error"></p>
+            <div class="dialog__actions">
+              <button class="btn btn--ghost" type="button" id="cancel-secrets">Close</button>
+              <button class="btn btn--primary" type="button" id="save-secrets">Save</button>
+            </div>
+          </div>
+        </dialog>
+
+        <!-- Config editor dialog -->
+        <dialog class="dialog dialog--wide" id="config-dialog">
+          <div class="dialog__form">
+            <h3>Config: <span id="config-agent-id"></span></h3>
+            <textarea class="config-editor" id="config-editor" rows="20" spellcheck="false"></textarea>
+            <p class="config-error" id="config-error"></p>
+            <div class="dialog__actions">
+              <button class="btn btn--ghost" type="button" id="cancel-config">Close</button>
+              <button class="btn btn--primary" type="button" id="save-config">Save</button>
+            </div>
+          </div>
+        </dialog>
+      </div>
+
+      <!-- Stats tab -->
+      <div class="panel" id="panel-stats" hidden>
+        <h2>Gateway Stats</h2>
+        <div class="stats-grid" id="stats-grid"></div>
+      </div>
+
+      <!-- Logs tab -->
+      <div class="panel" id="panel-logs" hidden>
+        <div class="panel__header">
+          <h2>Logs</h2>
+          <label class="toggle">
+            <input type="checkbox" id="logs-auto-refresh" checked />
+            <span>Auto-refresh</span>
+          </label>
+        </div>
+        <pre class="log-view" id="log-view"></pre>
+      </div>
+    </div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
