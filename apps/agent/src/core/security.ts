@@ -266,6 +266,14 @@ export class AgentSecurity {
     return this.policy.autonomy_level;
   }
 
+  getAccessLevel(): import('./types.js').AgentAccessLevel {
+    return this.policy.access ?? 'public';
+  }
+
+  getAccessToken(): string | undefined {
+    return this.policy.access_token;
+  }
+
   requiresApproval(toolName: string): boolean {
     return this.policy.require_approval_for.includes(toolName);
   }

@@ -17,6 +17,7 @@ import type { DbAgentStore } from '@openhermit/store';
 import {
   NotFoundError,
   OpenHermitError,
+  UnauthorizedError,
   ValidationError,
   getErrorMessage,
   jsonError,
@@ -28,7 +29,11 @@ import type { AgentInstanceManager } from './agent-instance.js';
 import {
   type AuthContext,
   type AuthResolverOptions,
+  type JwtConfig,
+  type UserAuthProvider,
   resolveAuth,
+  signJwt,
+  verifyAdminToken,
 } from './auth.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -100,13 +105,22 @@ const parseSessionListQuery = (request: Request): SessionListQuery => {
   return query;
 };
 
+/** Require auth context or throw 401. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const requireAuth = (c: any): AuthContext => {
+  const auth = c.get('auth' as never) as AuthContext | undefined;
+  if (!auth) throw new UnauthorizedError('Authentication required.');
+  return auth;
+};
+
 // ─── App options ──────────────────────────────────────────────────────────────
 
 export interface GatewayAppOptions {
   instances: AgentInstanceManager;
-  agentStore?: DbAgentStore;
-  auth?: AuthResolverOptions;
-  logger?: (message: string) => void;
+  agentStore?: DbAgentStore | undefined;
+  auth?: AuthResolverOptions | undefined;
+  adminToken?: string | undefined;
+  logger?: ((message: string) => void) | undefined;
 }
 
 // ─── Resolve runner helper ────────────────────────────────────────────────────
@@ -125,7 +139,7 @@ const resolveRunner = (
 // ─── App factory ──────────────────────────────────────────────────────────────
 
 export const createGatewayApp = (options: GatewayAppOptions): Hono => {
-  const { instances, agentStore } = options;
+  const { instances, agentStore, adminToken } = options;
   const log = options.logger ?? ((msg: string) => console.log(msg));
   const app = new Hono();
 
@@ -134,7 +148,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   app.use('*', cors({
     origin: '*',
     allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Authorization', 'X-Device-Key'],
+    allowHeaders: ['Content-Type', 'Authorization'],
     exposeHeaders: ['Content-Type'],
   }));
 
@@ -152,12 +166,71 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     }
   });
 
-  // --- authentication ---
+  // --- admin auth middleware for management routes ---
+
+  const requireAdmin = (authorization: string | undefined): void => {
+    if (!adminToken) {
+      throw new UnauthorizedError('Admin API is not configured. Set GATEWAY_ADMIN_TOKEN.');
+    }
+    if (!verifyAdminToken(adminToken, authorization)) {
+      throw new UnauthorizedError('Invalid admin token.');
+    }
+  };
+
+  // --- JWT/channel auth middleware for agent routes ---
 
   if (options.auth) {
     const authOptions = options.auth;
 
+    // Auth token exchange — before the general auth middleware
+    app.post('/agents/:agentId/auth/token', async (c) => {
+      const agentId = c.req.param('agentId') ?? '';
+      const instance = instances.getRunner(agentId);
+      if (!instance) {
+        throw new NotFoundError(`Agent ${agentId} is not running.`);
+      }
+
+      const body: Record<string, unknown> = await c.req.json().catch(() => ({}));
+
+      // Check agent access policy
+      const security = instance.security;
+      const accessLevel = security.getAccessLevel();
+      if (accessLevel === 'protected') {
+        const agentAccessToken = body.agent_token;
+        const expectedToken = security.getAccessToken();
+        if (!expectedToken || agentAccessToken !== expectedToken) {
+          throw new UnauthorizedError('Invalid or missing agent access token.');
+        }
+      }
+
+      // Try each user auth provider
+      let authResult: import('./auth.js').UserAuthResult | null = null;
+      for (const provider of authOptions.userProviders) {
+        authResult = await provider.authenticate(body);
+        if (authResult) break;
+      }
+
+      if (!authResult) {
+        throw new UnauthorizedError('Invalid credentials.');
+      }
+
+      const { token, expiresAt } = await signJwt(authOptions.jwt, {
+        agentId,
+        channel: authResult.channel,
+        channelUserId: authResult.channelUserId,
+      });
+
+      return c.json({ token, expiresAt });
+    });
+
+    // General auth middleware for all agent routes (except auth/token)
     app.use('/agents/*', async (c, next) => {
+      // Skip auth for the token exchange endpoint (already handled above)
+      if (c.req.path.endsWith('/auth/token') && c.req.method === 'POST') {
+        await next();
+        return;
+      }
+
       const authContext = await resolveAuth(c.req.raw, authOptions);
       if (authContext) {
         c.set('auth' as never, authContext as never);
@@ -172,9 +245,10 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     c.json({ ok: true, role: 'gateway' }),
   );
 
-  // --- agent CRUD ---
+  // --- agent CRUD (admin-only) ---
 
   app.get(gatewayRoutes.agents, async (c) => {
+    requireAdmin(c.req.header('authorization'));
     if (agentStore) {
       const records = await agentStore.list();
       const agents = records.map((record) => ({
@@ -190,6 +264,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   });
 
   app.post(gatewayRoutes.agents, async (c) => {
+    requireAdmin(c.req.header('authorization'));
     if (!agentStore) {
       return c.json(
         { error: { code: 'not_configured', message: 'Agent store is not configured. Set DATABASE_URL to enable agent persistence.' } },
@@ -258,9 +333,10 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     });
   });
 
-  // --- lifecycle management ---
+  // --- lifecycle management (admin-only) ---
 
   app.post(gatewayRoutes.agentManagePattern, async (c) => {
+    requireAdmin(c.req.header('authorization'));
     const agentId = c.req.param('agentId') ?? '';
     const action = c.req.param('action') ?? '';
 
@@ -307,6 +383,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
 
   app.post(gatewayRoutes.agentSessionsPattern, async (c) => {
     const agentId = c.req.param('agentId') ?? '';
+    const auth = requireAuth(c);
     const runtime = resolveRunner(instances, agentId);
     const payload = await c.req.json().catch(() => null);
 
@@ -315,8 +392,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     }
 
     // Inject authenticated user identity into session metadata
-    const auth = c.get('auth' as never) as AuthContext | undefined;
-    if (auth?.mode === 'user' && auth.channelUserId) {
+    if (auth.mode === 'user' && auth.channelUserId) {
       payload.metadata = {
         ...payload.metadata,
         username: auth.channelUserId,
@@ -329,10 +405,9 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
 
   app.get(gatewayRoutes.agentSessionsPattern, async (c) => {
     const agentId = c.req.param('agentId') ?? '';
+    const auth = requireAuth(c);
     const runtime = resolveRunner(instances, agentId);
     const query = parseSessionListQuery(c.req.raw);
-    const auth = c.get('auth' as never) as AuthContext | undefined;
-    if (!auth) return c.json([]);
     const callerUserId = await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId });
     if (!callerUserId) return c.json([]);
     const sessions = await runtime.listSessions(query, callerUserId);
@@ -344,6 +419,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   app.post(gatewayRoutes.agentSessionMessagesPattern, async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     const sessionId = c.req.param('sessionId') ?? '';
+    const auth = requireAuth(c);
     const runtime = resolveRunner(instances, agentId);
     const payload = await c.req.json().catch(() => null);
 
@@ -351,13 +427,11 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
       throw new ValidationError('Invalid SessionMessage payload.');
     }
 
-    // Channel namespace enforcement: if a channel declares a sender,
-    // the sender's channel must match the authenticated channel namespace
-    const msgAuth = c.get('auth' as never) as AuthContext | undefined;
-    if (msgAuth?.mode === 'channel' && msgAuth.channelNamespace && payload.sender) {
-      if (payload.sender.channel !== msgAuth.channelNamespace) {
+    // Channel namespace enforcement
+    if (auth.mode === 'channel' && auth.channelNamespace && payload.sender) {
+      if (payload.sender.channel !== auth.channelNamespace) {
         throw new ValidationError(
-          `Channel namespace violation: channel "${msgAuth.channelNamespace}" cannot declare sender identity for "${payload.sender.channel}".`,
+          `Channel namespace violation: channel "${auth.channelNamespace}" cannot declare sender identity for "${payload.sender.channel}".`,
         );
       }
     }
@@ -502,9 +576,8 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   app.get(gatewayRoutes.agentSessionMessagesPattern, async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     const sessionId = c.req.param('sessionId') ?? '';
+    const auth = requireAuth(c);
     const runtime = resolveRunner(instances, agentId);
-    const auth = c.get('auth' as never) as AuthContext | undefined;
-    if (!auth) throw new NotFoundError(`Session not found: ${sessionId}`);
     const callerUserId = await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId });
     if (!callerUserId) throw new NotFoundError(`Session not found: ${sessionId}`);
     const messages = await runtime.listSessionMessages(sessionId, callerUserId);
@@ -516,6 +589,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   app.post(gatewayRoutes.agentSessionApprovePattern, async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     const sessionId = c.req.param('sessionId') ?? '';
+    requireAuth(c);
     const runtime = resolveRunner(instances, agentId);
     const payload = await c.req.json().catch(() => null);
 
@@ -537,6 +611,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   app.post(gatewayRoutes.agentSessionCheckpointPattern, async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     const sessionId = c.req.param('sessionId') ?? '';
+    requireAuth(c);
     const runtime = resolveRunner(instances, agentId);
     const payload = await c.req.json().catch(() => ({}));
 
@@ -557,6 +632,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   app.get(gatewayRoutes.agentSessionEventsPattern, async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     const sessionId = c.req.param('sessionId') ?? '';
+    requireAuth(c);
     const runtime = resolveRunner(instances, agentId);
 
     return streamSSE(c, async (stream) => {

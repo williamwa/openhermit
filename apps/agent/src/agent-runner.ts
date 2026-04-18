@@ -73,6 +73,7 @@ const addUserIdToList = (existing: string[], userId: string | undefined): string
 
 export class AgentRunner implements SessionRuntime {
   readonly events = new SessionEventBroker();
+  readonly security: import('./core/index.js').AgentSecurity;
 
   private readonly containerManager: DockerContainerManager;
 
@@ -103,6 +104,7 @@ export class AgentRunner implements SessionRuntime {
     store: InternalStateStore,
   ) {
     this.store = store;
+    this.security = options.security;
     this.scope = { agentId: options.security.agentId };
     this.containerManager =
       options.containerManager

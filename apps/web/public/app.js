@@ -2,6 +2,7 @@
 
 const STORAGE_KEY = 'openhermit_connection';
 const DEVICE_KEY_STORAGE = 'openhermit_device_key';
+const JWT_STORAGE = 'openhermit_jwt';
 
 // ─── Device Key (ECDSA P-256) ───────────────────────────────────────────────
 
@@ -36,7 +37,7 @@ const loadOrCreateKeyPair = async () => {
 
 let deviceKeyPair = null;
 
-const getDeviceKeyHeader = async () => {
+const generateDeviceKeyCredential = async () => {
   if (!deviceKeyPair) deviceKeyPair = await loadOrCreateKeyPair();
   const rawPub = await crypto.subtle.exportKey('raw', deviceKeyPair.publicKey);
   const timestamp = String(Math.floor(Date.now() / 1000));
@@ -59,24 +60,82 @@ const saveConnection = (conn) => {
 
 const clearConnection = () => {
   localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(JWT_STORAGE);
+};
+
+// ─── JWT management ─────────────────────────────────────────────────────────
+
+let jwtToken = null;
+let jwtExpiresAt = 0;
+
+const loadJwt = () => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(JWT_STORAGE) || 'null');
+    if (stored && stored.token && stored.expiresAt) {
+      jwtToken = stored.token;
+      jwtExpiresAt = stored.expiresAt;
+    }
+  } catch {
+    localStorage.removeItem(JWT_STORAGE);
+  }
+};
+
+const saveJwt = (token, expiresAt) => {
+  jwtToken = token;
+  jwtExpiresAt = expiresAt;
+  localStorage.setItem(JWT_STORAGE, JSON.stringify({ token, expiresAt }));
+};
+
+const isJwtValid = () => {
+  // Consider expired 60s early to avoid edge cases
+  return jwtToken && jwtExpiresAt > Math.floor(Date.now() / 1000) + 60;
+};
+
+const exchangeToken = async () => {
+  const deviceKey = await generateDeviceKeyCredential();
+  const body = { grant_type: 'device-key', device_key: deviceKey };
+
+  // If the agent is protected and we have a token from the connect form
+  const conn = loadConnection();
+  if (conn && conn.token) {
+    body.agent_token = conn.token;
+  }
+
+  const response = await fetch(`${apiBase}/auth/token`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error?.message || `Token exchange failed (${response.status})`);
+  }
+
+  const result = await response.json();
+  saveJwt(result.token, result.expiresAt);
+  return result.token;
+};
+
+const getJwt = async () => {
+  if (isJwtValid()) return jwtToken;
+  return exchangeToken();
 };
 
 // ─── Connection state ───────────────────────────────────────────────────────
 
 let apiBase = '';
-let authHeaders = {};
 
 const setConnection = (conn) => {
   const base = conn.gatewayUrl.replace(/\/+$/, '');
   apiBase = `${base}/agents/${encodeURIComponent(conn.agentId)}`;
-  authHeaders = conn.token ? { authorization: `Bearer ${conn.token}` } : {};
 };
 
 // ─── Fetch helper ───────────────────────────────────────────────────────────
 
 const apiFetch = async (path, options = {}) => {
-  const deviceKey = await getDeviceKeyHeader();
-  const headers = { ...authHeaders, 'x-device-key': deviceKey, ...(options.headers || {}) };
+  const token = await getJwt();
+  const headers = { authorization: `Bearer ${token}`, ...(options.headers || {}) };
   return fetch(`${apiBase}${path}`, { ...options, headers });
 };
 
@@ -352,12 +411,14 @@ const refreshSessions = async () => {
 
 // ─── SSE ────────────────────────────────────────────────────────────────────
 
-const connectToSessionStream = (sessionId) => {
+const connectToSessionStream = async (sessionId) => {
   if (state.eventSource) state.eventSource.close();
   state.currentAssistantBody = null;
   state.currentTurnPending = false;
 
-  const url = `${apiBase}/sessions/${encodeURIComponent(sessionId)}/events`;
+  // Get a fresh JWT for the EventSource URL (EventSource can't set headers)
+  const token = await getJwt();
+  const url = `${apiBase}/sessions/${encodeURIComponent(sessionId)}/events?token=${encodeURIComponent(token)}`;
   const source = new EventSource(url);
   state.eventSource = source;
   setStatus('Streaming');
@@ -463,7 +524,7 @@ const selectSession = async (sessionId) => {
   const historyResponse = await apiFetch(`/sessions/${encodeURIComponent(sessionId)}/messages`);
   if (!historyResponse.ok) throw new Error(`Failed to load session history (${historyResponse.status})`);
   renderHistory(await historyResponse.json());
-  connectToSessionStream(sessionId);
+  await connectToSessionStream(sessionId);
 };
 
 const createAndSelectSession = async () => {
@@ -543,7 +604,11 @@ const showConnect = () => {
 
 const startChat = async (conn) => {
   setConnection(conn);
+  loadJwt();
   agentMeta.textContent = `Agent: ${conn.agentId} · ${conn.gatewayUrl}`;
+
+  // Exchange device-key for JWT (or refresh if expired)
+  await getJwt();
 
   // Verify connectivity before switching screens.
   await refreshSessions();
@@ -569,15 +634,18 @@ connectForm.addEventListener('submit', async (event) => {
   };
 
   try {
-    // Validate by hitting the agent health endpoint.
     setConnection(conn);
-    const response = await apiFetch('/health');
-    if (!response.ok) throw new Error(`Agent health check failed (${response.status})`);
+    // Clear any stale JWT when re-connecting
+    jwtToken = null;
+    jwtExpiresAt = 0;
+    localStorage.removeItem(JWT_STORAGE);
+
+    // Exchange credentials for JWT (validates connectivity + auth)
+    await getJwt();
 
     saveConnection(conn);
     await startChat(conn);
   } catch (error) {
-    // If we already switched to chat, show error there; otherwise on connect screen.
     const msg = error instanceof Error ? error.message : String(error);
     if (chatShell.hidden) {
       connectError.textContent = msg;

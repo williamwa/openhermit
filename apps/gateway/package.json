@@ -16,6 +16,7 @@
     "@openhermit/shared": "0.1.0",
     "@openhermit/store": "0.1.0",
     "hono": "^4.7.2",
+    "jose": "^6.2.2",
     "ws": "^8.20.0"
   },
   "devDependencies": {

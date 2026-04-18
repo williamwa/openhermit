@@ -120,9 +120,13 @@ export interface AgentRuntimeConfig {
 
 export type AgentConfig = AgentRuntimeConfig;
 
+export type AgentAccessLevel = 'public' | 'protected';
+
 export interface SecurityPolicy {
   autonomy_level: AutonomyLevel;
   require_approval_for: string[];
+  access?: AgentAccessLevel;
+  access_token?: string;
 }
 
 export type SecretsMap = Record<string, string>;

@@ -16,6 +16,7 @@ import {
   type AuthResolverOptions,
   ChannelRegistry,
   DeviceKeyAuthProvider,
+  createJwtConfig,
 } from './auth.js';
 
 const defaultPort = 4000;
@@ -84,15 +85,26 @@ export const main = async (): Promise<void> => {
 
   // Auth configuration
   const channels = new ChannelRegistry();
+  const jwtConfig = createJwtConfig(process.env.GATEWAY_JWT_SECRET);
+  if (!process.env.GATEWAY_JWT_SECRET) {
+    logStartup('GATEWAY_JWT_SECRET not set — using ephemeral secret (tokens will not survive restarts)');
+  }
   const auth: AuthResolverOptions = {
     userProviders: [new DeviceKeyAuthProvider()],
     channels,
+    jwt: jwtConfig,
   };
+
+  const adminToken = process.env.GATEWAY_ADMIN_TOKEN;
+  if (!adminToken) {
+    logStartup('GATEWAY_ADMIN_TOKEN not set — admin API endpoints are disabled');
+  }
 
   const app = createGatewayApp({
     instances,
     ...(agentStore ? { agentStore } : {}),
     auth,
+    adminToken,
     logger: logStartup,
   });
 
