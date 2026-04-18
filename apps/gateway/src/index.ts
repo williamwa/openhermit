@@ -15,7 +15,7 @@ import { attachGatewayWs } from './ws-handler.js';
 import {
   type AuthResolverOptions,
   ChannelRegistry,
-  DeviceIdAuthProvider,
+  DeviceKeyAuthProvider,
 } from './auth.js';
 
 const defaultPort = 4000;
@@ -85,7 +85,7 @@ export const main = async (): Promise<void> => {
   // Auth configuration
   const channels = new ChannelRegistry();
   const auth: AuthResolverOptions = {
-    userProviders: [new DeviceIdAuthProvider()],
+    userProviders: [new DeviceKeyAuthProvider()],
     channels,
   };
 

@@ -135,27 +135,92 @@ export class ChannelRegistry {
   }
 }
 
-// ── Device ID provider (development / initial implementation) ──────────────
+// ── Device Key provider (asymmetric key auth) ────────────────────────────────
+
+const DEVICE_KEY_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
- * Simple auth provider that trusts a client-supplied device UUID.
- *
- * This is NOT secure for production — anyone can forge a device ID.
- * It exists as the initial implementation so the web client keeps working
- * while we build proper auth providers (email/password, OAuth).
- *
- * Reads the device ID from `X-Device-Id` header.
+ * Base64url helpers (no padding).
  */
-export class DeviceIdAuthProvider implements UserAuthProvider {
-  readonly id = 'device-id';
+const base64urlDecode = (s: string): Uint8Array => {
+  const base64 = s.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64.padEnd(base64.length + (4 - (base64.length % 4)) % 4, '=');
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+};
+
+const bufferToHex = (buf: ArrayBuffer): string =>
+  Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+
+/**
+ * Auth provider using client-generated ECDSA P-256 keypair.
+ *
+ * The client generates an ECDSA P-256 keypair, stores it locally, and signs
+ * a timestamp with the private key on each request.  The server verifies the
+ * signature and uses the SHA-256 fingerprint of the public key as a stable
+ * device identity.
+ *
+ * Header format: `X-Device-Key: <base64url(rawPublicKey)>.<unixSeconds>.<base64url(signature)>`
+ *
+ * Security properties:
+ *  - Identity is bound to possession of the private key (cannot be forged)
+ *  - Timestamp prevents replay beyond a 5-minute window
+ *  - Public key fingerprint is a stable, collision-resistant device identifier
+ */
+export class DeviceKeyAuthProvider implements UserAuthProvider {
+  readonly id = 'device-key';
 
   async authenticate(request: Request): Promise<UserAuthResult | null> {
-    const deviceId = request.headers.get('x-device-id');
-    if (!deviceId) return null;
+    const header = request.headers.get('x-device-key');
+    if (!header) return null;
+
+    const parts = header.split('.');
+    if (parts.length !== 3) return null;
+
+    const [pubKeyB64, timestampStr, signatureB64] = parts as [string, string, string];
+
+    // Validate timestamp freshness
+    const timestamp = Number.parseInt(timestampStr, 10);
+    if (Number.isNaN(timestamp)) return null;
+    const age = Math.abs(Date.now() - timestamp * 1000);
+    if (age > DEVICE_KEY_MAX_AGE_MS) return null;
+
+    // Decode key and signature
+    const rawPublicKey = base64urlDecode(pubKeyB64).buffer as ArrayBuffer;
+    const signatureBytes = base64urlDecode(signatureB64).buffer as ArrayBuffer;
+
+    // Import the public key
+    let publicKey: CryptoKey;
+    try {
+      publicKey = await crypto.subtle.importKey(
+        'raw',
+        rawPublicKey,
+        { name: 'ECDSA', namedCurve: 'P-256' },
+        false,
+        ['verify'],
+      );
+    } catch {
+      return null;
+    }
+
+    // Verify signature over the timestamp bytes
+    const payload = new TextEncoder().encode(timestampStr);
+    const valid = await crypto.subtle.verify(
+      { name: 'ECDSA', hash: 'SHA-256' },
+      publicKey,
+      signatureBytes,
+      payload,
+    );
+    if (!valid) return null;
+
+    // Derive stable device identifier from public key fingerprint
+    const fingerprint = bufferToHex(await crypto.subtle.digest('SHA-256', rawPublicKey));
 
     return {
       channel: 'web',
-      channelUserId: deviceId,
+      channelUserId: fingerprint,
     };
   }
 }

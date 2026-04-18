@@ -134,7 +134,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   app.use('*', cors({
     origin: '*',
     allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Authorization', 'X-Device-Id'],
+    allowHeaders: ['Content-Type', 'Authorization', 'X-Device-Key'],
     exposeHeaders: ['Content-Type'],
   }));
 
