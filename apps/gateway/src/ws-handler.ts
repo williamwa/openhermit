@@ -4,7 +4,6 @@ import type { Server as HttpServer } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 
 import {
-  isCallerIdentity,
   isSessionSpec,
   isSessionMessage,
   isToolApprovalRequest,
@@ -22,6 +21,8 @@ import {
 import type { AgentRunner, SessionEventEnvelope } from '@openhermit/agent/agent-runner';
 
 import type { AgentInstanceManager } from './agent-instance.js';
+import type { AuthContext, AuthResolverOptions } from './auth.js';
+import { resolveAuth } from './auth.js';
 
 const WS_PING_INTERVAL_MS = 30_000;
 
@@ -29,6 +30,7 @@ interface WsConnection {
   ws: WebSocket;
   subscriptions: Map<string, () => void>; // sessionId → unsubscribe
   pingTimer: ReturnType<typeof setInterval>;
+  auth?: AuthContext;
 }
 
 const sendJson = (ws: WebSocket, message: WsServerMessage): void => {
@@ -74,6 +76,10 @@ const handleRequest = async (
         if (!isSessionSpec(p)) {
           sendError(ws, id, 'INVALID_PARAMS', 'Invalid SessionSpec params.');
           return;
+        }
+        // Inject authenticated identity into session metadata
+        if (conn.auth?.mode === 'user' && conn.auth.channelUserId) {
+          p.metadata = { ...(p.metadata as Record<string, unknown> ?? {}), username: conn.auth.channelUserId };
         }
         const session = await runtime.openSession(p);
         sendResult(ws, id, { sessionId: session.spec.sessionId });
@@ -146,8 +152,9 @@ const handleRequest = async (
         if (typeof p.platform === 'string') query.platform = p.platform;
         if (typeof p.interactive === 'boolean') query.interactive = p.interactive;
         if (typeof p.limit === 'number') query.limit = p.limit;
-        const callerUserId = isCallerIdentity(p.caller)
-          ? await runtime.resolveCallerUserId(p.caller)
+        // Use authenticated identity from WS connection (not client-supplied)
+        const callerUserId = conn.auth?.mode === 'user' && conn.auth.channelUserId
+          ? await runtime.resolveCallerUserId({ channel: conn.auth.channel, channelUserId: conn.auth.channelUserId })
           : undefined;
         const sessions = await runtime.listSessions(query, callerUserId);
         sendResult(ws, id, sessions);
@@ -160,8 +167,8 @@ const handleRequest = async (
           sendError(ws, id, 'INVALID_PARAMS', 'Missing sessionId.');
           return;
         }
-        const historyCallerUserId = isCallerIdentity(p.caller)
-          ? await runtime.resolveCallerUserId(p.caller)
+        const historyCallerUserId = conn.auth?.mode === 'user' && conn.auth.channelUserId
+          ? await runtime.resolveCallerUserId({ channel: conn.auth.channel, channelUserId: conn.auth.channelUserId })
           : undefined;
         const messages = await runtime.listSessionMessages(sessionId, historyCallerUserId);
         sendResult(ws, id, messages);
@@ -214,6 +221,7 @@ const handleRequest = async (
 
 export interface GatewayWsOptions {
   instances: AgentInstanceManager;
+  auth?: AuthResolverOptions;
   logger?: (message: string) => void;
 }
 
@@ -232,7 +240,7 @@ export const attachGatewayWs = (
   const log = options.logger ?? (() => {});
   const wss = new WebSocketServer({ noServer: true });
 
-  httpServer.on('upgrade', (request: IncomingMessage, socket, head) => {
+  httpServer.on('upgrade', async (request: IncomingMessage, socket, head) => {
     const url = new URL(request.url ?? '/', `http://${request.headers.host}`);
 
     // Match /agents/:agentId/ws
@@ -251,8 +259,21 @@ export const attachGatewayWs = (
       return;
     }
 
+    // Resolve auth from the upgrade request headers.
+    let auth: AuthContext | undefined;
+    if (options.auth) {
+      const headers = new Headers();
+      for (const [key, value] of Object.entries(request.headers)) {
+        if (typeof value === 'string') headers.set(key, value);
+        else if (Array.isArray(value)) headers.set(key, value.join(', '));
+      }
+      const fakeRequest = new Request(`http://${request.headers.host ?? 'localhost'}${request.url ?? '/'}`, { headers });
+      const resolved = await resolveAuth(fakeRequest, options.auth);
+      if (resolved) auth = resolved;
+    }
+
     wss.handleUpgrade(request, socket, head, (ws) => {
-      log(`[ws] client connected for agent ${agentId}`);
+      log(`[ws] client connected for agent ${agentId}${auth ? ` (${auth.mode}:${auth.channelUserId || 'channel'})` : ''}`);
 
       const conn: WsConnection = {
         ws,
@@ -262,6 +283,7 @@ export const attachGatewayWs = (
             ws.ping();
           }
         }, WS_PING_INTERVAL_MS),
+        ...(auth ? { auth } : {}),
       };
 
       ws.on('message', (data) => {

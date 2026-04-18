@@ -25,6 +25,11 @@ import {
 import type { AgentRunner, SessionEventEnvelope } from '@openhermit/agent/agent-runner';
 
 import type { AgentInstanceManager } from './agent-instance.js';
+import {
+  type AuthContext,
+  type AuthResolverOptions,
+  resolveAuth,
+} from './auth.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -100,6 +105,7 @@ const parseSessionListQuery = (request: Request): SessionListQuery => {
 export interface GatewayAppOptions {
   instances: AgentInstanceManager;
   agentStore?: DbAgentStore;
+  auth?: AuthResolverOptions;
   logger?: (message: string) => void;
 }
 
@@ -128,7 +134,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   app.use('*', cors({
     origin: '*',
     allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Authorization'],
+    allowHeaders: ['Content-Type', 'Authorization', 'X-Device-Id'],
     exposeHeaders: ['Content-Type'],
   }));
 
@@ -145,6 +151,20 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
       throw error;
     }
   });
+
+  // --- authentication ---
+
+  if (options.auth) {
+    const authOptions = options.auth;
+
+    app.use('/agents/*', async (c, next) => {
+      const authContext = await resolveAuth(c.req.raw, authOptions);
+      if (authContext) {
+        c.set('auth' as never, authContext as never);
+      }
+      await next();
+    });
+  }
 
   // --- gateway health ---
 
@@ -294,6 +314,15 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
       throw new ValidationError('Invalid SessionSpec payload.');
     }
 
+    // Inject authenticated user identity into session metadata
+    const auth = c.get('auth' as never) as AuthContext | undefined;
+    if (auth?.mode === 'user' && auth.channelUserId) {
+      payload.metadata = {
+        ...payload.metadata,
+        username: auth.channelUserId,
+      };
+    }
+
     const session = await runtime.openSession(payload);
     return c.json({ sessionId: session.spec.sessionId });
   });
@@ -302,7 +331,11 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const agentId = c.req.param('agentId') ?? '';
     const runtime = resolveRunner(instances, agentId);
     const query = parseSessionListQuery(c.req.raw);
-    const sessions = await runtime.listSessions(query);
+    const auth = c.get('auth' as never) as AuthContext | undefined;
+    const callerUserId = auth?.mode === 'user'
+      ? await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId })
+      : undefined;
+    const sessions = await runtime.listSessions(query, callerUserId);
     return c.json(sessions);
   });
 
@@ -316,6 +349,17 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
 
     if (!isSessionMessage(payload)) {
       throw new ValidationError('Invalid SessionMessage payload.');
+    }
+
+    // Channel namespace enforcement: if a channel declares a sender,
+    // the sender's channel must match the authenticated channel namespace
+    const msgAuth = c.get('auth' as never) as AuthContext | undefined;
+    if (msgAuth?.mode === 'channel' && msgAuth.channelNamespace && payload.sender) {
+      if (payload.sender.channel !== msgAuth.channelNamespace) {
+        throw new ValidationError(
+          `Channel namespace violation: channel "${msgAuth.channelNamespace}" cannot declare sender identity for "${payload.sender.channel}".`,
+        );
+      }
     }
 
     const url = new URL(c.req.url);
@@ -459,7 +503,11 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const agentId = c.req.param('agentId') ?? '';
     const sessionId = c.req.param('sessionId') ?? '';
     const runtime = resolveRunner(instances, agentId);
-    const messages = await runtime.listSessionMessages(sessionId);
+    const auth = c.get('auth' as never) as AuthContext | undefined;
+    const callerUserId = auth?.mode === 'user'
+      ? await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId })
+      : undefined;
+    const messages = await runtime.listSessionMessages(sessionId, callerUserId);
     return c.json(messages);
   });
 

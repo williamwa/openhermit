@@ -36,9 +36,10 @@ let authHeaders = {};
 const setConnection = (conn) => {
   const base = conn.gatewayUrl.replace(/\/+$/, '');
   apiBase = `${base}/agents/${encodeURIComponent(conn.agentId)}`;
-  authHeaders = conn.token
-    ? { authorization: `Bearer ${conn.token}` }
-    : {};
+  authHeaders = {
+    ...(conn.token ? { authorization: `Bearer ${conn.token}` } : {}),
+    'x-device-id': getDeviceId(),
+  };
 };
 
 // ─── Fetch helper ───────────────────────────────────────────────────────────
@@ -421,7 +422,7 @@ const selectSession = async (sessionId) => {
   await apiFetch('/sessions', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ sessionId, source: { kind: 'web', interactive: true }, metadata: { username: getDeviceId() } }),
+    body: JSON.stringify({ sessionId, source: { kind: 'web', interactive: true }, metadata: {} }),
   });
 
   const summary = state.sessions.find((s) => s.sessionId === sessionId);
@@ -447,7 +448,7 @@ const createAndSelectSession = async () => {
   await apiFetch('/sessions', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ sessionId, source: { kind: 'web', interactive: true }, metadata: { username: getDeviceId() } }),
+    body: JSON.stringify({ sessionId, source: { kind: 'web', interactive: true }, metadata: {} }),
   });
   await refreshSessions();
   await selectSession(sessionId);

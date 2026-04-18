@@ -12,6 +12,11 @@ import { loadEnvironmentFile } from '@openhermit/agent/langfuse';
 import { AgentInstanceManager } from './agent-instance.js';
 import { createGatewayApp } from './app.js';
 import { attachGatewayWs } from './ws-handler.js';
+import {
+  type AuthResolverOptions,
+  ChannelRegistry,
+  DeviceIdAuthProvider,
+} from './auth.js';
 
 const defaultPort = 4000;
 
@@ -77,9 +82,17 @@ export const main = async (): Promise<void> => {
     }
   }
 
+  // Auth configuration
+  const channels = new ChannelRegistry();
+  const auth: AuthResolverOptions = {
+    userProviders: [new DeviceIdAuthProvider()],
+    channels,
+  };
+
   const app = createGatewayApp({
     instances,
     ...(agentStore ? { agentStore } : {}),
+    auth,
     logger: logStartup,
   });
 
@@ -97,6 +110,7 @@ export const main = async (): Promise<void> => {
 
   attachGatewayWs(server as import('node:http').Server, {
     instances,
+    auth,
     logger: logStartup,
   });
 
