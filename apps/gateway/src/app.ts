@@ -332,14 +332,10 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const runtime = resolveRunner(instances, agentId);
     const query = parseSessionListQuery(c.req.raw);
     const auth = c.get('auth' as never) as AuthContext | undefined;
-    // Authenticated user who hasn't been seen before → empty list (not all sessions)
-    if (auth?.mode === 'user') {
-      const callerUserId = await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId });
-      if (!callerUserId) return c.json([]);
-      const sessions = await runtime.listSessions(query, callerUserId);
-      return c.json(sessions);
-    }
-    const sessions = await runtime.listSessions(query);
+    if (!auth) return c.json([]);
+    const callerUserId = await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId });
+    if (!callerUserId) return c.json([]);
+    const sessions = await runtime.listSessions(query, callerUserId);
     return c.json(sessions);
   });
 
@@ -508,13 +504,10 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const sessionId = c.req.param('sessionId') ?? '';
     const runtime = resolveRunner(instances, agentId);
     const auth = c.get('auth' as never) as AuthContext | undefined;
-    if (auth?.mode === 'user') {
-      const callerUserId = await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId });
-      if (!callerUserId) throw new NotFoundError(`Session not found: ${sessionId}`);
-      const messages = await runtime.listSessionMessages(sessionId, callerUserId);
-      return c.json(messages);
-    }
-    const messages = await runtime.listSessionMessages(sessionId);
+    if (!auth) throw new NotFoundError(`Session not found: ${sessionId}`);
+    const callerUserId = await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId });
+    if (!callerUserId) throw new NotFoundError(`Session not found: ${sessionId}`);
+    const messages = await runtime.listSessionMessages(sessionId, callerUserId);
     return c.json(messages);
   });
 

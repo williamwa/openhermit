@@ -152,13 +152,10 @@ const handleRequest = async (
         if (typeof p.platform === 'string') query.platform = p.platform;
         if (typeof p.interactive === 'boolean') query.interactive = p.interactive;
         if (typeof p.limit === 'number') query.limit = p.limit;
-        if (conn.auth?.mode === 'user') {
-          const callerUserId = await runtime.resolveCallerUserId({ channel: conn.auth.channel, channelUserId: conn.auth.channelUserId });
-          if (!callerUserId) { sendResult(ws, id, []); return; }
-          sendResult(ws, id, await runtime.listSessions(query, callerUserId));
-        } else {
-          sendResult(ws, id, await runtime.listSessions(query));
-        }
+        if (!conn.auth) { sendResult(ws, id, []); return; }
+        const callerUserId = await runtime.resolveCallerUserId({ channel: conn.auth.channel, channelUserId: conn.auth.channelUserId });
+        if (!callerUserId) { sendResult(ws, id, []); return; }
+        sendResult(ws, id, await runtime.listSessions(query, callerUserId));
         return;
       }
 
@@ -168,13 +165,10 @@ const handleRequest = async (
           sendError(ws, id, 'INVALID_PARAMS', 'Missing sessionId.');
           return;
         }
-        if (conn.auth?.mode === 'user') {
-          const callerUserId = await runtime.resolveCallerUserId({ channel: conn.auth.channel, channelUserId: conn.auth.channelUserId });
-          if (!callerUserId) { sendError(ws, id, 'INVALID_PARAMS', 'Session not found.'); return; }
-          sendResult(ws, id, await runtime.listSessionMessages(sessionId, callerUserId));
-        } else {
-          sendResult(ws, id, await runtime.listSessionMessages(sessionId));
-        }
+        if (!conn.auth) { sendError(ws, id, 'INVALID_PARAMS', 'Session not found.'); return; }
+        const historyCallerUserId = await runtime.resolveCallerUserId({ channel: conn.auth.channel, channelUserId: conn.auth.channelUserId });
+        if (!historyCallerUserId) { sendError(ws, id, 'INVALID_PARAMS', 'Session not found.'); return; }
+        sendResult(ws, id, await runtime.listSessionMessages(sessionId, historyCallerUserId));
         return;
       }
 
