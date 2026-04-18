@@ -10,12 +10,23 @@ import remend from 'remend';
 const TELEGRAM_MAX_LENGTH = 4096;
 
 /**
+ * Strip MarkdownV2 backslash escapes (e.g. `\.` → `.`, `\-` → `-`).
+ * These are added by agents targeting Telegram's MarkdownV2 parse mode
+ * but are unwanted when we convert to HTML ourselves.
+ */
+function stripMarkdownV2Escapes(text: string): string {
+  // MarkdownV2 requires escaping: _ * [ ] ( ) ~ ` > # + - = | { } . !
+  return text.replace(/\\([_*\[\]()~`>#+\-=|{}.!\\])/g, '$1');
+}
+
+/**
  * Convert Markdown to Telegram-compatible HTML.
  * Telegram only supports: b, strong, i, em, u, ins, s, strike, del,
  * span (with class="tg-spoiler"), a, code, pre.
  */
 function markdownToTelegramHtml(md: string): string {
-  const html = marked.parse(md, { async: false }) as string;
+  const cleaned = stripMarkdownV2Escapes(md);
+  const html = marked.parse(cleaned, { async: false }) as string;
 
   return (
     html
