@@ -152,12 +152,13 @@ const handleRequest = async (
         if (typeof p.platform === 'string') query.platform = p.platform;
         if (typeof p.interactive === 'boolean') query.interactive = p.interactive;
         if (typeof p.limit === 'number') query.limit = p.limit;
-        // Use authenticated identity from WS connection (not client-supplied)
-        const callerUserId = conn.auth?.mode === 'user' && conn.auth.channelUserId
-          ? await runtime.resolveCallerUserId({ channel: conn.auth.channel, channelUserId: conn.auth.channelUserId })
-          : undefined;
-        const sessions = await runtime.listSessions(query, callerUserId);
-        sendResult(ws, id, sessions);
+        if (conn.auth?.mode === 'user') {
+          const callerUserId = await runtime.resolveCallerUserId({ channel: conn.auth.channel, channelUserId: conn.auth.channelUserId });
+          if (!callerUserId) { sendResult(ws, id, []); return; }
+          sendResult(ws, id, await runtime.listSessions(query, callerUserId));
+        } else {
+          sendResult(ws, id, await runtime.listSessions(query));
+        }
         return;
       }
 
@@ -167,11 +168,13 @@ const handleRequest = async (
           sendError(ws, id, 'INVALID_PARAMS', 'Missing sessionId.');
           return;
         }
-        const historyCallerUserId = conn.auth?.mode === 'user' && conn.auth.channelUserId
-          ? await runtime.resolveCallerUserId({ channel: conn.auth.channel, channelUserId: conn.auth.channelUserId })
-          : undefined;
-        const messages = await runtime.listSessionMessages(sessionId, historyCallerUserId);
-        sendResult(ws, id, messages);
+        if (conn.auth?.mode === 'user') {
+          const callerUserId = await runtime.resolveCallerUserId({ channel: conn.auth.channel, channelUserId: conn.auth.channelUserId });
+          if (!callerUserId) { sendError(ws, id, 'INVALID_PARAMS', 'Session not found.'); return; }
+          sendResult(ws, id, await runtime.listSessionMessages(sessionId, callerUserId));
+        } else {
+          sendResult(ws, id, await runtime.listSessionMessages(sessionId));
+        }
         return;
       }
 

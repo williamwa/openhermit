@@ -332,10 +332,14 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const runtime = resolveRunner(instances, agentId);
     const query = parseSessionListQuery(c.req.raw);
     const auth = c.get('auth' as never) as AuthContext | undefined;
-    const callerUserId = auth?.mode === 'user'
-      ? await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId })
-      : undefined;
-    const sessions = await runtime.listSessions(query, callerUserId);
+    // Authenticated user who hasn't been seen before → empty list (not all sessions)
+    if (auth?.mode === 'user') {
+      const callerUserId = await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId });
+      if (!callerUserId) return c.json([]);
+      const sessions = await runtime.listSessions(query, callerUserId);
+      return c.json(sessions);
+    }
+    const sessions = await runtime.listSessions(query);
     return c.json(sessions);
   });
 
@@ -504,10 +508,13 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const sessionId = c.req.param('sessionId') ?? '';
     const runtime = resolveRunner(instances, agentId);
     const auth = c.get('auth' as never) as AuthContext | undefined;
-    const callerUserId = auth?.mode === 'user'
-      ? await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId })
-      : undefined;
-    const messages = await runtime.listSessionMessages(sessionId, callerUserId);
+    if (auth?.mode === 'user') {
+      const callerUserId = await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId });
+      if (!callerUserId) throw new NotFoundError(`Session not found: ${sessionId}`);
+      const messages = await runtime.listSessionMessages(sessionId, callerUserId);
+      return c.json(messages);
+    }
+    const messages = await runtime.listSessionMessages(sessionId);
     return c.json(messages);
   });
 
