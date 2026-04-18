@@ -103,8 +103,9 @@ export const main = async (): Promise<void> => {
     logStartup('GATEWAY_ADMIN_TOKEN not set — admin API endpoints are disabled');
   }
 
+  const enableUI = process.env.GATEWAY_UI !== 'false';
   const gatewayDir = path.dirname(fileURLToPath(import.meta.url));
-  const publicDir = path.resolve(gatewayDir, '../public');
+  const publicDir = enableUI ? path.resolve(gatewayDir, '../public') : undefined;
 
   const app = createGatewayApp({
     instances,
@@ -115,6 +116,10 @@ export const main = async (): Promise<void> => {
     logBuffer,
     publicDir,
   });
+
+  if (enableUI) {
+    logStartup('admin UI enabled at /ui/');
+  }
 
   const rawPort = process.env.GATEWAY_PORT ?? process.env.PORT;
   const port = rawPort ? Number.parseInt(rawPort, 10) : defaultPort;
