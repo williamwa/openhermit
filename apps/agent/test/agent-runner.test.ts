@@ -327,8 +327,8 @@ test('AgentRunner builds dynamic system prompt based on available tools', async 
   // Container section absent (container tools are currently disabled)
   assert.doesNotMatch(capturedSystemPrompt, /Service Containers/);
 
-  // Exec section absent (no workspace_container configured in test fixture)
-  assert.doesNotMatch(capturedSystemPrompt, /### Execution/);
+  // Exec section present (local backend is always available as fallback)
+  assert.match(capturedSystemPrompt, /### Execution/);
 
   // Memory section present (memoryProvider is always provided)
   assert.match(capturedSystemPrompt, /memory_recall/);
