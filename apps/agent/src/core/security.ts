@@ -2,6 +2,8 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { z } from 'zod';
+
 import { internalStateFiles } from '@openhermit/shared';
 import { NotFoundError, ValidationError } from '@openhermit/shared';
 
@@ -56,75 +58,115 @@ const parseJsonFile = <T>(content: string, filePath: string): T => {
   }
 };
 
-// ── Config validation ─────────────────────────────────────────────────────
+// ── Config schema (Zod) ───────────────────────────────────────────────────
 
-const requireString = (obj: Record<string, unknown>, field: string, path: string): void => {
-  if (typeof obj[field] !== 'string' || obj[field] === '') {
-    throw new ValidationError(`${path}.${field} must be a non-empty string`);
-  }
-};
+const ModelConfigSchema = z.object({
+  provider: z.string().min(1),
+  model: z.string().min(1),
+  max_tokens: z.number(),
+  base_url: z.string().optional(),
+  api: z.string().optional(),
+});
 
-const requireNumber = (obj: Record<string, unknown>, field: string, path: string): void => {
-  if (typeof obj[field] !== 'number' || Number.isNaN(obj[field])) {
-    throw new ValidationError(`${path}.${field} must be a number`);
-  }
-};
+const HttpApiConfigSchema = z.object({
+  preferred_port: z.number(),
+});
 
-const requireObject = (obj: Record<string, unknown>, field: string, path: string): Record<string, unknown> => {
-  if (obj[field] == null || typeof obj[field] !== 'object' || Array.isArray(obj[field])) {
-    throw new ValidationError(`${path}.${field} must be an object`);
-  }
-  return obj[field] as Record<string, unknown>;
-};
+const IntrospectionConfigSchema = z.object({
+  enabled: z.boolean(),
+  turn_interval: z.number(),
+  idle_timeout_minutes: z.number(),
+  max_tool_calls: z.number(),
+  model: z.string().nullable(),
+});
+
+const MemoryConfigSchema = z.object({
+  context_entry_limit: z.number().optional(),
+  introspection: IntrospectionConfigSchema.optional(),
+});
+
+const LifecycleSchema = z.object({
+  start: z.enum(['session', 'ondemand']).optional(),
+  stop: z.enum(['session', 'idle']).optional(),
+  idle_timeout_minutes: z.number().optional(),
+});
+
+const DockerBackendSchema = z.object({
+  id: z.string().optional(),
+  type: z.literal('docker'),
+  label: z.string().optional(),
+  image: z.string().min(1),
+  memory_limit: z.string().optional(),
+  cpu_shares: z.number().optional(),
+  lifecycle: LifecycleSchema.optional(),
+});
+
+const LocalBackendSchema = z.object({
+  id: z.string().optional(),
+  type: z.literal('local'),
+  label: z.string().optional(),
+  cwd: z.string().optional(),
+  shell: z.string().optional(),
+  env: z.record(z.string(), z.string()).optional(),
+});
+
+const SshBackendSchema = z.object({
+  id: z.string().optional(),
+  type: z.literal('ssh'),
+  label: z.string().optional(),
+  host: z.string().min(1),
+  port: z.number().optional(),
+  user: z.string().optional(),
+  identity_file: z.string().optional(),
+  cwd: z.string().optional(),
+});
+
+const ExecBackendConfigSchema = z.discriminatedUnion('type', [
+  DockerBackendSchema,
+  LocalBackendSchema,
+  SshBackendSchema,
+]);
+
+const ExecConfigSchema = z.object({
+  backends: z.array(ExecBackendConfigSchema),
+  default_backend: z.string().optional(),
+  lifecycle: LifecycleSchema.optional(),
+});
+
+const WebConfigSchema = z.object({
+  provider: z.enum(['defuddle', 'exa', 'tavily']),
+});
+
+const TelegramChannelSchema = z.object({
+  enabled: z.boolean(),
+  bot_token: z.string().min(1),
+  mode: z.enum(['polling', 'webhook']).optional(),
+  webhook_url: z.string().optional(),
+  webhook_port: z.number().optional(),
+  allowed_chat_ids: z.array(z.string()).optional(),
+});
+
+const ChannelsConfigSchema = z.object({
+  telegram: TelegramChannelSchema.optional(),
+});
+
+const AgentRuntimeConfigSchema = z.object({
+  workspace_root: z.string(),
+  model: ModelConfigSchema,
+  http_api: HttpApiConfigSchema,
+  memory: MemoryConfigSchema,
+  exec: ExecConfigSchema.optional(),
+  web: WebConfigSchema.optional(),
+  channels: ChannelsConfigSchema.optional(),
+});
 
 function validateConfig(config: unknown, filePath: string): asserts config is AgentRuntimeConfig {
-  if (config == null || typeof config !== 'object' || Array.isArray(config)) {
-    throw new ValidationError(`${filePath}: config must be a JSON object`);
-  }
-
-  const root = config as Record<string, unknown>;
-
-  // model (required)
-  const model = requireObject(root, 'model', 'config');
-  requireString(model, 'provider', 'config.model');
-  requireString(model, 'model', 'config.model');
-  requireNumber(model, 'max_tokens', 'config.model');
-  if (model.base_url !== undefined && typeof model.base_url !== 'string') {
-    throw new ValidationError('config.model.base_url must be a string');
-  }
-
-  // http_api (required)
-  const httpApi = requireObject(root, 'http_api', 'config');
-  requireNumber(httpApi, 'preferred_port', 'config.http_api');
-
-  // memory (required)
-  requireObject(root, 'memory', 'config');
-
-  // exec (optional)
-  if (root.exec !== undefined) {
-    const exec = requireObject(root, 'exec', 'config');
-    if (!Array.isArray(exec.backends)) {
-      throw new ValidationError('config.exec.backends must be an array');
-    }
-    for (let i = 0; i < exec.backends.length; i++) {
-      const b = exec.backends[i] as Record<string, unknown>;
-      if (!b || typeof b !== 'object') {
-        throw new ValidationError(`config.exec.backends[${i}] must be an object`);
-      }
-      requireString(b, 'type', `config.exec.backends[${i}]`);
-      const backendType = b.type as string;
-      if (backendType === 'docker') {
-        requireString(b, 'image', `config.exec.backends[${i}]`);
-      } else if (backendType === 'ssh') {
-        requireString(b, 'host', `config.exec.backends[${i}]`);
-      }
-    }
-  }
-
-  // web (optional)
-  if (root.web !== undefined) {
-    const web = requireObject(root, 'web', 'config');
-    requireString(web, 'provider', 'config.web');
+  const result = AgentRuntimeConfigSchema.safeParse(config);
+  if (!result.success) {
+    const issues = result.error.issues
+      .map((i) => `  ${i.path.join('.')}: ${i.message}`)
+      .join('\n');
+    throw new ValidationError(`Invalid config in ${filePath}:\n${issues}`);
   }
 }
 
