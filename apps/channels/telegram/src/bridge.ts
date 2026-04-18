@@ -340,10 +340,15 @@ export class TelegramBridge {
     // Final edit to show complete text with HTML formatting (remove trailing " ...").
     const responseText = finalText ?? (accumulatedText.trim() || undefined);
     if (sentMessageId && responseText) {
-      const html = markdownToTelegramHtml(responseText);
-      void this.telegram
-        .editMessageText(chatId, sentMessageId, html, { parseMode: 'HTML' })
-        .catch(() => undefined);
+      try {
+        const html = markdownToTelegramHtml(responseText);
+        await this.telegram.editMessageText(chatId, sentMessageId, html, { parseMode: 'HTML' });
+      } catch {
+        // HTML parse failed — fall back to plain text.
+        void this.telegram
+          .editMessageText(chatId, sentMessageId, responseText)
+          .catch(() => undefined);
+      }
     }
 
     return {
