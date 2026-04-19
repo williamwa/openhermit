@@ -1,4 +1,4 @@
-export type KnownSourceKind = 'cli' | 'web' | 'im' | 'heartbeat' | 'cron';
+export type KnownSourceKind = 'cli' | 'api' | 'channel' | 'heartbeat' | 'cron';
 
 export type SourceKind = KnownSourceKind | (string & {});
 

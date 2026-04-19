@@ -853,7 +853,7 @@ test('session_list filters sessions by currentUserId', async (t) => {
   });
   await store.sessions.upsert(scope, {
     sessionId: 'sess-only-b',
-    source: { kind: 'telegram', interactive: true, platform: 'telegram' },
+    source: { kind: 'channel', interactive: true, platform: 'telegram' },
     createdAt: now,
     lastActivityAt: now,
     messageCount: 2,

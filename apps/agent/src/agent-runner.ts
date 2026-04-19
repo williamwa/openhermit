@@ -798,7 +798,7 @@ export class AgentRunner implements SessionRuntime {
    */
   private async ensureOwnerBootstrap(spec: SessionSpec, now: string): Promise<void> {
     const kind = spec.source.kind;
-    if (kind !== 'cli' && kind !== 'web') return;
+    if (kind !== 'cli' && kind !== 'channel') return;
 
     const agentUsers = await this.store.users.listByAgent(this.scope);
     if (agentUsers.length > 0) return;

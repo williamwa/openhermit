@@ -250,7 +250,7 @@ export class TelegramBridge {
     await this.client.openSession({
       sessionId,
       source: {
-        kind: 'im',
+        kind: 'channel',
         interactive: true,
         platform: 'telegram',
         type: isGroup ? 'group' : 'direct',

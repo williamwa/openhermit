@@ -29,9 +29,9 @@ Each platform conversation maps to an OpenHermit session:
 
 | Platform | Session ID | Source |
 |----------|------------|--------|
-| Telegram | `tg:{chat_id}` | `{ kind: 'im', platform: 'telegram', interactive: true }` |
-| Slack | `slack:{channel_id}` | `{ kind: 'im', platform: 'slack', interactive: true }` |
-| Discord | `discord:{channel_id}` | `{ kind: 'im', platform: 'discord', interactive: true }` |
+| Telegram | `telegram:{date}-{random}` | `{ kind: 'channel', platform: 'telegram', interactive: true }` |
+| Slack | `slack:{date}-{random}` | `{ kind: 'channel', platform: 'slack', interactive: true }` |
+| Discord | `discord:{date}-{random}` | `{ kind: 'channel', platform: 'discord', interactive: true }` |
 
 The adapter calls `openSession()` on first contact with a new conversation, then reuses the session for all subsequent messages in that conversation.
 
