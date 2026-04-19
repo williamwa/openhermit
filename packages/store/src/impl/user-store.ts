@@ -1,25 +1,22 @@
 import type { PrismaClient } from '../generated/prisma/index.js';
 
 import type { UserStore } from '../interfaces.js';
-import type { StoreScope, UserIdentity, UserRecord } from '../types.js';
+import type { StoreScope, UserAgentRecord, UserIdentity, UserRecord, UserRole } from '../types.js';
 
 export class DbUserStore implements UserStore {
   constructor(private readonly prisma: PrismaClient) {}
 
-  async upsert(scope: StoreScope, user: UserRecord): Promise<void> {
+  async upsert(user: UserRecord): Promise<void> {
     await this.prisma.user.upsert({
-      where: { agentId_userId: { agentId: scope.agentId, userId: user.userId } },
+      where: { userId: user.userId },
       create: {
-        agentId: scope.agentId,
         userId: user.userId,
-        role: user.role,
         name: user.name ?? null,
         mergedInto: user.mergedInto ?? null,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
       },
       update: {
-        role: user.role,
         name: user.name ?? null,
         mergedInto: user.mergedInto ?? null,
         updatedAt: user.updatedAt,
@@ -27,30 +24,26 @@ export class DbUserStore implements UserStore {
     });
   }
 
-  async get(scope: StoreScope, userId: string): Promise<UserRecord | undefined> {
+  async get(userId: string): Promise<UserRecord | undefined> {
     const row = await this.prisma.user.findFirst({
-      where: { agentId: scope.agentId, userId, mergedInto: null },
+      where: { userId, mergedInto: null },
     });
-
     if (!row) return undefined;
     return this.rowToUserRecord(row);
   }
 
-  async list(scope: StoreScope): Promise<UserRecord[]> {
+  async list(): Promise<UserRecord[]> {
     const rows = await this.prisma.user.findMany({
-      where: { agentId: scope.agentId, mergedInto: null },
+      where: { mergedInto: null },
       orderBy: { createdAt: 'asc' },
     });
-
     return rows.map((row) => this.rowToUserRecord(row));
   }
 
-  async linkIdentity(scope: StoreScope, identity: UserIdentity): Promise<void> {
-    // Find previous owner of this identity (if any)
+  async linkIdentity(identity: UserIdentity): Promise<void> {
     const previous = await this.prisma.userIdentity.findUnique({
       where: {
-        agentId_channel_channelUserId: {
-          agentId: scope.agentId,
+        channel_channelUserId: {
           channel: identity.channel,
           channelUserId: identity.channelUserId,
         },
@@ -58,17 +51,14 @@ export class DbUserStore implements UserStore {
     });
     const previousUserId = previous?.userId;
 
-    // Upsert the identity link
     await this.prisma.userIdentity.upsert({
       where: {
-        agentId_channel_channelUserId: {
-          agentId: scope.agentId,
+        channel_channelUserId: {
           channel: identity.channel,
           channelUserId: identity.channelUserId,
         },
       },
       create: {
-        agentId: scope.agentId,
         userId: identity.userId,
         channel: identity.channel,
         channelUserId: identity.channelUserId,
@@ -79,27 +69,21 @@ export class DbUserStore implements UserStore {
       },
     });
 
-    // If the identity moved from a different user, clean up the orphan
     if (previousUserId && previousUserId !== identity.userId) {
-      await this.cleanupOrphanedUser(scope, previousUserId, identity.userId);
+      await this.cleanupOrphanedUser(previousUserId, identity.userId);
     }
   }
 
-  async resolve(scope: StoreScope, channel: string, channelUserId: string): Promise<string | undefined> {
+  async resolve(channel: string, channelUserId: string): Promise<string | undefined> {
     const identity = await this.prisma.userIdentity.findUnique({
       where: {
-        agentId_channel_channelUserId: {
-          agentId: scope.agentId,
-          channel,
-          channelUserId,
-        },
+        channel_channelUserId: { channel, channelUserId },
       },
       include: { user: true },
     });
 
     if (!identity) return undefined;
 
-    // Follow merged_into chain (at most one hop in practice)
     if (typeof identity.user.mergedInto === 'string') {
       return identity.user.mergedInto;
     }
@@ -107,18 +91,17 @@ export class DbUserStore implements UserStore {
     return identity.userId;
   }
 
-  async unlinkIdentity(scope: StoreScope, channel: string, channelUserId: string): Promise<void> {
+  async unlinkIdentity(channel: string, channelUserId: string): Promise<void> {
     await this.prisma.userIdentity.deleteMany({
-      where: { agentId: scope.agentId, channel, channelUserId },
+      where: { channel, channelUserId },
     });
   }
 
-  async listIdentities(scope: StoreScope, userId: string): Promise<UserIdentity[]> {
+  async listIdentities(userId: string): Promise<UserIdentity[]> {
     const rows = await this.prisma.userIdentity.findMany({
-      where: { agentId: scope.agentId, userId },
+      where: { userId },
       orderBy: { createdAt: 'asc' },
     });
-
     return rows.map((row) => ({
       userId: row.userId,
       channel: row.channel,
@@ -127,63 +110,91 @@ export class DbUserStore implements UserStore {
     }));
   }
 
-  async merge(scope: StoreScope, fromUserId: string, intoUserId: string): Promise<void> {
+  async merge(fromUserId: string, intoUserId: string): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       // Re-link all identities from source to target
       await tx.userIdentity.updateMany({
-        where: { agentId: scope.agentId, userId: fromUserId },
+        where: { userId: fromUserId },
         data: { userId: intoUserId },
       });
 
-      // Reassign session events from source to target
+      // Re-assign agent roles: move UserAgent records (skip conflicts)
+      const fromAgents = await tx.userAgent.findMany({ where: { userId: fromUserId } });
+      for (const ua of fromAgents) {
+        const exists = await tx.userAgent.findUnique({
+          where: { userId_agentId: { userId: intoUserId, agentId: ua.agentId } },
+        });
+        if (!exists) {
+          await tx.userAgent.create({
+            data: { userId: intoUserId, agentId: ua.agentId, role: ua.role, createdAt: ua.createdAt },
+          });
+        }
+      }
+      await tx.userAgent.deleteMany({ where: { userId: fromUserId } });
+
+      // Reassign session events
       await tx.sessionEvent.updateMany({
-        where: { agentId: scope.agentId, userId: fromUserId },
+        where: { userId: fromUserId },
         data: { userId: intoUserId },
       });
 
-      // Delete the merged user (identities already moved, cascade won't lose anything)
-      await tx.user.delete({
-        where: { agentId_userId: { agentId: scope.agentId, userId: fromUserId } },
-      });
+      // Delete the merged user
+      await tx.user.delete({ where: { userId: fromUserId } });
     });
   }
 
-  async delete(scope: StoreScope, userId: string): Promise<void> {
-    // Identities are cascade-deleted via FK
-    await this.prisma.user.delete({
-      where: { agentId_userId: { agentId: scope.agentId, userId } },
+  async delete(userId: string): Promise<void> {
+    await this.prisma.user.delete({ where: { userId } });
+  }
+
+  // ── Agent role methods ───────────────────────────────────────────────
+
+  async assignAgent(scope: StoreScope, userId: string, role: UserRole, createdAt: string): Promise<void> {
+    await this.prisma.userAgent.upsert({
+      where: { userId_agentId: { userId, agentId: scope.agentId } },
+      create: { userId, agentId: scope.agentId, role, createdAt },
+      update: { role },
     });
   }
 
-  /**
-   * After an identity is moved away from a user, check if that user has no
-   * remaining identities. If so, reassign their session events and delete them.
-   */
-  private async cleanupOrphanedUser(
-    scope: StoreScope,
-    orphanUserId: string,
-    newUserId: string,
-  ): Promise<void> {
+  async getAgentRole(scope: StoreScope, userId: string): Promise<UserRole | undefined> {
+    const row = await this.prisma.userAgent.findUnique({
+      where: { userId_agentId: { userId, agentId: scope.agentId } },
+    });
+    return row ? (row.role as UserRole) : undefined;
+  }
+
+  async listByAgent(scope: StoreScope): Promise<UserAgentRecord[]> {
+    const rows = await this.prisma.userAgent.findMany({
+      where: { agentId: scope.agentId },
+      orderBy: { createdAt: 'asc' },
+    });
+    return rows.map((row) => ({
+      userId: row.userId,
+      agentId: row.agentId,
+      role: row.role as UserRole,
+      createdAt: row.createdAt,
+    }));
+  }
+
+  // ── Private helpers ──────────────────────────────────────────────────
+
+  private async cleanupOrphanedUser(orphanUserId: string, newUserId: string): Promise<void> {
     const remaining = await this.prisma.userIdentity.count({
-      where: { agentId: scope.agentId, userId: orphanUserId },
+      where: { userId: orphanUserId },
     });
     if (remaining > 0) return;
 
-    // Reassign all session events from the orphan to the new owner
     await this.prisma.sessionEvent.updateMany({
-      where: { agentId: scope.agentId, userId: orphanUserId },
+      where: { userId: orphanUserId },
       data: { userId: newUserId },
     });
 
-    // Delete the orphaned user
-    await this.prisma.user.delete({
-      where: { agentId_userId: { agentId: scope.agentId, userId: orphanUserId } },
-    });
+    await this.prisma.user.delete({ where: { userId: orphanUserId } });
   }
 
   private rowToUserRecord(row: {
     userId: string;
-    role: string;
     name: string | null;
     mergedInto: string | null;
     createdAt: string;
@@ -191,19 +202,11 @@ export class DbUserStore implements UserStore {
   }): UserRecord {
     const record: UserRecord = {
       userId: row.userId,
-      role: row.role as UserRecord['role'],
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };
-
-    if (row.name !== null) {
-      record.name = row.name;
-    }
-
-    if (row.mergedInto !== null) {
-      record.mergedInto = row.mergedInto;
-    }
-
+    if (row.name !== null) record.name = row.name;
+    if (row.mergedInto !== null) record.mergedInto = row.mergedInto;
     return record;
   }
 }

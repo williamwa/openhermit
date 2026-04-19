@@ -163,6 +163,7 @@ export interface CreateAgentRequest {
   name?: string;
   configDir?: string;
   workspaceDir?: string;
+  ownerUserId?: string;
 }
 
 export const gatewayRoutes = {

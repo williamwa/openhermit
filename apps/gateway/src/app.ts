@@ -126,6 +126,8 @@ export interface GatewayAppOptions {
   logBuffer?: LogBuffer | undefined;
   /** Absolute path to the public directory for serving static UI files. */
   publicDir?: string | undefined;
+  /** CORS allowed origin (default: '*'). */
+  corsOrigin?: string | undefined;
 }
 
 // ─── Resolve runner helper ────────────────────────────────────────────────────
@@ -151,7 +153,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   // --- CORS ---
 
   app.use('*', cors({
-    origin: '*',
+    origin: options.corsOrigin ?? '*',
     allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowHeaders: ['Content-Type', 'Authorization'],
     exposeHeaders: ['Content-Type'],
@@ -309,7 +311,13 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
       { key: 'rules', content: 'Follow the user\'s instructions carefully. Ask for clarification when the request is ambiguous. Do not make up information.' },
     ], now);
 
-    log(`agent created: ${record.agentId}`);
+    // Assign owner if specified
+    if (body.ownerUserId && typeof body.ownerUserId === 'string') {
+      await agentStore.assignOwner(record.agentId, body.ownerUserId, now);
+      log(`agent created: ${record.agentId} (owner: ${body.ownerUserId})`);
+    } else {
+      log(`agent created: ${record.agentId}`);
+    }
 
     return c.json({
       agentId: record.agentId,

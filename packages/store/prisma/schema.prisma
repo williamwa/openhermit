@@ -23,6 +23,8 @@ model Agent {
   createdAt    String  @map("created_at")
   updatedAt    String  @map("updated_at")
 
+  users UserAgent[]
+
   @@map("agents")
 }
 
@@ -109,31 +111,42 @@ model Instruction {
 }
 
 model User {
-  agentId    String  @map("agent_id")
-  userId     String  @map("user_id")
-  role       String
+  userId     String  @id @map("user_id")
   name       String?
   mergedInto String? @map("merged_into")
   createdAt  String  @map("created_at")
   updatedAt  String  @map("updated_at")
 
   identities UserIdentity[]
+  agents     UserAgent[]
 
-  @@id([agentId, userId])
-  @@index([agentId, updatedAt(sort: Desc)], map: "idx_users_agent")
+  @@index([updatedAt(sort: Desc)], map: "idx_users_updated")
   @@map("users")
 }
 
+model UserAgent {
+  userId    String @map("user_id")
+  agentId   String @map("agent_id")
+  role      String
+  createdAt String @map("created_at")
+
+  user  User  @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  agent Agent @relation(fields: [agentId], references: [agentId], onDelete: Cascade)
+
+  @@id([userId, agentId])
+  @@index([agentId], map: "idx_user_agents_agent")
+  @@map("user_agents")
+}
+
 model UserIdentity {
-  agentId       String @map("agent_id")
   userId        String @map("user_id")
   channel       String
   channelUserId String @map("channel_user_id")
   createdAt     String @map("created_at")
 
-  user User @relation(fields: [agentId, userId], references: [agentId, userId], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [userId], onDelete: Cascade)
 
-  @@id([agentId, channel, channelUserId])
-  @@index([agentId, userId], map: "idx_user_identities_user")
+  @@id([channel, channelUserId])
+  @@index([userId], map: "idx_user_identities_user")
   @@map("user_identities")
 }

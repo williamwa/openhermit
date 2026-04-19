@@ -800,26 +800,28 @@ export class AgentRunner implements SessionRuntime {
     const kind = spec.source.kind;
     if (kind !== 'cli' && kind !== 'web') return;
 
-    const users = await this.store.users.list(this.scope);
-    if (users.length > 0) return;
+    const agentUsers = await this.store.users.listByAgent(this.scope);
+    if (agentUsers.length > 0) return;
 
     const userId = `usr-owner`;
+    const channelUserId = this.deriveChannelUserId(spec);
     const name = spec.metadata?.telegram_first_name
       ? String(spec.metadata.telegram_first_name)
-      : undefined;
+      : kind === 'cli' && channelUserId
+        ? channelUserId
+        : undefined;
 
-    await this.store.users.upsert(this.scope, {
+    await this.store.users.upsert({
       userId,
-      role: 'owner',
       ...(name ? { name } : {}),
       createdAt: now,
       updatedAt: now,
     });
+    await this.store.users.assignAgent(this.scope, userId, 'owner', now);
 
     // Link the channel identity if we can derive one
-    const channelUserId = this.deriveChannelUserId(spec);
     if (channelUserId) {
-      await this.store.users.linkIdentity(this.scope, {
+      await this.store.users.linkIdentity({
         userId,
         channel: kind,
         channelUserId,
@@ -845,11 +847,12 @@ export class AgentRunner implements SessionRuntime {
     const channel = spec.source.platform ?? spec.source.kind;
 
     // Try to resolve existing identity
-    const existingUserId = await this.store.users.resolve(this.scope, channel, channelUserId);
+    const existingUserId = await this.store.users.resolve(channel, channelUserId);
     if (existingUserId) {
-      const user = await this.store.users.get(this.scope, existingUserId);
+      const user = await this.store.users.get(existingUserId);
+      const role = await this.store.users.getAgentRole(this.scope, existingUserId) ?? 'guest';
       if (user) {
-        return { userId: user.userId, role: user.role, ...(user.name ? { userName: user.name } : {}) };
+        return { userId: user.userId, role, ...(user.name ? { userName: user.name } : {}) };
       }
     }
 
@@ -860,17 +863,19 @@ export class AgentRunner implements SessionRuntime {
       ? String(meta.telegram_first_name)
       : meta?.telegram_username
         ? String(meta.telegram_username)
-        : undefined;
+        : channel === 'cli'
+          ? channelUserId
+          : undefined;
 
-    await this.store.users.upsert(this.scope, {
+    await this.store.users.upsert({
       userId: guestId,
-      role: 'guest',
       ...(name ? { name } : {}),
       createdAt: now,
       updatedAt: now,
     });
+    await this.store.users.assignAgent(this.scope, guestId, 'guest', now);
 
-    await this.store.users.linkIdentity(this.scope, {
+    await this.store.users.linkIdentity({
       userId: guestId,
       channel,
       channelUserId,
@@ -890,25 +895,26 @@ export class AgentRunner implements SessionRuntime {
     now: string,
   ): Promise<{ userId?: string; role?: UserRole; userName?: string }> {
     const existingUserId = await this.store.users.resolve(
-      this.scope, sender.channel, sender.channelUserId,
+      sender.channel, sender.channelUserId,
     );
     if (existingUserId) {
-      const user = await this.store.users.get(this.scope, existingUserId);
+      const user = await this.store.users.get(existingUserId);
+      const role = await this.store.users.getAgentRole(this.scope, existingUserId) ?? 'guest';
       if (user) {
-        return { userId: user.userId, role: user.role, ...(user.name ? { userName: user.name } : {}) };
+        return { userId: user.userId, role, ...(user.name ? { userName: user.name } : {}) };
       }
     }
 
     // Auto-create guest for unknown sender
     const guestId = `usr-${Date.now().toString(36)}`;
-    await this.store.users.upsert(this.scope, {
+    await this.store.users.upsert({
       userId: guestId,
-      role: 'guest',
       ...(sender.displayName ? { name: sender.displayName } : {}),
       createdAt: now,
       updatedAt: now,
     });
-    await this.store.users.linkIdentity(this.scope, {
+    await this.store.users.assignAgent(this.scope, guestId, 'guest', now);
+    await this.store.users.linkIdentity({
       userId: guestId,
       channel: sender.channel,
       channelUserId: sender.channelUserId,
@@ -926,7 +932,7 @@ export class AgentRunner implements SessionRuntime {
   async resolveCallerUserId(
     caller: { channel: string; channelUserId: string },
   ): Promise<string | undefined> {
-    return this.store.users.resolve(this.scope, caller.channel, caller.channelUserId);
+    return this.store.users.resolve(caller.channel, caller.channelUserId);
   }
 
   /**

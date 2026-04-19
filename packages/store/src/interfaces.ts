@@ -12,8 +12,10 @@ import type {
   PersistedSessionIndexEntry,
   SessionLogEntry,
   StoreScope,
+  UserAgentRecord,
   UserIdentity,
   UserRecord,
+  UserRole,
 } from './types.js';
 
 export interface SessionStore {
@@ -67,32 +69,41 @@ export interface InstructionStore {
 }
 
 export interface UserStore {
-  /** Create or update a user record. */
-  upsert(scope: StoreScope, user: UserRecord): Promise<void>;
+  /** Create or update a global user record. */
+  upsert(user: UserRecord): Promise<void>;
 
   /** Get a user by ID. Returns undefined if not found or if merged. */
-  get(scope: StoreScope, userId: string): Promise<UserRecord | undefined>;
+  get(userId: string): Promise<UserRecord | undefined>;
 
   /** List all active users (excludes merged records). */
-  list(scope: StoreScope): Promise<UserRecord[]>;
+  list(): Promise<UserRecord[]>;
 
-  /** Link a channel identity to a user. */
-  linkIdentity(scope: StoreScope, identity: UserIdentity): Promise<void>;
+  /** Link a channel identity to a user (global, not per-agent). */
+  linkIdentity(identity: UserIdentity): Promise<void>;
 
   /** Resolve a channel identity to a user ID. Follows merged_into if needed. */
-  resolve(scope: StoreScope, channel: string, channelUserId: string): Promise<string | undefined>;
+  resolve(channel: string, channelUserId: string): Promise<string | undefined>;
 
   /** Remove a channel identity link. */
-  unlinkIdentity(scope: StoreScope, channel: string, channelUserId: string): Promise<void>;
+  unlinkIdentity(channel: string, channelUserId: string): Promise<void>;
 
   /** List identities for a given user. */
-  listIdentities(scope: StoreScope, userId: string): Promise<UserIdentity[]>;
+  listIdentities(userId: string): Promise<UserIdentity[]>;
 
   /** Mark a user as merged into another. Re-links all identities to the target. */
-  merge(scope: StoreScope, fromUserId: string, intoUserId: string): Promise<void>;
+  merge(fromUserId: string, intoUserId: string): Promise<void>;
 
   /** Delete a user and all their identities. */
-  delete(scope: StoreScope, userId: string): Promise<void>;
+  delete(userId: string): Promise<void>;
+
+  /** Assign a role to a user for an agent. */
+  assignAgent(scope: StoreScope, userId: string, role: UserRole, createdAt: string): Promise<void>;
+
+  /** Get a user's role for a specific agent. */
+  getAgentRole(scope: StoreScope, userId: string): Promise<UserRole | undefined>;
+
+  /** List users for an agent (with roles). */
+  listByAgent(scope: StoreScope): Promise<UserAgentRecord[]>;
 }
 
 export interface AgentStore {

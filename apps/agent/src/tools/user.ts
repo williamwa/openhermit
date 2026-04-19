@@ -55,12 +55,15 @@ export const createUserListTool = (context: ToolContext): AgentTool<typeof UserL
       throw new ValidationError('user_list is unavailable: no user store is configured.');
     }
 
-    const users = await context.userStore.list(context.storeScope);
+    const users = await context.userStore.list();
+    const agentRoles = await context.userStore.listByAgent(context.storeScope!);
+    const roleMap = new Map(agentRoles.map((r) => [r.userId, r.role]));
     const result = await Promise.all(
       users.map(async (user) => {
-        const identities = await context.userStore!.listIdentities(context.storeScope!, user.userId);
+        const identities = await context.userStore!.listIdentities(user.userId);
         return {
           ...user,
+          role: roleMap.get(user.userId) ?? 'guest',
           identities: identities.map((i) => ({
             channel: i.channel,
             channelUserId: i.channelUserId,
@@ -97,12 +100,12 @@ export const createUserIdentityLinkTool = (context: ToolContext): AgentTool<type
     }
 
     // Verify target user exists
-    const user = await context.userStore.get(context.storeScope, userId);
+    const user = await context.userStore.get(userId);
     if (!user) {
       throw new ValidationError(`User not found: ${userId}`);
     }
 
-    await context.userStore.linkIdentity(context.storeScope, {
+    await context.userStore.linkIdentity({
       userId,
       channel,
       channelUserId,
@@ -135,7 +138,7 @@ export const createUserIdentityUnlinkTool = (context: ToolContext): AgentTool<ty
       throw new ValidationError('user_identity_unlink requires non-empty channel and channel_user_id.');
     }
 
-    await context.userStore.unlinkIdentity(context.storeScope, channel, channelUserId);
+    await context.userStore.unlinkIdentity(channel, channelUserId);
 
     return {
       content: asTextContent(`Unlinked ${channel}:${channelUserId}.\n`),
@@ -161,13 +164,12 @@ export const createUserRoleSetTool = (context: ToolContext): AgentTool<typeof Us
       throw new ValidationError('user_role_set requires a non-empty user_id.');
     }
 
-    const user = await context.userStore.get(context.storeScope, userId);
+    const user = await context.userStore.get(userId);
     if (!user) {
       throw new ValidationError(`User not found: ${userId}`);
     }
 
-    const updated = { ...user, role: args.role, updatedAt: new Date().toISOString() };
-    await context.userStore.upsert(context.storeScope, updated);
+    await context.userStore.assignAgent(context.storeScope!, userId, args.role, new Date().toISOString());
 
     return {
       content: asTextContent(`Set role of user ${userId} to ${args.role}.\n`),
@@ -199,25 +201,25 @@ export const createUserMergeTool = (context: ToolContext): AgentTool<typeof User
     }
 
     // Verify both users exist
-    const fromUser = await context.userStore.get(context.storeScope, fromId);
+    const fromUser = await context.userStore.get(fromId);
     if (!fromUser) {
       throw new ValidationError(`Source user not found: ${fromId}`);
     }
-    const intoUser = await context.userStore.get(context.storeScope, intoId);
+    const intoUser = await context.userStore.get(intoId);
     if (!intoUser) {
       throw new ValidationError(`Target user not found: ${intoId}`);
     }
 
     // Inherit name from source if target has none
     if (fromUser.name && !intoUser.name) {
-      await context.userStore.upsert(context.storeScope, {
+      await context.userStore.upsert({
         ...intoUser,
         name: fromUser.name,
         updatedAt: new Date().toISOString(),
       });
     }
 
-    await context.userStore.merge(context.storeScope, fromId, intoId);
+    await context.userStore.merge(fromId, intoId);
 
     const parts = [`Merged user ${fromId} into ${intoId}. All identities have been transferred.`];
     if (fromUser.name && !intoUser.name) {

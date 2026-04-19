@@ -195,6 +195,7 @@ const renderAgents = (agents) => {
 createAgentBtn.addEventListener('click', () => {
   $('new-agent-id').value = '';
   $('new-agent-name').value = '';
+  $('new-agent-owner').value = '';
   createAgentDialog.showModal();
 });
 
@@ -204,12 +205,13 @@ createAgentForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const agentId = $('new-agent-id').value.trim();
   const name = $('new-agent-name').value.trim();
+  const ownerUserId = $('new-agent-owner').value.trim();
   if (!agentId) return;
 
   try {
     await api('/agents', {
       method: 'POST',
-      body: { agentId, ...(name ? { name } : {}) },
+      body: { agentId, ...(name ? { name } : {}), ...(ownerUserId ? { ownerUserId } : {}) },
     });
     createAgentDialog.close();
     await loadAgents();

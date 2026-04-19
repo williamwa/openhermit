@@ -12,6 +12,7 @@ import { loadEnvironmentFile } from '@openhermit/agent/langfuse';
 
 import { AgentInstanceManager } from './agent-instance.js';
 import { createGatewayApp } from './app.js';
+import { loadGatewayConfig } from './config.js';
 import { attachGatewayWs } from './ws-handler.js';
 import {
   type AuthResolverOptions,
@@ -20,7 +21,7 @@ import {
   createJwtConfig,
 } from './auth.js';
 
-const defaultPort = 4000;
+const DEFAULT_CONFIG_FILENAME = 'gateway.json';
 
 type NodeFetchCallback = Parameters<typeof createAdaptorServer>[0]['fetch'];
 
@@ -72,6 +73,12 @@ export const main = async (): Promise<void> => {
     logStartup(`loaded ${loadedEnvCount} env var(s) from ${gatewayEnvPath}`);
   }
 
+  // Load gateway.json (env vars override for secrets/port).
+  const homeDir = process.env.OPENHERMIT_HOME ?? `${process.env.HOME ?? '/root'}/.openhermit`;
+  const configPath = path.join(homeDir, DEFAULT_CONFIG_FILENAME);
+  const config = await loadGatewayConfig(configPath);
+  logStartup(`config loaded from ${configPath}`);
+
   const instances = new AgentInstanceManager();
 
   // Open agent store if DATABASE_URL is available.
@@ -85,7 +92,7 @@ export const main = async (): Promise<void> => {
     }
   }
 
-  // Auth configuration
+  // Auth configuration (secrets stay in env).
   const channels = new ChannelRegistry();
   const jwtConfig = createJwtConfig(process.env.GATEWAY_JWT_SECRET);
   if (!process.env.GATEWAY_JWT_SECRET) {
@@ -103,9 +110,8 @@ export const main = async (): Promise<void> => {
     logStartup('GATEWAY_ADMIN_TOKEN not set — admin API endpoints are disabled');
   }
 
-  const enableUI = process.env.GATEWAY_UI !== 'false';
   const gatewayDir = path.dirname(fileURLToPath(import.meta.url));
-  const publicDir = enableUI ? path.resolve(gatewayDir, '../public') : undefined;
+  const publicDir = config.ui ? path.resolve(gatewayDir, '../public') : undefined;
 
   const app = createGatewayApp({
     instances,
@@ -115,14 +121,15 @@ export const main = async (): Promise<void> => {
     logger: logStartup,
     logBuffer,
     publicDir,
+    corsOrigin: config.cors.origin,
   });
 
-  if (enableUI) {
+  if (config.ui) {
     logStartup('admin UI enabled at /ui/');
   }
 
   const rawPort = process.env.GATEWAY_PORT ?? process.env.PORT;
-  const port = rawPort ? Number.parseInt(rawPort, 10) : defaultPort;
+  const port = rawPort ? Number.parseInt(rawPort, 10) : 4000;
 
   if (Number.isNaN(port)) {
     throw new Error(`Invalid port: ${rawPort}`);
@@ -140,7 +147,7 @@ export const main = async (): Promise<void> => {
   });
 
   // Start agents from database after server is listening (channels need the gateway URL).
-  if (agentStore) {
+  if (agentStore && config.autoStartAgents) {
     const dbAgents = await agentStore.list();
     for (const agent of dbAgents) {
       try {
@@ -151,6 +158,8 @@ export const main = async (): Promise<void> => {
       }
     }
     logStartup(`${dbAgents.length} agent(s) loaded`);
+  } else if (agentStore && !config.autoStartAgents) {
+    logStartup('autoStartAgents disabled — agents will not be started automatically');
   }
 
   const shutdownHandler = async (): Promise<void> => {

@@ -83,6 +83,21 @@ export class DbAgentStore implements AgentStore {
     });
   }
 
+  async assignOwner(agentId: string, userId: string, now: string): Promise<void> {
+    // Ensure the user exists
+    await this.prisma.user.upsert({
+      where: { userId },
+      create: { userId, createdAt: now, updatedAt: now },
+      update: {},
+    });
+    // Create the user-agent link with owner role
+    await this.prisma.userAgent.upsert({
+      where: { userId_agentId: { userId, agentId } },
+      create: { userId, agentId, role: 'owner', createdAt: now },
+      update: { role: 'owner' },
+    });
+  }
+
   async counts(): Promise<{ users: number; sessions: number; sessionEvents: number }> {
     const [users, sessions, sessionEvents] = await Promise.all([
       this.prisma.user.count(),

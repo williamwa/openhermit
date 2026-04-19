@@ -116,11 +116,17 @@ export type UserRole = 'owner' | 'user' | 'guest';
 
 export interface UserRecord {
   userId: string;
-  role: UserRole;
   name?: string;
   mergedInto?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface UserAgentRecord {
+  userId: string;
+  agentId: string;
+  role: UserRole;
+  createdAt: string;
 }
 
 export interface UserIdentity {
