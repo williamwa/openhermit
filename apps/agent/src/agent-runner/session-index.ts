@@ -40,6 +40,7 @@ const createSessionSummary = (
     ? { lastMessagePreview: session.lastMessagePreview }
     : {}),
   status: session.status,
+  ...(session.spec.metadata ? { metadata: session.spec.metadata } : {}),
 });
 
 export const buildSessionSummaries = (
@@ -74,6 +75,7 @@ export const buildSessionSummaries = (
         ? { lastMessagePreview: session.lastMessagePreview }
         : {}),
       status: 'idle' as const,
+      ...(session.metadata ? { metadata: session.metadata } : {}),
     };
   });
 

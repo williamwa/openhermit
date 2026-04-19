@@ -107,6 +107,18 @@ const parseSessionListQuery = (request: Request): SessionListQuery => {
     );
     if (limit !== undefined) query.limit = limit;
   }
+  const channel = url.searchParams.get('channel');
+  if (channel) query.channel = channel;
+
+  // Collect metadata.* query params (e.g. ?metadata.telegram_chat_id=123)
+  const metadata: Record<string, string> = {};
+  for (const [key, value] of url.searchParams) {
+    if (key.startsWith('metadata.')) {
+      metadata[key.slice('metadata.'.length)] = value;
+    }
+  }
+  if (Object.keys(metadata).length > 0) query.metadata = metadata;
+
   return query;
 };
 

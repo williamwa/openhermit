@@ -60,6 +60,16 @@ export class AgentLocalClient {
       searchParams.set('limit', String(query.limit));
     }
 
+    if (query.channel) {
+      searchParams.set('channel', query.channel);
+    }
+
+    if (query.metadata) {
+      for (const [key, value] of Object.entries(query.metadata)) {
+        searchParams.set(`metadata.${key}`, value);
+      }
+    }
+
     const path = searchParams.size > 0
       ? `${agentLocalRoutes.sessions}?${searchParams.toString()}`
       : agentLocalRoutes.sessions;

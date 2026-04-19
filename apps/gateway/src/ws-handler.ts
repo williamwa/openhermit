@@ -182,6 +182,8 @@ const handleRequest = async (
         if (typeof p.platform === 'string') query.platform = p.platform;
         if (typeof p.interactive === 'boolean') query.interactive = p.interactive;
         if (typeof p.limit === 'number') query.limit = p.limit;
+        if (typeof p.channel === 'string') query.channel = p.channel;
+        if (p.metadata && typeof p.metadata === 'object') query.metadata = p.metadata as Record<string, string>;
         if (!callerUserId) { sendResult(ws, id, []); return; }
         sendResult(ws, id, await runtime.listSessions(query, callerUserId));
         return;

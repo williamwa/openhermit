@@ -88,12 +88,28 @@ export class TelegramBridge {
   }
 
   /** Get or create the current sessionId for a chat. */
-  private getSessionId(chatId: number): string {
-    let sessionId = this.chatSessions.get(chatId);
-    if (!sessionId) {
-      sessionId = TelegramBridge.generateSessionId();
-      this.chatSessions.set(chatId, sessionId);
+  private async getSessionId(chatId: number): Promise<string> {
+    const cached = this.chatSessions.get(chatId);
+    if (cached) return cached;
+
+    // Try to recover the most recent session for this chat from the server.
+    try {
+      const sessions = await this.client.listSessions({
+        channel: 'telegram',
+        metadata: { telegram_chat_id: String(chatId) },
+        limit: 1,
+      });
+      if (sessions.length > 0) {
+        const sessionId = sessions[0]!.sessionId;
+        this.chatSessions.set(chatId, sessionId);
+        return sessionId;
+      }
+    } catch {
+      // Server unavailable — fall through to generate a new session.
     }
+
+    const sessionId = TelegramBridge.generateSessionId();
+    this.chatSessions.set(chatId, sessionId);
     return sessionId;
   }
 
@@ -120,7 +136,7 @@ export class TelegramBridge {
     }
 
     // Regular message — send to agent.
-    const sessionId = this.getSessionId(chatId);
+    const sessionId = await this.getSessionId(chatId);
     await this.sendToAgent(chatId, sessionId, text, message, isGroup);
   }
 
@@ -132,7 +148,7 @@ export class TelegramBridge {
     const displayName =
       message.from?.first_name ?? message.from?.username ?? 'there';
 
-    const sessionId = this.getSessionId(chatId);
+    const sessionId = await this.getSessionId(chatId);
     await this.ensureSession(sessionId, message, isGroup);
     await this.telegram.sendMessage(
       chatId,
@@ -143,17 +159,15 @@ export class TelegramBridge {
   private async handleNew(
     chatId: number,
   ): Promise<void> {
-    const oldSessionId = this.chatSessions.get(chatId);
+    const oldSessionId = await this.getSessionId(chatId);
 
     // Checkpoint the current session before starting a new one.
-    if (oldSessionId) {
-      try {
-        await this.client.checkpointSession(oldSessionId, { reason: 'new_session' });
-      } catch {
-        // Session may not exist yet — that's fine.
-      }
-      this.lastEventIds.delete(oldSessionId);
+    try {
+      await this.client.checkpointSession(oldSessionId, { reason: 'new_session' });
+    } catch {
+      // Session may not exist yet — that's fine.
     }
+    this.lastEventIds.delete(oldSessionId);
 
     // Generate a fresh sessionId for this chat.
     const newSessionId = TelegramBridge.generateSessionId();

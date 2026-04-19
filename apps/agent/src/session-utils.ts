@@ -19,6 +19,20 @@ export const matchesSessionListQuery = (
     return false;
   }
 
+  if (query.channel && !summary.sessionId.startsWith(`${query.channel}:`)) {
+    return false;
+  }
+
+  if (query.metadata) {
+    const meta = summary.metadata;
+    if (!meta) return false;
+    for (const [key, value] of Object.entries(query.metadata)) {
+      if (String(meta[key] ?? '') !== value) {
+        return false;
+      }
+    }
+  }
+
   return true;
 };
 

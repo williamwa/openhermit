@@ -64,6 +64,7 @@ export interface SessionSummary {
   description?: string;
   lastMessagePreview?: string;
   status: SessionStatus;
+  metadata?: Record<string, MetadataValue>;
 }
 
 export interface SessionListQuery {
@@ -71,6 +72,10 @@ export interface SessionListQuery {
   platform?: string;
   interactive?: boolean;
   limit?: number;
+  /** Filter by session ID prefix (e.g. "telegram:" to match a channel namespace). */
+  channel?: string;
+  /** Filter by metadata key-value pairs (e.g. { telegram_chat_id: "123" }). */
+  metadata?: Record<string, string>;
 }
 
 /**
