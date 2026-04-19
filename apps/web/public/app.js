@@ -514,7 +514,7 @@ const selectSession = async (sessionId) => {
   await apiFetch('/sessions', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ sessionId, source: { kind: 'channel', interactive: true, platform: 'web' }, metadata: {} }),
+    body: JSON.stringify({ sessionId, source: { kind: 'api', interactive: true, platform: 'web' }, metadata: {} }),
   });
 
   const summary = state.sessions.find((s) => s.sessionId === sessionId);
@@ -540,7 +540,7 @@ const createAndSelectSession = async () => {
   await apiFetch('/sessions', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ sessionId, source: { kind: 'channel', interactive: true, platform: 'web' }, metadata: {} }),
+    body: JSON.stringify({ sessionId, source: { kind: 'api', interactive: true, platform: 'web' }, metadata: {} }),
   });
   await refreshSessions();
   await selectSession(sessionId);
