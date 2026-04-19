@@ -14,7 +14,8 @@
   ],
   "scripts": {
     "clean:build": "node scripts/clean-build.mjs",
-    "build": "npm run clean:build && cd packages/store && npx prisma generate && cd ../.. && tsc -b && cp -r packages/store/src/generated packages/store/dist/",
+    "build": "npm run clean:build && cd packages/store && npx prisma generate && cd ../.. && tsc -b && cp -r packages/store/src/generated packages/store/dist/ && npm run build:ui -w @openhermit/gateway",
+    "dev:gateway-ui": "npm run dev:ui -w @openhermit/gateway",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run build && export $(cat .env | xargs) && DATABASE_URL=$DATABASE_URL_TEST node --import tsx --test apps/agent/test/*.test.ts apps/cli/test/*.test.ts apps/web/test/*.test.ts",
     "dev:agent": "node --env-file=.env --import tsx --watch apps/agent/src/index.ts",

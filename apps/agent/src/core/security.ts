@@ -319,6 +319,14 @@ export class AgentSecurity {
     return this.interpolateSecrets(raw);
   }
 
+  /** Read config without resolving ${{SECRET}} placeholders. */
+  async readRawConfig(): Promise<AgentRuntimeConfig> {
+    const content = await fs.readFile(this.configFilePath, 'utf8');
+    const raw = parseJsonFile<unknown>(content, this.configFilePath);
+    validateConfig(raw, this.configFilePath);
+    return raw;
+  }
+
   /**
    * Recursively replace `${{SECRET_NAME}}` placeholders in string values
    * with the corresponding secret. Unknown secret names are left as-is.

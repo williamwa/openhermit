@@ -111,7 +111,7 @@ export const main = async (): Promise<void> => {
   }
 
   const gatewayDir = path.dirname(fileURLToPath(import.meta.url));
-  const publicDir = config.ui ? path.resolve(gatewayDir, '../public') : undefined;
+  const publicDir = config.ui ? path.resolve(gatewayDir, '../ui/dist') : undefined;
 
   const app = createGatewayApp({
     instances,
@@ -125,7 +125,7 @@ export const main = async (): Promise<void> => {
   });
 
   if (config.ui) {
-    logStartup('admin UI enabled at /ui/');
+    logStartup('admin UI enabled at /admin/');
   }
 
   const rawPort = process.env.GATEWAY_PORT ?? process.env.PORT;

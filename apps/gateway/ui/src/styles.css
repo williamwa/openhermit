@@ -1,7 +1,6 @@
 /* ── Reset & base ───────────────────────────────────────────────────────── */
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-[hidden] { display: none !important; }
 
 :root {
   --bg: #0f1117;
@@ -193,7 +192,7 @@ h3 { font-size: 1.1rem; font-weight: 600; }
 
 .agent-card__info { flex: 1; }
 .agent-card__id { font-weight: 600; font-size: 0.95rem; }
-.agent-card__name { font-size: 0.8rem; color: var(--text-muted); }
+.agent-card__name { font-size: 0.8rem; color: var(--text-muted); margin-left: 0.5rem; }
 .agent-card__dirs { font-size: 0.75rem; color: var(--text-muted); font-family: var(--mono); margin-top: 0.25rem; }
 
 .agent-card__actions { display: flex; gap: 0.4rem; }
@@ -204,6 +203,7 @@ h3 { font-size: 1.1rem; font-weight: 600; }
   border-radius: 999px;
   font-size: 0.75rem;
   font-weight: 600;
+  margin-left: 0.5rem;
 }
 
 .badge--running { background: rgba(74, 222, 128, 0.15); color: var(--green); }
@@ -256,11 +256,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
   margin-top: 1rem;
 }
 
-/* ── Config editor ──────────────────────────────────────────────────────── */
-
 /* ── Secrets ─────────────────────────────────────────────────────────────── */
-
-.secrets-list { margin-bottom: 0.75rem; }
 
 .secret-row {
   display: flex;
@@ -340,10 +336,24 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
 /* ── Stats ──────────────────────────────────────────────────────────────── */
 
 .stats-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  margin-top: 1rem;
+}
+
+.stats-section__title {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+}
+
+.stats-row {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 0.75rem;
-  margin-top: 1rem;
 }
 
 .stat-card {

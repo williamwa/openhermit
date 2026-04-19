@@ -693,19 +693,9 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     });
   });
 
-  // --- admin UI: static files ---
-
-  if (options.publicDir) {
-    app.get('/ui', (c) => c.redirect('/ui/'));
-    app.use('/ui/*', serveStatic({
-      root: options.publicDir,
-      rewriteRequestPath: (p) => p.replace(/^\/ui/, ''),
-    }));
-  }
-
   // --- admin API ---
 
-  app.get('/admin/stats', async (c) => {
+  app.get('/api/admin/stats', async (c) => {
     requireAdmin(c.req.header('authorization'));
     const memoryUsage = process.memoryUsage();
     const counts = agentStore ? await agentStore.counts() : { users: 0, sessions: 0, sessionEvents: 0 };
@@ -723,7 +713,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     });
   });
 
-  app.get('/admin/logs', (c) => {
+  app.get('/api/admin/logs', (c) => {
     requireAdmin(c.req.header('authorization'));
     const lines = parsePositiveIntegerQuery(
       c.req.query('lines') ?? undefined,
@@ -733,18 +723,18 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     return c.json(entries);
   });
 
-  app.get('/admin/agents/:agentId/config', async (c) => {
+  app.get('/api/admin/agents/:agentId/config', async (c) => {
     requireAdmin(c.req.header('authorization'));
     const agentId = c.req.param('agentId') ?? '';
     const runner = instances.getRunner(agentId);
     if (!runner) {
       throw new NotFoundError(`Agent ${agentId} is not running. Start the agent to read its config.`);
     }
-    const config = await runner.security.readConfig();
+    const config = await runner.security.readRawConfig();
     return c.json(config);
   });
 
-  app.put('/admin/agents/:agentId/config', async (c) => {
+  app.put('/api/admin/agents/:agentId/config', async (c) => {
     requireAdmin(c.req.header('authorization'));
     const agentId = c.req.param('agentId') ?? '';
     const runner = instances.getRunner(agentId);
@@ -756,7 +746,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     return c.json({ ok: true });
   });
 
-  app.get('/admin/agents/:agentId/secrets', async (c) => {
+  app.get('/api/admin/agents/:agentId/secrets', async (c) => {
     requireAdmin(c.req.header('authorization'));
     const agentId = c.req.param('agentId') ?? '';
     const runner = instances.getRunner(agentId);
@@ -767,7 +757,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     return c.json(runner.security.readSecrets());
   });
 
-  app.put('/admin/agents/:agentId/secrets', async (c) => {
+  app.put('/api/admin/agents/:agentId/secrets', async (c) => {
     requireAdmin(c.req.header('authorization'));
     const agentId = c.req.param('agentId') ?? '';
     const runner = instances.getRunner(agentId);
@@ -786,6 +776,21 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     await runner.security.writeSecrets(body as Record<string, string>);
     return c.json({ ok: true });
   });
+
+  // --- admin UI: static files ---
+
+  if (options.publicDir) {
+    app.get('/admin', (c) => c.redirect('/admin/'));
+    app.use('/admin/*', serveStatic({
+      root: options.publicDir,
+      rewriteRequestPath: (p) => p.replace(/^\/admin/, ''),
+    }));
+    // SPA fallback: serve index.html for unmatched /admin/* paths
+    app.get('/admin/*', serveStatic({
+      root: options.publicDir,
+      rewriteRequestPath: () => '/index.html',
+    }));
+  }
 
   // --- error handler ---
 
