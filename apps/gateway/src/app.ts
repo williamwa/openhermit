@@ -490,9 +490,18 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
         return c.json({ agentId, status: 'running' });
       }
 
+      case 'delete': {
+        if (instances.getRunner(agentId)) {
+          throw new ValidationError(`Agent ${agentId} is still running. Stop it first.`);
+        }
+        await agentStore.delete(agentId);
+        log(`agent deleted: ${agentId}`);
+        return c.json({ agentId, status: 'deleted' });
+      }
+
       default:
         throw new ValidationError(
-          `Unknown lifecycle action: ${action}. Valid actions: start, stop, restart`,
+          `Unknown lifecycle action: ${action}. Valid actions: start, stop, restart, delete`,
         );
     }
   });

@@ -2,6 +2,7 @@ import {
   agentLocalRoutes,
   gatewayRoutes,
   type AgentInfo,
+  type CreateAgentRequest,
   type OutboundEvent,
   type SessionHistoryMessage,
   type SessionCheckpointRequest,
@@ -287,6 +288,14 @@ export class GatewayClient {
     return this.getJson(gatewayRoutes.agents);
   }
 
+  async createAgent(request: CreateAgentRequest): Promise<AgentInfo> {
+    return this.postJson(gatewayRoutes.agents, request);
+  }
+
+  async deleteAgent(agentId: string): Promise<void> {
+    await this.postJson(gatewayRoutes.agentManage(agentId, 'delete'), {});
+  }
+
   async manageAgent(
     agentId: string,
     action: 'start' | 'stop' | 'restart',
@@ -388,6 +397,7 @@ export class GatewayClient {
 
     return (await response.json()) as T;
   }
+
 }
 
 // ---------------------------------------------------------------------------
