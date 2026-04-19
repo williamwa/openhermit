@@ -3,6 +3,8 @@
  * Translates Telegram updates into agent session interactions.
  */
 
+import { randomUUID } from 'node:crypto';
+
 import { AgentLocalClient } from '@openhermit/sdk';
 
 import type { TelegramApi, TelegramMessage } from './telegram-api.js';
@@ -68,6 +70,8 @@ export class TelegramBridge {
   private readonly log: (message: string) => void;
   /** Tracks last event ID per session for SSE deduplication. */
   private readonly lastEventIds = new Map<string, number>();
+  /** Current sessionId per chat. */
+  private readonly chatSessions = new Map<number, string>();
 
   constructor(
     private readonly telegram: TelegramApi,
@@ -79,6 +83,20 @@ export class TelegramBridge {
     this.log = logger ?? ((msg: string) => console.log(`[telegram-bridge] ${msg}`));
   }
 
+  private static generateSessionId(): string {
+    return `telegram:${new Date().toISOString().slice(0, 10)}-${randomUUID().slice(0, 8)}`;
+  }
+
+  /** Get or create the current sessionId for a chat. */
+  private getSessionId(chatId: number): string {
+    let sessionId = this.chatSessions.get(chatId);
+    if (!sessionId) {
+      sessionId = TelegramBridge.generateSessionId();
+      this.chatSessions.set(chatId, sessionId);
+    }
+    return sessionId;
+  }
+
   /** Handle an incoming Telegram message. */
   async handleMessage(message: TelegramMessage): Promise<void> {
     const chatId = message.chat.id;
@@ -88,33 +106,33 @@ export class TelegramBridge {
       return; // Ignore non-text messages for now.
     }
 
-    const sessionId = `tg:${chatId}`;
     const isGroup = message.chat.type === 'group' || message.chat.type === 'supergroup';
 
     // Handle commands.
     if (text === '/start') {
-      await this.handleStart(chatId, sessionId, message, isGroup);
+      await this.handleStart(chatId, message, isGroup);
       return;
     }
 
     if (text === '/new') {
-      await this.handleNew(chatId, sessionId);
+      await this.handleNew(chatId);
       return;
     }
 
     // Regular message — send to agent.
+    const sessionId = this.getSessionId(chatId);
     await this.sendToAgent(chatId, sessionId, text, message, isGroup);
   }
 
   private async handleStart(
     chatId: number,
-    sessionId: string,
     message: TelegramMessage,
     isGroup: boolean,
   ): Promise<void> {
     const displayName =
       message.from?.first_name ?? message.from?.username ?? 'there';
 
+    const sessionId = this.getSessionId(chatId);
     await this.ensureSession(sessionId, message, isGroup);
     await this.telegram.sendMessage(
       chatId,
@@ -124,14 +142,23 @@ export class TelegramBridge {
 
   private async handleNew(
     chatId: number,
-    sessionId: string,
   ): Promise<void> {
-    try {
-      await this.client.checkpointSession(sessionId, { reason: 'new_session' });
-    } catch {
-      // Session may not exist yet — that's fine.
+    const oldSessionId = this.chatSessions.get(chatId);
+
+    // Checkpoint the current session before starting a new one.
+    if (oldSessionId) {
+      try {
+        await this.client.checkpointSession(oldSessionId, { reason: 'new_session' });
+      } catch {
+        // Session may not exist yet — that's fine.
+      }
+      this.lastEventIds.delete(oldSessionId);
     }
-    this.lastEventIds.delete(sessionId);
+
+    // Generate a fresh sessionId for this chat.
+    const newSessionId = TelegramBridge.generateSessionId();
+    this.chatSessions.set(chatId, newSessionId);
+
     await this.telegram.sendMessage(chatId, 'New conversation started.');
   }
 

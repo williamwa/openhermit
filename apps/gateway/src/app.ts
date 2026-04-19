@@ -124,6 +124,18 @@ const requireAuth = (c: any, agentId?: string): AuthContext => {
   return auth;
 };
 
+/** Enforce that channel-authenticated requests only access sessions within their namespace. */
+const enforceSessionNamespace = (auth: AuthContext, sessionId: string): void => {
+  if (auth.mode === 'channel' && auth.channelNamespace) {
+    const prefix = `${auth.channelNamespace}:`;
+    if (!sessionId.startsWith(prefix)) {
+      throw new ValidationError(
+        `Channel "${auth.channelNamespace}" can only access sessions with prefix "${prefix}".`,
+      );
+    }
+  }
+};
+
 // ─── App options ──────────────────────────────────────────────────────────────
 
 export interface GatewayAppOptions {
@@ -485,6 +497,9 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
       throw new ValidationError('Invalid SessionSpec payload.');
     }
 
+    // Channel tokens can only create sessions within their namespace.
+    enforceSessionNamespace(auth, payload.sessionId);
+
     // Inject authenticated user identity into session metadata
     if (auth.mode === 'user' && auth.channelUserId) {
       payload.metadata = {
@@ -514,6 +529,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const agentId = c.req.param('agentId') ?? '';
     const sessionId = c.req.param('sessionId') ?? '';
     const auth = requireAuth(c, agentId);
+    enforceSessionNamespace(auth, sessionId);
     const runtime = resolveRunner(instances, agentId);
 
     // Verify caller is a participant (user mode only; channels handle identity per-message)
@@ -680,6 +696,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const agentId = c.req.param('agentId') ?? '';
     const sessionId = c.req.param('sessionId') ?? '';
     const auth = requireAuth(c, agentId);
+    enforceSessionNamespace(auth, sessionId);
     const runtime = resolveRunner(instances, agentId);
     const callerUserId = await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId });
     if (!callerUserId) throw new NotFoundError(`Session not found: ${sessionId}`);
@@ -693,6 +710,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const agentId = c.req.param('agentId') ?? '';
     const sessionId = c.req.param('sessionId') ?? '';
     const approveAuth = requireAuth(c, agentId);
+    enforceSessionNamespace(approveAuth, sessionId);
     const runtime = resolveRunner(instances, agentId);
     const approveCallerId = await runtime.resolveCallerUserId({ channel: approveAuth.channel, channelUserId: approveAuth.channelUserId });
     if (approveCallerId) {
@@ -719,6 +737,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const agentId = c.req.param('agentId') ?? '';
     const sessionId = c.req.param('sessionId') ?? '';
     const cpAuth = requireAuth(c, agentId);
+    enforceSessionNamespace(cpAuth, sessionId);
     const runtime = resolveRunner(instances, agentId);
     const cpCallerId = await runtime.resolveCallerUserId({ channel: cpAuth.channel, channelUserId: cpAuth.channelUserId });
     if (cpCallerId) {
@@ -744,6 +763,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const agentId = c.req.param('agentId') ?? '';
     const sessionId = c.req.param('sessionId') ?? '';
     const auth = requireAuth(c, agentId);
+    enforceSessionNamespace(auth, sessionId);
     const runtime = resolveRunner(instances, agentId);
     // Verify caller is a participant
     const eventsCallerUserId = await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId });
