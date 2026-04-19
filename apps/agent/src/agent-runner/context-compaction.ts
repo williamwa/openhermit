@@ -4,6 +4,7 @@ import type { InternalStateStore, StoreScope } from '@openhermit/store';
 import type { AgentConfig } from '../core/index.js';
 import { extractAssistantText } from './message-utils.js';
 import { resolveModel } from './model-utils.js';
+import { createHeadTailPreview } from './tool-result-persistence.js';
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -106,6 +107,11 @@ export const truncateToolResults = (
       return message;
     }
 
+    // Use 70% of the budget for the head and 30% for the tail so that
+    // error messages and summaries near the end are preserved.
+    const headBudget = Math.floor(maxChars * 0.7);
+    const tailBudget = maxChars - headBudget;
+
     let remaining = maxChars;
     const truncatedContent = message.content.map((item) => {
       if (item.type !== 'text' || remaining <= 0) {
@@ -115,11 +121,11 @@ export const truncateToolResults = (
         remaining -= item.text.length;
         return item;
       }
-      const truncated = item.text.slice(0, remaining);
+      const preview = createHeadTailPreview(item.text, headBudget, tailBudget);
       remaining = 0;
       return {
         type: 'text' as const,
-        text: `${truncated}\n\n[truncated: original ${totalChars.toLocaleString()} chars, kept ${maxChars.toLocaleString()}]`,
+        text: `${preview}\n\n[truncated: original ${totalChars.toLocaleString()} chars, kept ~${maxChars.toLocaleString()}]`,
       };
     });
 

@@ -63,6 +63,7 @@ import {
   getContextCompactionMaxTokens,
   truncateToolResults,
 } from './agent-runner/context-compaction.js';
+import { buildToolResultPreview, persistToolResult } from './agent-runner/tool-result-persistence.js';
 import { createWebProvider, type WebProvider } from './web/index.js';
 import { runIntrospection } from './introspection/index.js';
 
@@ -1511,23 +1512,34 @@ export class AgentRunner implements SessionRuntime {
         const resultText = extractToolResultText(event.result);
         const resultDetails = extractToolResultDetails(event.result);
 
+        // For large tool results, build an inline head+tail preview so we
+        // don't bloat events or context.  The full output is persisted to
+        // workspace/.openhermit/tool_results/<id>.json in the side-effect.
+        const truncation = resultText
+          ? buildToolResultPreview(event.toolCallId, resultText)
+          : null;
+        const publishText = truncation ? truncation.preview : resultText;
+
         void this.events.publish({
           type: 'tool_result',
           sessionId: session.spec.sessionId,
           tool: event.toolName,
           isError: event.isError,
-          ...(resultText ? { text: resultText } : {}),
+          ...(publishText ? { text: publishText } : {}),
           ...(resultDetails !== undefined ? { details: resultDetails } : {}),
         });
 
         void this.queueSideEffect(session, async () => {
-          await this.store.messages.appendLogEntry(this.scope,session.spec.sessionId, {
+          if (truncation && resultText) {
+            await persistToolResult(this.options.workspace, event.toolCallId, resultText);
+          }
+          await this.store.messages.appendLogEntry(this.scope, session.spec.sessionId, {
             ts,
             role: 'tool_result',
             name: event.toolName,
             toolCallId: event.toolCallId,
             isError: event.isError,
-            content: serializeDetails(event.result),
+            content: truncation ? truncation.preview : serializeDetails(event.result),
           });
         });
         break;
