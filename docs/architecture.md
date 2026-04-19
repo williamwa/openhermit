@@ -339,3 +339,16 @@ Planned additions:
 - monitoring
 
 The gateway proxies requests to per-agent processes and does not replace the agent-local contract.
+
+## CLI
+
+The CLI (`apps/cli/`) is a multi-command platform tool published to npm as `openhermit` (bin: `hermit` / `openhermit`).
+
+Commands are organized into:
+
+- **platform commands** — `setup`, `gateway`, `status`, `doctor`, `logs` — operate on the gateway and overall platform
+- **agent-scoped commands** — `chat`, `config`, `agents` — target specific agents via `--agent-id`
+
+The CLI talks to the gateway API via the `GatewayClient` from `@openhermit/sdk`. It auto-loads `.env` from the working directory on startup, so `OPENHERMIT_TOKEN` and `OPENHERMIT_GATEWAY_URL` are available without manual `source .env`.
+
+For npm distribution, internal monorepo packages (`@openhermit/sdk`, `@openhermit/shared`, `@openhermit/protocol`) are bundled into a single file by tsup, while external npm dependencies remain as imports.

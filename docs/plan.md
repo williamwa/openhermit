@@ -116,6 +116,23 @@ There are also several active design drafts that are intentionally not yet imple
 - session-per-chat routing (`tg:{chatId}`)
 - `/start` and `/new` commands
 
+### CLI Platform
+
+- CLI restructured from single TUI chat to multi-command platform CLI using commander.js
+- commands: `setup`, `chat`, `agents`, `gateway`, `config`, `status`, `doctor`, `logs`
+- `hermit setup` — interactive wizard for database, admin token, JWT secret
+- `hermit gateway start/stop` — background daemon management with PID file
+- `hermit agents list/create/start/stop/remove` — multi-agent lifecycle
+- `hermit config show/get/set` — per-agent configuration with dot-path access
+- `hermit config secrets list/set/remove` — agent secret management
+- `hermit status` — platform overview (gateway health + agent list)
+- `hermit doctor` — environment health checks (Node, Docker, config, connectivity)
+- `hermit logs` — gateway log viewer with follow mode
+- `.env` auto-loading at CLI startup
+- published to npm as `openhermit` (dual bin: `openhermit` and `hermit`)
+- tsup bundling for npm distribution (internal packages bundled, npm deps external)
+- tool result truncation: head+tail preview (3000+1500 chars) with full content persisted to workspace
+
 ### Store Infrastructure
 
 - Prisma ORM with PostgreSQL provider — type-safe queries with native full-text search
@@ -256,12 +273,17 @@ See `docs/user-model.md`. Phase 1 (core tables, identity resolution, role-based 
 - ✅ Telegram as the first real channel adapter (with identity resolution and auto-guest)
 - make adapter/session binding first-class across channels
 
-## Phase 6 — Gateway / Multi-Agent
+## Phase 6 — Gateway / Multi-Agent (Partially Complete)
 
-- multi-agent lifecycle management
-- unified `/agents/{id}/...` routing
-- centralized monitoring
-- schedule management at control-plane level
+- ✅ multi-agent lifecycle management (gateway API + CLI `agents` command)
+- ✅ unified `/agents/{id}/...` routing
+- ✅ CLI platform commands: `gateway start/stop/run/status`, `agents list/create/start/stop/remove`
+- ✅ per-agent config and secrets management via CLI (`config show/get/set`, `config secrets`)
+- ✅ `hermit setup` wizard for initial gateway configuration
+- ✅ `hermit status` and `hermit doctor` for platform health
+- ✅ npm publishing as `openhermit`
+- centralized monitoring (pending)
+- schedule management at control-plane level (pending)
 
 ## Immediate Implementation Order
 

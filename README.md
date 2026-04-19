@@ -54,22 +54,22 @@ Runtime-owned settings such as model selection and checkpoint cadence live in `~
 openhermit/
 ├── apps/
 │   ├── agent/                # Single-agent runtime (Hono + session API)
-│   ├── cli/                  # Local terminal client for the agent-local API
-│   ├── web/                  # Local browser client and launcher for the agent-local API
+│   ├── cli/                  # Platform CLI (hermit command)
+│   ├── web/                  # Local browser client for the agent-local API
 │   ├── gateway/              # Control plane for multi-agent lifecycle and proxy routing
 │   └── channels/
-│       └── telegram/         # Future IM bridge example
+│       └── telegram/         # Telegram channel adapter
 ├── packages/
 │   ├── protocol/             # Shared session/event contracts and route constants
-│   ├── sdk/                  # Thin client for agent-local API calls
+│   ├── sdk/                  # Gateway client SDK
 │   ├── shared/               # Errors, runtime metadata types, small shared helpers
-│   └── store/                # Store interfaces (SessionStore, MemoryProvider, etc.) and SQLite adapters
+│   └── store/                # Store interfaces and Prisma/PostgreSQL adapters
 └── docs/
     ├── architecture.md
-    ├── participant-model.md   # Draft participant / role model
-    ├── sandbox-model.md       # Sandbox model (ephemeral, service, workspace, daily)
-    ├── storage-model.md       # Storage abstraction model
-    ├── multi-agent-plan.md    # Multi-agent, store, plugin architecture plan
+    ├── participant-model.md
+    ├── sandbox-model.md
+    ├── storage-model.md
+    ├── multi-agent-plan.md
     ├── plan.md
     ├── memory-model.md
     ├── session-model.md
@@ -88,76 +88,115 @@ openhermit/
 - Session model: [docs/session-model.md](docs/session-model.md)
 - Decisions: [docs/decisions.md](docs/decisions.md)
 
-## Quick Start
+## Installation
 
-1. Add your model API key to `~/.openhermit/main/secrets.json`, for example:
-
-```json
-{
-  "ANTHROPIC_API_KEY": "your-key"
-}
-```
-
-Optional: to emit Langfuse traces for model requests, add `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and optionally `LANGFUSE_BASE_URL` to [`apps/agent/.env`](apps/agent/.env). The agent entrypoint loads that file automatically on startup.
-
-2. Start the agent:
+Install the CLI globally from npm:
 
 ```bash
+npm install -g openhermit
+```
+
+This provides the `hermit` (and `openhermit`) command.
+
+For development, clone the repo and use `tsx` directly:
+
+```bash
+git clone https://github.com/williamwa/openhermit.git
+cd openhermit
+npm install
+```
+
+## Quick Start
+
+### 1. Run the setup wizard
+
+```bash
+hermit setup
+```
+
+This walks you through:
+- Database setup (Docker Compose PostgreSQL, manual URL, or skip)
+- Admin token generation
+- JWT secret generation
+- Writes everything to `.env`
+
+### 2. Start the gateway
+
+```bash
+hermit gateway start     # background (logs to ~/.openhermit/gateway.log)
+hermit gateway run       # foreground (for development)
+```
+
+### 3. Check platform status
+
+```bash
+hermit status            # gateway health + agent overview
+hermit doctor            # verify environment (Node, Docker, config, connectivity)
+```
+
+### 4. Start chatting
+
+```bash
+hermit chat                          # interactive TUI chat
+hermit chat --agent-id main          # target a specific agent
+hermit chat --resume                 # resume the last session
+hermit chat --session my-session     # use a named session
+```
+
+### 5. Manage agents
+
+```bash
+hermit agents list
+hermit agents create my-agent
+hermit agents start my-agent
+hermit agents stop my-agent
+hermit agents remove my-agent
+```
+
+## CLI Reference
+
+| Command | Description |
+|---------|-------------|
+| `hermit setup` | Interactive gateway setup wizard |
+| `hermit chat` | Interactive TUI chat session |
+| `hermit agents list\|create\|start\|stop\|remove` | Agent lifecycle management |
+| `hermit gateway start\|stop\|run\|status` | Gateway daemon management |
+| `hermit config show --agent-id <id>` | Show agent configuration |
+| `hermit config get <key>` | Get a config value by dot-path |
+| `hermit config set <key> <value>` | Set a config value by dot-path |
+| `hermit config secrets list\|set\|remove` | Manage agent secrets |
+| `hermit status` | Platform overview (gateway + agents) |
+| `hermit doctor` | Environment health checks |
+| `hermit logs` | View gateway logs (`-f` to follow, `-n` for count) |
+
+## Development
+
+```bash
+# Start the gateway in development mode (foreground with hot reload)
+npm run dev:gateway
+
+# Start the CLI in development mode
+npm run dev:cli
+
+# Start the web UI
+npm run dev:web          # then open http://127.0.0.1:4310
+
+# Start the standalone agent runtime (without gateway)
 npm run dev:agent
 npm run dev:agent -- --agent-id main
 ```
 
-`dev:agent` runs in watch mode and restarts automatically when agent source files change.
-It also accepts `--agent-id` and `--port`.
+### Environment
 
-3. In another terminal, start the minimal CLI:
+The CLI auto-loads `.env` from the current directory on startup. Key variables:
 
-```bash
-npm run chat:agent
-```
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | PostgreSQL connection string |
+| `GATEWAY_ADMIN_TOKEN` | Admin token for gateway API |
+| `GATEWAY_JWT_SECRET` | JWT signing secret |
+| `OPENHERMIT_TOKEN` | CLI authentication token (defaults to admin token) |
+| `OPENHERMIT_GATEWAY_URL` | Gateway URL (default: `http://127.0.0.1:4000`) |
+| `OPENHERMIT_AGENT_ID` | Default agent ID (default: `main`) |
 
-`chat:agent` and `dev:cli` both start the interactive CLI directly. The CLI is intentionally not run under watch mode because file-watch wrappers interfere with terminal input handling.
-
-CLI options:
-
-```bash
-npm run chat:agent -- --agent-id main
-npm run chat:agent -- --session cli:resume-me
-npm run chat:agent -- --resume
-```
-
-The CLI discovers the running agent via:
-
-- `~/.openhermit/{agent-id}/runtime.json`
-
-That `runtime.json` is now treated as live runtime metadata:
-
-- normal agent shutdown removes it
-- agent startup refuses to continue if the file already exists
-- if startup finds a stale file, it reports that explicitly instead of silently overwriting it
-
-4. Or start the local web UI:
-
-```bash
-npm run dev:web
-```
-
-Then open [http://127.0.0.1:4310](http://127.0.0.1:4310).
-
-The current web app is a minimal static frontend served from `apps/web/public/`.
-It no longer accepts `--agent-id` or `--workspace`; only the port is configurable:
-
-```bash
-OPENHERMIT_WEB_PORT=4310 npm run dev:web
-PORT=4310 npm run dev:web
-```
-
-5. Or start the multi-agent gateway:
-
-```bash
-npm run dev:gateway
-```
-
-Then point the CLI at the gateway (default: `http://127.0.0.1:4000`). The current CLI talks to the gateway first, then selects an agent via `/agents/{agentId}/...`.
-
-If `tsx` is not suitable in your environment, you can build first and run the compiled entrypoints from `apps/agent/dist/`, `apps/cli/dist/`, and `apps/web/dist/`.
+Optional: to emit Langfuse traces, add `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and optionally `LANGFUSE_BASE_URL` to your `.env`.
