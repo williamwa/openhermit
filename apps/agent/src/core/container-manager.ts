@@ -642,14 +642,32 @@ export class DockerContainerManager {
     const name = this.containerName('workspace');
     const mountTarget = '/workspace';
 
-    const existing = await this.registry.findByName(name);
+    let existing = await this.registry.findByName(name);
+
+    // Always check Docker for a live container — the in-memory registry may be
+    // empty after a gateway restart while the container still exists.
+    const liveContainers = await this.listLiveContainers().catch(() => []);
+    const live = liveContainers.find((c) => c.names === name);
+    const liveStatus = live ? deriveContainerStatus(live.statusText) : undefined;
+
+    // If Docker knows about this container but the registry doesn't, re-register it.
+    if (!existing && liveStatus) {
+      existing = {
+        id: live!.id,
+        name,
+        image: config.image,
+        type: 'workspace',
+        status: liveStatus === 'running' ? 'running' : 'stopped',
+        description: `Persistent workspace container for agent ${agentId}`,
+        mount: '.',
+        mount_target: mountTarget,
+        runtime_container_id: live!.id,
+        created: new Date().toISOString(),
+      };
+      await this.registry.upsert(existing);
+    }
 
     if (existing) {
-      // Check live status
-      const liveContainers = await this.listLiveContainers().catch(() => []);
-      const live = liveContainers.find((c) => c.names === name);
-      const liveStatus = live ? deriveContainerStatus(live.statusText) : undefined;
-
       if (liveStatus === 'running') {
         return this.registry.updateByName(name, (current) => ({
           ...current,
