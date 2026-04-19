@@ -132,7 +132,7 @@ Existing per-agent DBs get the default `'__standalone__'` — zero data migratio
 ### Key files to extract from:
 - `apps/agent/src/session-logs/writer.ts` → `DbMessageStore` + `DbMemoryProvider`
 - `apps/agent/src/session-logs/index-store.ts` → `DbSessionStore`
-- `apps/agent/src/core/container-manager.ts` (ContainerRegistryStore) → `SqliteContainerStore`
+- `apps/agent/src/core/container-manager.ts` (ContainerRegistryStore) → `DbContainerStore`
 
 ---
 

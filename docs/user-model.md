@@ -327,7 +327,7 @@ interface InternalStateStore {
 ### Phase 1: Core ✅ Completed
 
 1. ✅ **Schema migration** — `users` and `user_identities` tables with `merged_into` column (migration 14)
-2. ✅ **UserStore** — `SqliteUserStore` with resolve, link, merge operations
+2. ✅ **UserStore** — `DbUserStore` with resolve, link, merge operations
 3. ✅ **Wire into InternalStateStore** — `users` field added
 4. ✅ **Identity resolution in agent runtime** — resolve userId per-session (including existing sessions on re-open), attach to session context
 5. ✅ **Tool filtering by role** — filter tool set based on resolved user's role; `refreshAgentConfiguration` also respects role

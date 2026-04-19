@@ -18,7 +18,7 @@ Open questions and issues that need discussion before implementation.
 
 ## 2. ~~memory_recall Search Quality~~ — RESOLVED
 
-**Resolution:** SqliteMemoryProvider now uses FTS5 full-text search with porter stemming and BM25 ranking (schema v13). The old implementation used naive `LIKE '%query%'` matching which required the exact substring in sequence. The new implementation tokenizes queries into individual words, matches them via FTS5 with porter stemming (so "runs" matches "running"), and ranks by BM25 relevance. FTS index is kept in sync on add, update, and delete operations, with a fallback to LIKE matching for pre-v13 databases.
+**Resolution:** Memory search now uses PostgreSQL `tsvector` + GIN index for full-text search with stemming and relevance ranking. The old SQLite implementation used naive `LIKE '%query%'` matching which required the exact substring in sequence. The PostgreSQL implementation tokenizes queries, matches via `tsvector` with stemming, and ranks by relevance. The search index is auto-maintained by a generated stored column.
 
 ## 3. Introspection vs Per-Turn Memory (Letta/ChatGPT Pattern)
 

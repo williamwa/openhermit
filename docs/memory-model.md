@@ -111,7 +111,7 @@ Memories are identified by `id` (e.g. `project/plan`, `user/preferences`, or aut
 
 ### Context Injection
 
-The runtime calls `getContextBlock()` on each turn to inject relevant long-term memory into the agent's context. The default SqliteMemoryProvider returns the 5 most recently updated memories formatted as markdown sections.
+The runtime calls `getContextBlock()` on each turn to inject relevant long-term memory into the agent's context. The default PostgreSQL-backed `DbMemoryProvider` returns the most recently updated memories (configurable, default 10) formatted as markdown sections.
 
 ### User-Authored Knowledge
 

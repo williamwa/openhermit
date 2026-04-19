@@ -38,15 +38,14 @@ OpenHermit separates:
 Current internal-state files include:
 
 - `config.json`
-- `state.sqlite`
 - `runtime.json` while the agent is running
 - `security.json`
 - `secrets.json`
 
+Structured runtime state (sessions, messages, memories, instructions, container inventory, users) is stored in a shared PostgreSQL database, scoped by `agent_id`. Schema is managed by Prisma migrations (`packages/store/prisma/`).
+
 Agent identity and instructions are managed via the `InstructionStore` in PostgreSQL and updated through the `instruction_update` tool.
 Runtime-owned settings such as model selection and checkpoint cadence live in `~/.openhermit/{agent-id}/config.json`.
-
-`state.sqlite` now stores sessions, session history, memories, instructions, and container runtime inventory. It also uses lightweight versioned migrations for incremental schema changes.
 
 ## Repository Structure
 

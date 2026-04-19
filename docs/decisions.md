@@ -31,10 +31,10 @@
 **Current internal location**:
 
 - `~/.openhermit/{agent-id}/config.json`
-- `~/.openhermit/{agent-id}/state.sqlite`
 - `~/.openhermit/{agent-id}/runtime.json`
 - `~/.openhermit/{agent-id}/security.json`
 - `~/.openhermit/{agent-id}/secrets.json`
+- PostgreSQL (shared, scoped by `agent_id`)
 
 **Rationale**:
 

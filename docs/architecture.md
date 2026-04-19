@@ -302,7 +302,7 @@ OpenHermit uses two logical memory layers:
 Current direction:
 
 - raw session history and memories live in PostgreSQL
-- long-term memories are managed through a pluggable `MemoryProvider` interface (default: `SqliteMemoryProvider`)
+- long-term memories are managed through a pluggable `MemoryProvider` interface (default: PostgreSQL-backed `DbMemoryProvider`)
 - the MemoryProvider exposes `getContextBlock()` to inject relevant memory into each turn's context
 - user-authored knowledge should remain external and searchable as normal files
 - memory is maintained by periodic introspection turns (lightweight agent with memory tools)
