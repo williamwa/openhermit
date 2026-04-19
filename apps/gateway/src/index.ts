@@ -137,8 +137,9 @@ export const main = async (): Promise<void> => {
 
   const { server, info } = await listen(app.fetch, port);
 
-  // Set the gateway base URL so channel adapters can connect back.
+  // Set the gateway base URL and admin token so channel adapters can connect back.
   instances.setGatewayBaseUrl(`http://localhost:${info.port}`);
+  instances.setAdminToken(adminToken);
 
   attachGatewayWs(server as import('node:http').Server, {
     instances,

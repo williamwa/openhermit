@@ -25,9 +25,15 @@ export class AgentInstanceManager {
 
   /** Gateway base URL used for channel adapters to connect back. */
   private gatewayBaseUrl: string | undefined;
+  /** Admin token forwarded to channel adapters for gateway auth. */
+  private adminToken: string | undefined;
 
   setGatewayBaseUrl(url: string): void {
     this.gatewayBaseUrl = url;
+  }
+
+  setAdminToken(token: string | undefined): void {
+    this.adminToken = token;
   }
 
   /**
@@ -92,7 +98,7 @@ export class AgentInstanceManager {
           const agentBaseUrl = `${this.gatewayBaseUrl}/agents/${encodeURIComponent(agentId)}`;
           const handles = await startChannels(config.channels, {
             agentBaseUrl,
-            agentToken: '', // In-process, no auth needed for now
+            agentToken: this.adminToken ?? '',
             logger: (msg) => log(`[${agentId}] [telegram] ${msg}`),
           });
           if (handles.length > 0) {
