@@ -78,6 +78,8 @@ export interface ChannelRegistration {
   channelId: string;
   apiKey: string;
   namespace?: string;
+  /** The agent this channel token is scoped to. */
+  agentId: string;
 }
 
 // ── Channel registry ───────────────────────────────────────────────────────
@@ -96,6 +98,16 @@ export class ChannelRegistry {
     if (reg) {
       this.byKey.delete(reg.apiKey);
       this.byId.delete(channelId);
+    }
+  }
+
+  /** Remove all channel registrations belonging to an agent. */
+  unregisterByAgent(agentId: string): void {
+    for (const [id, reg] of this.byId) {
+      if (reg.agentId === agentId) {
+        this.byKey.delete(reg.apiKey);
+        this.byId.delete(id);
+      }
     }
   }
 
@@ -358,6 +370,7 @@ export const resolveAuth = async (
         channel: namespace,
         channelUserId: '', // filled per-message from sender field
         channelNamespace: namespace,
+        agentId: channel.agentId,
       };
     }
   }

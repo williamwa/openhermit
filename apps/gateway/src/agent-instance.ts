@@ -1,13 +1,16 @@
+import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 
 import { AgentRunner } from '@openhermit/agent/agent-runner';
-import { AgentSecurity, AgentWorkspace } from '@openhermit/agent/core';
+import { AgentSecurity, AgentWorkspace, BUILTIN_CHANNELS } from '@openhermit/agent/core';
 import {
   createLangfuseClientFromEnv,
   createLangfuseShutdownHandler,
   type LangfuseClientLike,
 } from '@openhermit/agent/langfuse';
 import { startChannels, stopChannels } from '@openhermit/agent/channels';
+
+import type { ChannelRegistry } from './auth.js';
 
 const log = (message: string): void => {
   console.log(`[openhermit-gateway] ${message}`);
@@ -27,6 +30,8 @@ export class AgentInstanceManager {
   private gatewayBaseUrl: string | undefined;
   /** Admin token forwarded to channel adapters for gateway auth. */
   private adminToken: string | undefined;
+  /** Shared channel registry for external channel token auth. */
+  private channelRegistry: ChannelRegistry | undefined;
 
   setGatewayBaseUrl(url: string): void {
     this.gatewayBaseUrl = url;
@@ -34,6 +39,10 @@ export class AgentInstanceManager {
 
   setAdminToken(token: string | undefined): void {
     this.adminToken = token;
+  }
+
+  setChannelRegistry(registry: ChannelRegistry): void {
+    this.channelRegistry = registry;
   }
 
   /**
@@ -90,15 +99,49 @@ export class AgentInstanceManager {
     this.runners.set(agentId, runner);
     log(`[${agentId}] runner started`);
 
-    // 6. Start channel adapters (e.g. Telegram) if configured.
+    // 6. Register channel tokens for external channel auth.
+    if (this.channelRegistry) {
+      const channelTokens = security.getChannelTokens();
+      for (const entry of channelTokens) {
+        const channelId = `${agentId}:${entry.channel}`;
+        this.channelRegistry.register({
+          channelId,
+          apiKey: entry.token,
+          namespace: entry.channel,
+          agentId,
+        });
+        log(`[${agentId}] registered channel token: ${entry.channel}`);
+      }
+    }
+
+    // 7. Start built-in channel adapters (e.g. Telegram) if configured.
+    //    Each built-in channel gets an auto-generated token registered in the
+    //    ChannelRegistry, scoped to this agent and channel namespace.
     if (this.gatewayBaseUrl) {
       try {
         const config = await security.readConfig();
         if (config.channels) {
           const agentBaseUrl = `${this.gatewayBaseUrl}/agents/${encodeURIComponent(agentId)}`;
+
+          // Generate a per-agent token for built-in channels and register it.
+          const builtinToken = randomBytes(24).toString('hex');
+          const enabledBuiltins = BUILTIN_CHANNELS.filter(
+            (def) => (config.channels as Record<string, { enabled?: boolean }>)[def.key]?.enabled,
+          );
+          if (this.channelRegistry) {
+            for (const def of enabledBuiltins) {
+              this.channelRegistry.register({
+                channelId: `${agentId}:${def.key}:builtin`,
+                apiKey: builtinToken,
+                namespace: def.namespace,
+                agentId,
+              });
+            }
+          }
+
           const handles = await startChannels(config.channels, {
             agentBaseUrl,
-            agentToken: this.adminToken ?? '',
+            agentToken: builtinToken,
             logger: (msg) => log(`[${agentId}] [telegram] ${msg}`),
           });
           if (handles.length > 0) {
@@ -130,6 +173,9 @@ export class AgentInstanceManager {
     if (!runner) {
       return;
     }
+
+    // Unregister channel tokens.
+    this.channelRegistry?.unregisterByAgent(agentId);
 
     // Stop channels first.
     const handles = this.channelHandles.get(agentId);

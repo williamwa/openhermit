@@ -110,11 +110,17 @@ const parseSessionListQuery = (request: Request): SessionListQuery => {
   return query;
 };
 
-/** Require auth context or throw 401. */
+/** Require auth context or throw 401. Optionally enforce agent scoping. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const requireAuth = (c: any): AuthContext => {
+const requireAuth = (c: any, agentId?: string): AuthContext => {
   const auth = c.get('auth' as never) as AuthContext | undefined;
   if (!auth) throw new UnauthorizedError('Authentication required.');
+
+  // Enforce agent scoping: channel tokens and user JWTs are bound to a specific agent.
+  if (agentId && auth.agentId && auth.agentId !== agentId) {
+    throw new UnauthorizedError('Token is not valid for this agent.');
+  }
+
   return auth;
 };
 
@@ -471,7 +477,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
 
   app.post(gatewayRoutes.agentSessionsPattern, async (c) => {
     const agentId = c.req.param('agentId') ?? '';
-    const auth = requireAuth(c);
+    const auth = requireAuth(c, agentId);
     const runtime = resolveRunner(instances, agentId);
     const payload = await c.req.json().catch(() => null);
 
@@ -493,7 +499,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
 
   app.get(gatewayRoutes.agentSessionsPattern, async (c) => {
     const agentId = c.req.param('agentId') ?? '';
-    const auth = requireAuth(c);
+    const auth = requireAuth(c, agentId);
     const runtime = resolveRunner(instances, agentId);
     const query = parseSessionListQuery(c.req.raw);
     const callerUserId = await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId });
@@ -507,7 +513,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   app.post(gatewayRoutes.agentSessionMessagesPattern, async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     const sessionId = c.req.param('sessionId') ?? '';
-    const auth = requireAuth(c);
+    const auth = requireAuth(c, agentId);
     const runtime = resolveRunner(instances, agentId);
 
     // Verify caller is a participant (user mode only; channels handle identity per-message)
@@ -673,7 +679,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   app.get(gatewayRoutes.agentSessionMessagesPattern, async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     const sessionId = c.req.param('sessionId') ?? '';
-    const auth = requireAuth(c);
+    const auth = requireAuth(c, agentId);
     const runtime = resolveRunner(instances, agentId);
     const callerUserId = await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId });
     if (!callerUserId) throw new NotFoundError(`Session not found: ${sessionId}`);
@@ -686,7 +692,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   app.post(gatewayRoutes.agentSessionApprovePattern, async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     const sessionId = c.req.param('sessionId') ?? '';
-    const approveAuth = requireAuth(c);
+    const approveAuth = requireAuth(c, agentId);
     const runtime = resolveRunner(instances, agentId);
     const approveCallerId = await runtime.resolveCallerUserId({ channel: approveAuth.channel, channelUserId: approveAuth.channelUserId });
     if (approveCallerId) {
@@ -712,7 +718,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   app.post(gatewayRoutes.agentSessionCheckpointPattern, async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     const sessionId = c.req.param('sessionId') ?? '';
-    const cpAuth = requireAuth(c);
+    const cpAuth = requireAuth(c, agentId);
     const runtime = resolveRunner(instances, agentId);
     const cpCallerId = await runtime.resolveCallerUserId({ channel: cpAuth.channel, channelUserId: cpAuth.channelUserId });
     if (cpCallerId) {
@@ -737,7 +743,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   app.get(gatewayRoutes.agentSessionEventsPattern, async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     const sessionId = c.req.param('sessionId') ?? '';
-    const auth = requireAuth(c);
+    const auth = requireAuth(c, agentId);
     const runtime = resolveRunner(instances, agentId);
     // Verify caller is a participant
     const eventsCallerUserId = await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId });

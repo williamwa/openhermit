@@ -86,6 +86,22 @@ export interface ChannelsConfig {
   telegram?: TelegramChannelConfig;
 }
 
+/**
+ * Built-in channel definitions. Each entry maps a ChannelsConfig key to the
+ * identity namespace the channel bridge uses in `sender.channel`.
+ * When adding a new built-in channel, add an entry here.
+ */
+export const BUILTIN_CHANNELS: readonly BuiltinChannelDef[] = [
+  { key: 'telegram', namespace: 'telegram' },
+] satisfies readonly { key: keyof ChannelsConfig; namespace: string }[];
+
+export interface BuiltinChannelDef {
+  /** Key in ChannelsConfig. */
+  key: keyof ChannelsConfig;
+  /** Identity namespace used by the bridge in sender.channel. */
+  namespace: string;
+}
+
 export type WorkspaceContainerStartPolicy = 'session' | 'ondemand';
 export type WorkspaceContainerStopPolicy = 'session' | 'idle';
 
@@ -122,11 +138,20 @@ export type AgentConfig = AgentRuntimeConfig;
 
 export type AgentAccessLevel = 'public' | 'protected';
 
+export interface ChannelTokenEntry {
+  /** Channel namespace, e.g. "telegram", "discord", "custom-bot". */
+  channel: string;
+  /** Pre-shared API key for this channel. */
+  token: string;
+}
+
 export interface SecurityPolicy {
   autonomy_level: AutonomyLevel;
   require_approval_for: string[];
   access?: AgentAccessLevel;
   access_token?: string;
+  /** Per-channel API tokens for external channel adapters. */
+  channel_tokens?: ChannelTokenEntry[];
 }
 
 export type SecretsMap = Record<string, string>;

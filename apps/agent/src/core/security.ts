@@ -13,6 +13,7 @@ import {
   DEFAULT_SECURITY_POLICY,
   type AgentRuntimeConfig,
   type AutonomyLevel,
+  type ChannelTokenEntry,
   type SecretsMap,
   type SecurityPolicy,
 } from './types.js';
@@ -235,11 +236,32 @@ export class AgentSecurity {
       throw new ValidationError('Invalid require_approval_for in security.json');
     }
 
+    // Validate channel_tokens if present
+    const channelTokens: ChannelTokenEntry[] = [];
+    if (Array.isArray(parsedPolicy.channel_tokens)) {
+      for (const entry of parsedPolicy.channel_tokens) {
+        if (
+          entry &&
+          typeof entry === 'object' &&
+          typeof (entry as ChannelTokenEntry).channel === 'string' &&
+          typeof (entry as ChannelTokenEntry).token === 'string'
+        ) {
+          channelTokens.push({
+            channel: (entry as ChannelTokenEntry).channel,
+            token: (entry as ChannelTokenEntry).token,
+          });
+        }
+      }
+    }
+
     this.policy = {
       autonomy_level: parsedPolicy.autonomy_level,
       require_approval_for: parsedPolicy.require_approval_for.filter(
         (value): value is string => typeof value === 'string',
       ),
+      ...(parsedPolicy.access ? { access: parsedPolicy.access } : {}),
+      ...(parsedPolicy.access_token ? { access_token: parsedPolicy.access_token } : {}),
+      ...(channelTokens.length > 0 ? { channel_tokens: channelTokens } : {}),
     };
 
     const sanitizedSecrets: SecretsMap = {};
@@ -269,6 +291,10 @@ export class AgentSecurity {
 
   getAccessToken(): string | undefined {
     return this.policy.access_token;
+  }
+
+  getChannelTokens(): ChannelTokenEntry[] {
+    return this.policy.channel_tokens ?? [];
   }
 
   requiresApproval(toolName: string): boolean {
