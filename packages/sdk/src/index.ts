@@ -307,6 +307,22 @@ export class GatewayClient {
     return this.getJson(gatewayRoutes.agentHealth(agentId));
   }
 
+  async getAgentConfig(agentId: string): Promise<Record<string, unknown>> {
+    return this.getJson(`/api/admin/agents/${encodeURIComponent(agentId)}/config`);
+  }
+
+  async putAgentConfig(agentId: string, config: Record<string, unknown>): Promise<void> {
+    await this.putJson(`/api/admin/agents/${encodeURIComponent(agentId)}/config`, config);
+  }
+
+  async getAgentSecrets(agentId: string): Promise<Record<string, string>> {
+    return this.getJson(`/api/admin/agents/${encodeURIComponent(agentId)}/secrets`);
+  }
+
+  async putAgentSecrets(agentId: string, secrets: Record<string, string>): Promise<void> {
+    await this.putJson(`/api/admin/agents/${encodeURIComponent(agentId)}/secrets`, secrets);
+  }
+
   /**
    * Returns an `AgentLocalClient` whose requests are routed through the
    * gateway at `/agents/:agentId/...`. The agent-local client sees the
@@ -363,6 +379,47 @@ export class GatewayClient {
     try {
       response = await this.fetchImpl(joinUrl(this.baseUrl, path), {
         method: 'POST',
+        headers: {
+          authorization: `Bearer ${this.token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new OpenHermitError(
+        `Gateway API is unavailable at ${joinUrl(this.baseUrl, path)}: ${message}`,
+        'gateway_api_error',
+        500,
+      );
+    }
+
+    if (!response.ok) {
+      const responseText = await response.text();
+      const statusCode: OpenHermitStatusCode =
+        response.status === 400 ||
+        response.status === 401 ||
+        response.status === 404 ||
+        response.status === 500
+          ? response.status
+          : 500;
+
+      throw new OpenHermitError(
+        `Gateway API request failed (${response.status}): ${responseText || response.statusText}`,
+        'gateway_api_error',
+        statusCode,
+      );
+    }
+
+    return (await response.json()) as T;
+  }
+
+  private async putJson<T>(path: string, body: unknown): Promise<T> {
+    let response: Response;
+
+    try {
+      response = await this.fetchImpl(joinUrl(this.baseUrl, path), {
+        method: 'PUT',
         headers: {
           authorization: `Bearer ${this.token}`,
           'content-type': 'application/json',

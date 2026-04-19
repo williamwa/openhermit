@@ -7,6 +7,7 @@ import { registerStatusCommand } from './commands/status.js';
 import { registerDoctorCommand } from './commands/doctor.js';
 import { registerLogsCommand } from './commands/logs.js';
 import { registerSetupCommand } from './commands/setup.js';
+import { registerConfigCommand } from './commands/config.js';
 
 const program = new Command();
 
@@ -19,6 +20,7 @@ registerSetupCommand(program);
 registerChatCommand(program);
 registerAgentsCommand(program);
 registerGatewayCommand(program);
+registerConfigCommand(program);
 registerStatusCommand(program);
 registerDoctorCommand(program);
 registerLogsCommand(program);
