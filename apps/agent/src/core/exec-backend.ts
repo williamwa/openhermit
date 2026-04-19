@@ -45,6 +45,7 @@ export interface LocalExecBackendConfig {
   cwd?: string;
   shell?: string;
   env?: Record<string, string>;
+  timeout_ms?: number;
 }
 
 export interface SshExecBackendConfig {
@@ -56,6 +57,7 @@ export interface SshExecBackendConfig {
   user?: string;
   identity_file?: string;
   cwd?: string;
+  timeout_ms?: number;
 }
 
 export type ExecBackendConfig =
@@ -131,6 +133,8 @@ class DockerExecBackend implements ExecBackend {
 
 // ── Local backend ─────────────────────────────────────────────────────────
 
+const DEFAULT_TIMEOUT_MS = 300_000; // 5 minutes
+
 class LocalExecBackend implements ExecBackend {
   readonly id: string;
   readonly type = 'local';
@@ -138,6 +142,7 @@ class LocalExecBackend implements ExecBackend {
   private readonly cwd: string;
   private readonly shell: string;
   private readonly env: Record<string, string> | undefined;
+  private readonly timeoutMs: number;
 
   constructor(config: LocalExecBackendConfig, workspaceDir: string) {
     this.id = config.id ?? 'local';
@@ -145,6 +150,7 @@ class LocalExecBackend implements ExecBackend {
     this.cwd = config.cwd ?? workspaceDir;
     this.shell = config.shell ?? 'sh';
     this.env = config.env;
+    this.timeoutMs = config.timeout_ms ?? DEFAULT_TIMEOUT_MS;
   }
 
   async ensure(): Promise<void> {
@@ -162,19 +168,30 @@ class LocalExecBackend implements ExecBackend {
 
       let stdout = '';
       let stderr = '';
+      let timedOut = false;
+
+      const timer = setTimeout(() => {
+        timedOut = true;
+        child.kill('SIGKILL');
+      }, this.timeoutMs);
 
       child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
       child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
 
       child.on('error', (error) => {
+        clearTimeout(timer);
         reject(new Error(`Failed to execute local command: ${error.message}`));
       });
 
       child.on('close', (code) => {
+        clearTimeout(timer);
+        if (timedOut) {
+          stderr = stderr.trimEnd() + `\n[killed: command timed out after ${this.timeoutMs}ms]`;
+        }
         resolve({
           stdout,
           stderr,
-          exitCode: code ?? 1,
+          exitCode: timedOut ? 137 : (code ?? 1),
           durationMs: Date.now() - startedAt,
         });
       });
@@ -197,6 +214,7 @@ class SshExecBackend implements ExecBackend {
   private readonly user: string | undefined;
   private readonly identityFile: string | undefined;
   private readonly cwd: string | undefined;
+  private readonly timeoutMs: number;
 
   constructor(config: SshExecBackendConfig) {
     this.id = config.id ?? 'ssh';
@@ -206,6 +224,7 @@ class SshExecBackend implements ExecBackend {
     this.user = config.user;
     this.identityFile = config.identity_file;
     this.cwd = config.cwd;
+    this.timeoutMs = config.timeout_ms ?? DEFAULT_TIMEOUT_MS;
   }
 
   private buildSshArgs(remoteCommand: string): string[] {
@@ -245,19 +264,30 @@ class SshExecBackend implements ExecBackend {
 
       let stdout = '';
       let stderr = '';
+      let timedOut = false;
+
+      const timer = setTimeout(() => {
+        timedOut = true;
+        child.kill('SIGKILL');
+      }, this.timeoutMs);
 
       child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
       child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
 
       child.on('error', (error) => {
+        clearTimeout(timer);
         reject(new Error(`Failed to execute SSH command: ${error.message}`));
       });
 
       child.on('close', (code) => {
+        clearTimeout(timer);
+        if (timedOut) {
+          stderr = stderr.trimEnd() + `\n[killed: command timed out after ${this.timeoutMs}ms]`;
+        }
         resolve({
           stdout,
           stderr,
-          exitCode: code ?? 1,
+          exitCode: timedOut ? 137 : (code ?? 1),
           durationMs: Date.now() - startedAt,
         });
       });

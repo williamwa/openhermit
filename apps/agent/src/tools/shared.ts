@@ -70,12 +70,21 @@ export interface ToolContext {
   onToolStarted?: ToolStartedCallback;
 }
 
-export const asTextContent = (text: string) => [
-  {
-    type: 'text' as const,
-    text,
-  },
-];
+/** Maximum characters for a single tool result text block (~256 KB). */
+const MAX_TOOL_RESULT_CHARS = 256_000;
+
+export const asTextContent = (text: string) => {
+  const truncated = text.length > MAX_TOOL_RESULT_CHARS
+    ? text.slice(0, MAX_TOOL_RESULT_CHARS)
+      + `\n\n[truncated: output was ${text.length.toLocaleString()} chars, kept first ${MAX_TOOL_RESULT_CHARS.toLocaleString()}]`
+    : text;
+  return [
+    {
+      type: 'text' as const,
+      text: truncated,
+    },
+  ];
+};
 
 export const formatJson = (value: unknown): string =>
   `${JSON.stringify(value, null, 2)}\n`;

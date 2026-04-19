@@ -111,7 +111,7 @@ export interface WebConfig {
 export interface AgentRuntimeConfig {
   workspace_root: string;
   model: AgentModelConfig;
-  http_api: HttpApiConfig;
+  http_api?: HttpApiConfig | undefined;
   memory: MemoryConfig;
   exec?: import('./exec-backend.js').ExecConfig;
   web?: WebConfig;

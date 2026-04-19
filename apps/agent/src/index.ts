@@ -189,7 +189,7 @@ export const main = async (): Promise<void> => {
   const rawPort = cliOptions.port !== undefined ? String(cliOptions.port) : process.env.PORT;
   const preferredPort = rawPort
     ? Number.parseInt(rawPort, 10)
-    : config.http_api.preferred_port || defaultPort;
+    : config.http_api?.preferred_port || defaultPort;
 
   if (Number.isNaN(preferredPort)) {
     throw new Error(`Invalid PORT value: ${rawPort}`);

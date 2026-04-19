@@ -1,3 +1,6 @@
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+
 import { Hono } from 'hono';
 import { streamSSE, type SSEStreamingApi } from 'hono/streaming';
 import { cors } from 'hono/cors';
@@ -304,11 +307,89 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
       updatedAt: now,
     });
 
+    // Write template config, security, and secrets files
+    const configDir = record.configDir;
+    await fs.mkdir(configDir, { recursive: true });
+
+    const templateConfig = {
+      workspace_root: record.workspaceDir,
+      model: {
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 8192,
+      },
+      exec: {
+        backends: [
+          { type: 'docker', image: 'ubuntu:24.04' },
+        ],
+        lifecycle: {
+          start: 'ondemand',
+          stop: 'idle',
+          idle_timeout_minutes: 30,
+        },
+      },
+      web: {
+        provider: 'defuddle',
+      },
+      channels: {},
+      memory: {
+        introspection: {
+          enabled: true,
+          turn_interval: 5,
+          idle_timeout_minutes: 10,
+          max_tool_calls: 10,
+          model: null,
+        },
+      },
+    };
+
+    const templateSecurity = {
+      autonomy_level: 'full',
+      require_approval_for: [],
+    };
+
+    const writeIfMissing = async (filePath: string, content: unknown) => {
+      try { await fs.access(filePath); } catch {
+        await fs.writeFile(filePath, JSON.stringify(content, null, 2) + '\n', 'utf8');
+      }
+    };
+
+    await Promise.all([
+      writeIfMissing(path.join(configDir, 'config.json'), templateConfig),
+      writeIfMissing(path.join(configDir, 'security.json'), templateSecurity),
+      writeIfMissing(path.join(configDir, 'secrets.json'), {}),
+    ]);
+
+    // Seed default instructions
     const agentName = record.name ?? record.agentId;
     await agentStore.seedInstructions(record.agentId, [
-      { key: 'identity', content: `You are ${agentName}, an AI assistant.` },
-      { key: 'soul', content: 'You are helpful, thoughtful, and concise. You think step by step when solving complex problems.' },
-      { key: 'rules', content: 'Follow the user\'s instructions carefully. Ask for clarification when the request is ambiguous. Do not make up information.' },
+      {
+        key: 'identity',
+        content: [
+          `You are ${agentName}, an AI assistant.`,
+          '',
+          'Describe who this agent is, its purpose, and its persona.',
+        ].join('\n'),
+      },
+      {
+        key: 'soul',
+        content: [
+          'You are helpful, thoughtful, and concise.',
+          'You think step by step when solving complex problems.',
+          '',
+          'Define the agent\'s personality, tone, and communication style.',
+        ].join('\n'),
+      },
+      {
+        key: 'rules',
+        content: [
+          'Follow the user\'s instructions carefully.',
+          'Ask for clarification when the request is ambiguous.',
+          'Do not make up information.',
+          '',
+          'Add any rules or constraints the agent should follow.',
+        ].join('\n'),
+      },
     ], now);
 
     // Assign owner if specified

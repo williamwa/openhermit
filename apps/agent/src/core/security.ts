@@ -30,9 +30,6 @@ const DEFAULT_RUNTIME_CONFIG: AgentRuntimeConfig = {
     model: 'claude-opus-4-5',
     max_tokens: 8192,
   },
-  http_api: {
-    preferred_port: 3000,
-  },
   memory: {},
 };
 
@@ -153,7 +150,7 @@ const ChannelsConfigSchema = z.object({
 const AgentRuntimeConfigSchema = z.object({
   workspace_root: z.string(),
   model: ModelConfigSchema,
-  http_api: HttpApiConfigSchema,
+  http_api: HttpApiConfigSchema.optional(),
   memory: MemoryConfigSchema,
   exec: ExecConfigSchema.optional(),
   web: WebConfigSchema.optional(),
