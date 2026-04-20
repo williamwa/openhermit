@@ -1,4 +1,4 @@
-import type { MetadataValue, SessionType } from '@openhermit/protocol';
+import type { MetadataValue, SessionStatus, SessionType } from '@openhermit/protocol';
 import type { PrismaClient } from '../generated/prisma/index.js';
 
 import type { SessionStore } from '../interfaces.js';
@@ -11,9 +11,12 @@ export class DbSessionStore implements SessionStore {
     // Prisma handles connection management internally.
   }
 
-  async list(scope: StoreScope, options?: { userId?: string }): Promise<PersistedSessionIndexEntry[]> {
+  async list(scope: StoreScope, options?: { userId?: string; includeInactive?: boolean }): Promise<PersistedSessionIndexEntry[]> {
     const rows = await this.prisma.session.findMany({
-      where: { agentId: scope.agentId },
+      where: {
+        agentId: scope.agentId,
+        ...(!options?.includeInactive ? { status: { not: 'inactive' } } : {}),
+      },
       orderBy: { lastActivityAt: 'desc' },
     });
 
@@ -84,6 +87,7 @@ export class DbSessionStore implements SessionStore {
     completedTurnCount: number;
     lastMessagePreview: string | null;
     metadataJson: string;
+    status: string;
     type: string;
     userIdsJson: string;
   }): PersistedSessionIndexEntry {
@@ -96,6 +100,7 @@ export class DbSessionStore implements SessionStore {
         ...(row.sourcePlatform !== null ? { platform: row.sourcePlatform } : {}),
         ...(row.type !== 'direct' ? { type: row.type as SessionType } : {}),
       },
+      status: row.status as SessionStatus,
       createdAt: row.createdAt,
       lastActivityAt: row.lastActivityAt,
       messageCount: row.messageCount,

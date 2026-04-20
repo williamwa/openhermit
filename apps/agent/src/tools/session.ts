@@ -16,6 +16,7 @@ import {
 const SessionListParams = Type.Object({
   channel: Type.Optional(Type.String({ description: 'Filter by channel/platform (e.g. "telegram", "cli", "web").' })),
   limit: Type.Optional(Type.Number({ description: 'Maximum number of sessions to return (default 20).' })),
+  include_inactive: Type.Optional(Type.Boolean({ description: 'Include inactive sessions that were replaced by /new (default false).' })),
 });
 
 type SessionListArgs = Static<typeof SessionListParams>;
@@ -48,7 +49,10 @@ export const createSessionListTool = (context: ToolContext): AgentTool<typeof Se
 
     let sessions = await context.sessionStore.list(
       context.storeScope,
-      context.currentUserId ? { userId: context.currentUserId } : undefined,
+      {
+        ...(context.currentUserId ? { userId: context.currentUserId } : {}),
+        ...(args.include_inactive ? { includeInactive: true } : {}),
+      },
     );
 
     // Filter by channel/platform if specified

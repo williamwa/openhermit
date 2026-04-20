@@ -52,7 +52,7 @@ export interface SessionHistoryMessage {
   stopReason?: string;
 }
 
-export type SessionStatus = 'idle' | 'running' | 'awaiting_approval';
+export type SessionStatus = 'idle' | 'running' | 'awaiting_approval' | 'inactive';
 
 export interface SessionSummary {
   sessionId: string;
@@ -76,6 +76,8 @@ export interface SessionListQuery {
   channel?: string;
   /** Filter by metadata key-value pairs (e.g. { telegram_chat_id: "123" }). */
   metadata?: Record<string, string>;
+  /** Include inactive sessions (replaced by /new). Default false. */
+  includeInactive?: boolean;
 }
 
 /**

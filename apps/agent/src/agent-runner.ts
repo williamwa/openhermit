@@ -385,7 +385,10 @@ export class AgentRunner implements SessionRuntime {
   async listSessions(query: SessionListQuery = {}, callerUserId?: string): Promise<SessionSummary[]> {
     const persistedSessions = await this.store.sessions.list(
       this.scope,
-      callerUserId ? { userId: callerUserId } : undefined,
+      {
+        ...(callerUserId ? { userId: callerUserId } : {}),
+        ...(query.includeInactive ? { includeInactive: true } : {}),
+      },
     );
     const limit = query.limit;
     const summaries = buildSessionSummaries(
@@ -461,7 +464,16 @@ export class AgentRunner implements SessionRuntime {
     reason: 'manual' | 'new_session' | 'turn_limit' | 'idle' = 'manual',
   ): Promise<boolean> {
     const session = this.getRequiredSession(sessionId);
-    return this.runSessionCheckpoint(session, reason);
+    const result = await this.runSessionCheckpoint(session, reason);
+
+    // When a channel starts a new session (/new), mark the old one as inactive
+    // so it no longer shows up in default session listings.
+    if (reason === 'new_session') {
+      session.status = 'inactive';
+      this.persistSessionIndex(session);
+    }
+
+    return result;
   }
 
   async waitForSessionIdle(sessionId: string): Promise<void> {
