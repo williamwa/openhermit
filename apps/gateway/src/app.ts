@@ -331,7 +331,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const record = await agentStore.create({
       agentId: body.agentId,
       ...(body.name ? { name: body.name } : {}),
-      configDir: body.configDir ?? `${homeDir}/${body.agentId}`,
+      configDir: body.configDir ?? `${homeDir}/agents/${body.agentId}`,
       workspaceDir: body.workspaceDir ?? `${homeDir}/workspaces/${body.agentId}`,
       createdAt: now,
       updatedAt: now,
