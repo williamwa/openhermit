@@ -47,6 +47,7 @@ export { TelegramApi } from './telegram-api.js';
 export { TelegramBridge } from './bridge.js';
 export { TelegramBot } from './bot.js';
 export type { TelegramAdapterConfig } from './config.js';
+export type { ChannelOutbound, ChannelOutboundResult } from '@openhermit/protocol';
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   await main().catch((error) => {

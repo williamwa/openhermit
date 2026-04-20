@@ -114,8 +114,38 @@ export type OutboundEvent =
       toolCallId: string;
       args?: unknown;
     }
+  | {
+      type: 'channel_message_sent';
+      sessionId: string;
+      channel: string;
+      to: string;
+      text: string;
+      messageId?: string;
+    }
   | { type: 'agent_end'; sessionId: string }
   | { type: 'error'; sessionId: string; message: string };
+
+// ── Channel Outbound ──────────────────────────────────────────────────
+
+export interface ChannelOutboundResult {
+  success: boolean;
+  messageId?: string;
+  error?: string;
+}
+
+/**
+ * Interface for channel adapters that support outbound (proactive) messaging.
+ * Implementations send the message via the channel API and record it as a
+ * `channel_message_sent` event in the target session.
+ */
+export interface ChannelOutbound {
+  readonly channel: string;
+  send(params: {
+    sessionId: string;
+    to: string;
+    text: string;
+  }): Promise<ChannelOutboundResult>;
+}
 
 export interface ToolApprovalRequest {
   toolCallId: string;

@@ -1,5 +1,6 @@
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 import { Type, type Static } from '@mariozechner/pi-ai';
+import type { ChannelOutbound } from '@openhermit/protocol';
 import { ValidationError } from '@openhermit/shared';
 
 import {
@@ -7,6 +8,7 @@ import {
   type ToolContext,
   asTextContent,
   formatJson,
+  ensureAutonomyAllows,
 } from './shared.js';
 
 // ── Parameters ──────────────────────────────────────────────────────
@@ -200,6 +202,119 @@ export const createSessionSummaryTool = (context: ToolContext): AgentTool<typeof
   },
 });
 
+// ── session_send ───────────────────────────────────────────────────
+
+const SessionSendParams = Type.Object({
+  session_id: Type.String({ description: 'Target session ID to send the message to.' }),
+  text: Type.String({ description: 'Message text to send.' }),
+});
+
+type SessionSendArgs = Static<typeof SessionSendParams>;
+
+/**
+ * Resolve the outbound channel adapter and recipient for a session.
+ * Returns undefined if the session has no outbound-capable channel.
+ */
+const resolveOutbound = (
+  session: { source: { platform?: string }; metadata?: Record<string, unknown> },
+  channelOutbound: Map<string, ChannelOutbound>,
+): { adapter: ChannelOutbound; to: string } | undefined => {
+  const platform = session.source.platform;
+  if (!platform) return undefined;
+
+  const adapter = channelOutbound.get(platform);
+  if (!adapter) return undefined;
+
+  // Resolve recipient from session metadata.
+  // Each channel has its own metadata convention for the target chat.
+  if (platform === 'telegram') {
+    const chatId = session.metadata?.telegram_chat_id;
+    if (chatId !== undefined) return { adapter, to: String(chatId) };
+  }
+
+  return undefined;
+};
+
+export const createSessionSendTool = (context: ToolContext): AgentTool<typeof SessionSendParams> => ({
+  name: 'session_send',
+  label: 'Send Message to Session',
+  description:
+    'Send a message to another session via its connected channel (e.g. Telegram). '
+    + 'The target session must have been created through a channel that supports outbound messaging. '
+    + 'Use session_list to find sessions and their channel information first.',
+  parameters: SessionSendParams,
+  execute: async (_toolCallId, args: SessionSendArgs) => {
+    ensureAutonomyAllows(context.security, 'session_send');
+
+    if (!context.sessionStore || !context.storeScope) {
+      throw new ValidationError('session_send is unavailable: no session store is configured.');
+    }
+    if (!context.channelOutbound || context.channelOutbound.size === 0) {
+      throw new ValidationError('session_send is unavailable: no outbound channels are configured.');
+    }
+    if (!context.messageStore) {
+      throw new ValidationError('session_send is unavailable: no message store is configured.');
+    }
+
+    const sessionId = args.session_id.trim();
+    if (!sessionId) {
+      throw new ValidationError('session_send requires a non-empty session_id.');
+    }
+
+    const text = args.text.trim();
+    if (!text) {
+      throw new ValidationError('session_send requires non-empty text.');
+    }
+
+    // Load target session.
+    const target = await context.sessionStore.get(context.storeScope, sessionId);
+    if (!target) {
+      throw new ValidationError(`Session not found: ${sessionId}`);
+    }
+
+    // Resolve channel adapter and recipient.
+    const outbound = resolveOutbound(target, context.channelOutbound);
+    if (!outbound) {
+      const platform = target.source.platform ?? target.source.kind;
+      throw new ValidationError(
+        `Session ${sessionId} (${platform}) does not support outbound messaging, `
+        + 'or the channel adapter is not running.',
+      );
+    }
+
+    // Send the message via the channel adapter.
+    const result = await outbound.adapter.send({ sessionId, to: outbound.to, text });
+
+    if (!result.success) {
+      return {
+        content: asTextContent(`Failed to send message: ${result.error ?? 'unknown error'}\n`),
+        details: { sessionId, success: false, error: result.error },
+      };
+    }
+
+    // Record the delivery as a session log entry.
+    await context.messageStore.appendLogEntry(context.storeScope, sessionId, {
+      ts: new Date().toISOString(),
+      role: 'assistant',
+      type: 'channel_message_sent',
+      channel: outbound.adapter.channel,
+      to: outbound.to,
+      text,
+      messageId: result.messageId,
+      fromSession: context.sessionId,
+    });
+
+    return {
+      content: asTextContent(
+        `Message sent to session ${sessionId} via ${outbound.adapter.channel}`
+        + (result.messageId ? ` (message ID: ${result.messageId})` : '')
+        + '.\n',
+      ),
+      details: { sessionId, channel: outbound.adapter.channel, success: true, messageId: result.messageId },
+    };
+  },
+});
+
 // ── Toolset ────────────────────────────────────────────────────────
 
 const SESSION_DESCRIPTION = `\
@@ -210,14 +325,24 @@ You can inspect sessions across all channels. Non-owner users can only see sessi
 These tools let you review what happened in other sessions without switching context. For example:
 - "show me recent sessions" → \`session_list\`
 - "what happened in that Telegram chat?" → \`session_list\` (filter by telegram) → \`session_summary\`
-- "read me the last messages from session X" → \`session_read\``;
+- "read me the last messages from session X" → \`session_read\`
+- "send a message to user X on Telegram" → \`session_list\` (find their session) → \`session_send\``;
 
-export const createSessionToolset = (context: ToolContext): Toolset => ({
-  id: 'session',
-  description: SESSION_DESCRIPTION,
-  tools: [
+export const createSessionToolset = (context: ToolContext): Toolset => {
+  const tools: AgentTool<any>[] = [
     createSessionListTool(context),
     createSessionReadTool(context),
     createSessionSummaryTool(context),
-  ],
-});
+  ];
+
+  // Only include session_send when outbound channels are available.
+  if (context.channelOutbound && context.channelOutbound.size > 0) {
+    tools.push(createSessionSendTool(context));
+  }
+
+  return {
+    id: 'session',
+    description: SESSION_DESCRIPTION,
+    tools,
+  };
+};

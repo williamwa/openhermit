@@ -86,6 +86,9 @@ export class AgentRunner implements SessionRuntime {
 
   private readonly sessions = new Map<string, RunnerSession>();
 
+  /** Channel outbound adapters registered after startup (keyed by channel name). */
+  private readonly channelOutbound = new Map<string, import('@openhermit/protocol').ChannelOutbound>();
+
   private workspaceIdleTimer: ReturnType<typeof setTimeout> | undefined;
 
   private static DEBUG = false;
@@ -121,6 +124,17 @@ export class AgentRunner implements SessionRuntime {
     const store = options.store
       ?? await DbInternalStateStore.open();
     return new AgentRunner(options, store);
+  }
+
+  /** Register a channel outbound adapter (called after channel startup). */
+  registerChannelOutbound(adapter: import('@openhermit/protocol').ChannelOutbound): void {
+    this.channelOutbound.set(adapter.channel, adapter);
+    this.logRuntime(`registered channel outbound: ${adapter.channel}`);
+  }
+
+  /** Get all registered channel outbound adapters. */
+  getChannelOutbound(): Map<string, import('@openhermit/protocol').ChannelOutbound> {
+    return this.channelOutbound;
   }
 
   private getOrCreateExecBackendManager(config: AgentConfig): ExecBackendManager {
@@ -1046,6 +1060,7 @@ export class AgentRunner implements SessionRuntime {
           execBackendManager: this.getOrCreateExecBackendManager(input.config),
           onExec: () => this.resetWorkspaceIdleTimer(input.config.exec?.lifecycle),
         } : {}),
+        ...(this.channelOutbound.size > 0 ? { channelOutbound: this.channelOutbound } : {}),
         ...(input.approvalCallback ? { approvalCallback: input.approvalCallback } : {}),
         ...(input.approvedCache ? { approvedCache: input.approvedCache } : {}),
         ...(input.onToolRequested ? { onToolRequested: input.onToolRequested } : {}),

@@ -146,6 +146,12 @@ export class AgentInstanceManager {
           });
           if (handles.length > 0) {
             this.channelHandles.set(agentId, handles);
+            // Register outbound adapters on the runner so tools can send messages.
+            for (const handle of handles) {
+              if (handle.outbound) {
+                runner.registerChannelOutbound(handle.outbound);
+              }
+            }
             log(`[${agentId}] started ${handles.length} channel(s): ${handles.map((h) => h.name).join(', ')}`);
           }
         }

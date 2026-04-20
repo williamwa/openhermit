@@ -1,4 +1,5 @@
 import type { AgentTool } from '@mariozechner/pi-agent-core';
+import type { ChannelOutbound } from '@openhermit/protocol';
 import { ValidationError } from '@openhermit/shared';
 import type { InstructionStore, MemoryProvider, MessageStore, SessionStore, StoreScope, UserStore } from '@openhermit/store';
 
@@ -23,6 +24,7 @@ const READONLY_BLOCKED_TOOLS = new Set([
   'exec',
   'instruction_update',
   'session_description_update',
+  'session_send',
   'user_identity_link',
   'user_identity_unlink',
   'user_role_set',
@@ -63,6 +65,8 @@ export interface ToolContext {
   storeScope?: StoreScope;
   agentId?: string;
   execBackendManager?: ExecBackendManager;
+  /** Channel outbound adapters keyed by channel name (e.g. 'telegram'). */
+  channelOutbound?: Map<string, ChannelOutbound>;
   onExec?: () => void;
   approvalCallback?: ApprovalCallback;
   approvedCache?: Set<string>;

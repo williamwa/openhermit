@@ -6,6 +6,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { AgentLocalClient } from '@openhermit/sdk';
+import type { ChannelOutbound, ChannelOutboundResult } from '@openhermit/protocol';
 
 import type { TelegramApi, TelegramMessage } from './telegram-api.js';
 import {
@@ -64,7 +65,9 @@ interface TurnResult {
   error: string | undefined;
 }
 
-export class TelegramBridge {
+export class TelegramBridge implements ChannelOutbound {
+  readonly channel = 'telegram';
+
   private readonly client: AgentLocalClient;
   private readonly clientToken: string;
   private readonly log: (message: string) => void;
@@ -81,6 +84,37 @@ export class TelegramBridge {
     this.client = new AgentLocalClient(clientOptions);
     this.clientToken = clientOptions.token;
     this.log = logger ?? ((msg: string) => console.log(`[telegram-bridge] ${msg}`));
+  }
+
+  /**
+   * Send a message to a Telegram chat via the Bot API.
+   * Implements `ChannelOutbound.send()`. The caller is responsible for
+   * recording the `channel_message_sent` session event (the tool does this
+   * via the store; the bridge reply path already has the assistant message
+   * recorded by the agent runtime).
+   */
+  async send(params: { sessionId: string; to: string; text: string }): Promise<ChannelOutboundResult> {
+    const chatId = Number(params.to);
+    if (Number.isNaN(chatId)) {
+      return { success: false, error: `Invalid Telegram chat ID: ${params.to}` };
+    }
+
+    try {
+      const chunks = formatAgentResponse(params.text);
+      let lastMessageId: number | undefined;
+      for (const chunk of chunks) {
+        const sent = await this.telegram.sendMessage(chatId, chunk.text, { parseMode: chunk.parseMode });
+        lastMessageId = sent.message_id;
+      }
+
+      const result: ChannelOutboundResult = { success: true };
+      if (lastMessageId !== undefined) result.messageId = String(lastMessageId);
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(`failed to send message to chat ${chatId}: ${message}`);
+      return { success: false, error: message };
+    }
   }
 
   private static generateSessionId(): string {
@@ -207,14 +241,11 @@ export class TelegramBridge {
     // Consume SSE stream for the agent's response.
     const result = await this.waitForAgentResponse(sessionId, chatId);
 
-    // Send response back to Telegram.
+    // Send response back to Telegram via unified send (records event).
     if (result.error && !result.text) {
       await this.telegram.sendMessage(chatId, `Error: ${result.error}`);
     } else if (result.text) {
-      const chunks = formatAgentResponse(result.text);
-      for (const chunk of chunks) {
-        await this.telegram.sendMessage(chatId, chunk.text, { parseMode: chunk.parseMode });
-      }
+      await this.send({ sessionId, to: String(chatId), text: result.text });
     }
   }
 

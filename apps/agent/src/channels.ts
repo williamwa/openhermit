@@ -3,6 +3,8 @@
  * Uses dynamic imports so the agent doesn't hard-depend on specific channel packages.
  */
 
+import type { ChannelOutbound } from '@openhermit/protocol';
+
 import type { ChannelsConfig } from './core/types.js';
 
 export interface ChannelContext {
@@ -11,8 +13,9 @@ export interface ChannelContext {
   logger: (message: string) => void;
 }
 
-interface ChannelHandle {
+export interface ChannelHandle {
   name: string;
+  outbound?: ChannelOutbound;
   stop: () => Promise<void>;
 }
 
@@ -74,6 +77,7 @@ async function startTelegram(
 
     return {
       name: 'telegram',
+      outbound: bridge,
       stop: () => bot.stop(),
     };
   } catch (error) {
