@@ -93,7 +93,6 @@ Stores all registered skill definitions.
 | `name` | TEXT | Display name |
 | `description` | TEXT | One-line summary for system prompt index |
 | `path` | TEXT | Host filesystem path to skill directory |
-| `source` | TEXT | `platform` \| `agent` — who installed it |
 | `metadata_json` | TEXT | JSON blob for tags, version, author, etc. |
 | `created_at` | TEXT | ISO 8601 timestamp |
 | `updated_at` | TEXT | ISO 8601 timestamp |
@@ -130,7 +129,8 @@ Tracks which skills are enabled for which agents.
 ### 3. Agent-Installed Skills (agent-managed)
 
 - Stored at `/workspace/.openhermit/skills/<id>/` inside the workspace volume
-- Agent installs via `skill_install` tool: downloads from URL, writes files, registers metadata in database with `source = 'agent'`
+- Agent installs via `skill_install` tool: downloads from URL, writes files to workspace
+- **Not stored in database** — the workspace filesystem is the source of truth. At startup, the agent runtime scans this directory and reads SKILL.md frontmatter to build the index
 - Read-write — the agent can create, update, and delete these
 - Persists across sessions (part of workspace volume)
 
@@ -169,6 +169,14 @@ When a workspace container starts:
 2. Resolve each skill's host `path` from the `skills` table
 3. Mount each skill directory read-only into the container at `/skills/<id>/`
 4. `/workspace/.openhermit/skills/` is already part of the workspace volume — no extra mount needed
+
+### Skill Index Loading
+
+At agent startup, the runtime merges skills from all three tiers:
+
+1. **Database skills**: Query enabled skills → read `/skills/<id>/SKILL.md` for content
+2. **Workspace skills**: Scan `/workspace/.openhermit/skills/*/SKILL.md`, parse frontmatter
+3. **Dedup**: `/skills/` takes precedence — if a system skill and workspace skill share the same name, the system skill wins
 
 ## API Endpoints
 
