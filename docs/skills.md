@@ -152,14 +152,15 @@ Available skills — use `skill_invoke` to activate one:
 
 Full skill content (SKILL.md body) is loaded only when the skill is invoked, to conserve context window.
 
-### Tools
+### Agent Interaction
 
-| Tool | Description |
-|------|-------------|
-| `skill_list` | List all enabled skills with descriptions |
-| `skill_invoke` | Load a skill's full content into context and follow its instructions |
-| `skill_install` | Download a skill from a URL and install to workspace skills |
-| `skill_uninstall` | Remove an agent-installed skill |
+No dedicated skill tools are needed. The agent interacts with skills using existing capabilities:
+
+- **Discovery**: Enabled skills (name + description) are listed in the system prompt automatically at startup
+- **Reading**: The agent reads a skill's full content via `exec cat /skills/<id>/SKILL.md` (or `/workspace/.openhermit/skills/<id>/SKILL.md` for workspace skills)
+- **Execution**: The agent follows the skill's instructions using its standard tools (`exec`, `web_fetch`, etc.)
+- **Self-install**: The agent can download skills into its workspace via `exec` (e.g. `curl`, `wget`, `git clone`)
+- **Self-uninstall**: The agent can remove workspace skills via `exec rm -rf`
 
 ### Container Mount Flow
 
