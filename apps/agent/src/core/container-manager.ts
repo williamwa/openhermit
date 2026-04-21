@@ -715,9 +715,9 @@ export class DockerContainerManager {
       dockerArgs.push('--cpu-shares', String(config.cpu_shares));
     }
 
-    // Extra read-only bind mounts (e.g. skills directories)
-    for (const mount of config.extraBindMounts ?? []) {
-      dockerArgs.push('-v', `${mount}:ro`);
+    // Mount skill-mounts directory read-only at /skills
+    if (config.skillMountsDir) {
+      dockerArgs.push('-v', `${config.skillMountsDir}:/skills:ro`);
     }
 
     // Keep container alive with a long-running process
@@ -765,6 +765,7 @@ export class DockerContainerManager {
       status: 'stopped',
     }));
   }
+
 
   async execInWorkspace(
     agentId: string,

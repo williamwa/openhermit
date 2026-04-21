@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { syncSkillMounts } from './skill-mounts.js';
 
 import { Hono } from 'hono';
 import { streamSSE, type SSEStreamingApi } from 'hono/streaming';
@@ -984,12 +985,23 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     return c.json({ ok: true });
   });
 
+  const syncAffectedAgentSkillMounts = async (agentId: string, store: DbSkillStore): Promise<void> => {
+    const ids = agentId === '*' ? instances.getRunningAgentIds() : [agentId];
+    for (const id of ids) {
+      const runner = instances.getRunner(id);
+      if (runner) {
+        await syncSkillMounts(id, runner.security.getSkillMountsDir(), store);
+      }
+    }
+  };
+
   app.post('/api/admin/skills/:id/enable', async (c) => {
     requireAdmin(c.req.header('authorization'));
     const store = requireSkillStore();
     const body = await c.req.json() as Record<string, unknown>;
     const agentId = typeof body.agentId === 'string' ? body.agentId : '*';
     await store.enable(agentId, c.req.param('id'));
+    await syncAffectedAgentSkillMounts(agentId, store);
     return c.json({ ok: true });
   });
 
@@ -999,6 +1011,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const body = await c.req.json() as Record<string, unknown>;
     const agentId = typeof body.agentId === 'string' ? body.agentId : '*';
     await store.disable(agentId, c.req.param('id'));
+    await syncAffectedAgentSkillMounts(agentId, store);
     return c.json({ ok: true });
   });
 

@@ -199,6 +199,10 @@ export class AgentSecurity {
     this.runtimeFilePath = path.join(this.rootDir, internalStateFiles.runtime);
   }
 
+  getSkillMountsDir(): string {
+    return path.join(this.rootDir, 'skill-mounts');
+  }
+
   async init(): Promise<void> {
     await fs.mkdir(this.rootDir, { recursive: true });
     await ensureJsonFile(this.securityFilePath, DEFAULT_SECURITY_POLICY);

@@ -177,6 +177,11 @@ export class AgentInstanceManager {
     return this.runners.get(agentId);
   }
 
+  /** Get all running agent IDs. */
+  getRunningAgentIds(): string[] {
+    return [...this.runners.keys()];
+  }
+
   /** List all running agent IDs. */
   listRunnerIds(): string[] {
     return [...this.runners.keys()];
@@ -199,7 +204,7 @@ export class AgentInstanceManager {
       this.channelHandles.delete(agentId);
     }
 
-    await runner.stopWorkspaceContainerIfSessionPolicy();
+    await runner.shutdown();
 
     const langfuse = this.langfuseClients.get(agentId);
     if (langfuse) {

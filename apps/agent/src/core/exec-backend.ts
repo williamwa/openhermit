@@ -77,8 +77,8 @@ export interface BackendFactoryContext {
   containerManager: DockerContainerManager;
   agentId: string;
   workspaceDir: string;
-  /** Extra read-only bind mounts for workspace containers (e.g. skill directories). */
-  extraBindMounts?: string[];
+  /** Host directory containing skill symlinks, mounted at /skills in containers. */
+  skillMountsDir?: string;
 }
 
 type BackendFactory = (config: ExecBackendConfig, context: BackendFactoryContext) => ExecBackend;
@@ -109,7 +109,7 @@ class DockerExecBackend implements ExecBackend {
     config: DockerExecBackendConfig,
     private readonly containerManager: DockerContainerManager,
     private readonly agentId: string,
-    extraBindMounts?: string[],
+    skillMountsDir?: string,
   ) {
     this.id = config.id ?? 'docker';
     this.label = config.label ?? `Docker (${config.image})`;
@@ -118,7 +118,7 @@ class DockerExecBackend implements ExecBackend {
       ...(config.memory_limit ? { memory_limit: config.memory_limit } : {}),
       ...(config.cpu_shares ? { cpu_shares: config.cpu_shares } : {}),
       ...(config.lifecycle ? { lifecycle: config.lifecycle } : {}),
-      ...(extraBindMounts && extraBindMounts.length > 0 ? { extraBindMounts } : {}),
+      ...(skillMountsDir ? { skillMountsDir } : {}),
     };
   }
 
@@ -309,7 +309,7 @@ const shellEscape = (s: string): string => `'${s.replace(/'/g, "'\\''")}'`;
 // ── Register built-in backends ────────────────────────────────────────────
 
 registerExecBackend('docker', (config, context) =>
-  new DockerExecBackend(config as DockerExecBackendConfig, context.containerManager, context.agentId, context.extraBindMounts),
+  new DockerExecBackend(config as DockerExecBackendConfig, context.containerManager, context.agentId, context.skillMountsDir),
 );
 
 registerExecBackend('local', (config, context) =>
@@ -341,11 +341,7 @@ export class ExecBackendManager {
   static fromConfig(
     execConfig: ExecConfig | undefined,
     context: BackendFactoryContext,
-    skillBindMounts?: string[],
   ): ExecBackendManager {
-    if (skillBindMounts && skillBindMounts.length > 0) {
-      context = { ...context, extraBindMounts: skillBindMounts };
-    }
     let configs: ExecBackendConfig[];
     let defaultId: string | undefined;
 

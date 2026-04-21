@@ -12,6 +12,7 @@ import { scanSkillDirectory } from '@openhermit/agent/skills';
 import { loadEnvironmentFile } from '@openhermit/agent/langfuse';
 
 import { AgentInstanceManager } from './agent-instance.js';
+import { syncSkillMounts } from './skill-mounts.js';
 import { createGatewayApp } from './app.js';
 import { loadGatewayConfig } from './config.js';
 import { attachGatewayWs } from './ws-handler.js';
@@ -184,6 +185,13 @@ export const main = async (): Promise<void> => {
         logStartup(`started agent: ${agent.agentId}`);
       } catch (error) {
         logStartup(`failed to start agent ${agent.agentId}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    // Sync skill-mounts symlinks for all agents.
+    if (skillStore) {
+      for (const agent of dbAgents) {
+        const skillMountsDir = `${agent.configDir}/skill-mounts`;
+        await syncSkillMounts(agent.agentId, skillMountsDir, skillStore);
       }
     }
     logStartup(`${dbAgents.length} agent(s) loaded`);

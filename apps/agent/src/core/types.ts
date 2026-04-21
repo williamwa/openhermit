@@ -116,8 +116,8 @@ export interface WorkspaceContainerConfig {
   memory_limit?: string;
   cpu_shares?: number;
   lifecycle?: WorkspaceContainerLifecycle;
-  /** Additional read-only bind mounts (e.g. skills). Format: "hostPath:containerPath". */
-  extraBindMounts?: string[];
+  /** Host directory containing skill symlinks, mounted read-only at /skills in the container. */
+  skillMountsDir?: string;
 }
 
 export type WebProviderName = 'defuddle' | 'exa' | 'tavily';
