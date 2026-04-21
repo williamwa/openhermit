@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { AgentLocalClient } from '@openhermit/sdk';
 import type { ChannelOutbound, ChannelOutboundResult } from '@openhermit/protocol';
 
-import type { TelegramApi, TelegramMessage } from './telegram-api.js';
+import type { TelegramApi, TelegramMessage, TelegramUser } from './telegram-api.js';
 import {
   formatAgentResponse,
   markdownToTelegramHtml,
@@ -59,6 +59,9 @@ const parseSseFrames = (
   return { frames, remainder };
 };
 
+/** Sentinel value the agent can return to suppress a reply in group chats. */
+const NO_REPLY_TAG = '<NO_REPLY>';
+
 /** Collected result of an agent turn. */
 interface TurnResult {
   text: string | undefined;
@@ -75,6 +78,8 @@ export class TelegramBridge implements ChannelOutbound {
   private readonly lastEventIds = new Map<string, number>();
   /** Current sessionId per chat. */
   private readonly chatSessions = new Map<number, string>();
+  /** Bot user info, lazily fetched via getMe(). */
+  private botInfo: TelegramUser | undefined;
 
   constructor(
     private readonly telegram: TelegramApi,
@@ -84,6 +89,48 @@ export class TelegramBridge implements ChannelOutbound {
     this.client = new AgentLocalClient(clientOptions);
     this.clientToken = clientOptions.token;
     this.log = logger ?? ((msg: string) => console.log(`[telegram-bridge] ${msg}`));
+  }
+
+  /** Lazily fetch and cache bot user info. */
+  private async getBotInfo(): Promise<TelegramUser> {
+    if (!this.botInfo) {
+      this.botInfo = await this.telegram.getMe();
+    }
+    return this.botInfo;
+  }
+
+  /** Check whether a message mentions or replies to the bot. */
+  private async isMentioned(message: TelegramMessage): Promise<boolean> {
+    const bot = await this.getBotInfo();
+
+    // Reply to the bot's message
+    if (message.reply_to_message?.from?.id === bot.id) {
+      return true;
+    }
+
+    // @mention in text entities
+    if (message.entities && bot.username) {
+      const botUsername = bot.username.toLowerCase();
+      for (const entity of message.entities) {
+        if (
+          entity.type === 'mention' &&
+          message.text
+        ) {
+          const mentionText = message.text
+            .slice(entity.offset, entity.offset + entity.length)
+            .toLowerCase();
+          if (mentionText === `@${botUsername}`) {
+            return true;
+          }
+        }
+        // text_mention: when user has no username, Telegram uses this with a user object
+        if (entity.type === 'text_mention' && entity.user?.id === bot.id) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -217,16 +264,27 @@ export class TelegramBridge implements ChannelOutbound {
     message: TelegramMessage,
     isGroup: boolean,
   ): Promise<void> {
-    // Show typing indicator.
-    void this.telegram.sendChatAction(chatId).catch(() => undefined);
+    // For group chats, check if the bot is mentioned/replied-to.
+    const mentioned = isGroup ? await this.isMentioned(message) : true;
+
+    // Show typing indicator (skip for non-mentioned group messages).
+    if (mentioned) {
+      void this.telegram.sendChatAction(chatId).catch(() => undefined);
+    }
 
     // Ensure session exists.
     await this.ensureSession(sessionId, message, isGroup);
 
+    // For group messages, annotate mention status so the agent can decide
+    // whether to reply (the system prompt instructs it to use <NO_REPLY>).
+    const agentText = isGroup && !mentioned
+      ? `[not directed at you] ${text}`
+      : text;
+
     // Post message to agent with per-message sender info.
     const displayName = message.from?.first_name || message.from?.username;
     await this.client.postMessage(sessionId, {
-      text,
+      text: agentText,
       ...(message.from
         ? {
             sender: {
@@ -416,8 +474,18 @@ export class TelegramBridge implements ChannelOutbound {
 
     this.lastEventIds.set(sessionId, nextLastEventId);
 
-    // Final edit to show complete text with HTML formatting (remove trailing " ...").
     const responseText = finalText ?? (accumulatedText.trim() || undefined);
+
+    // Agent chose not to reply (group chat, not mentioned).
+    if (responseText && responseText.trim() === NO_REPLY_TAG) {
+      if (sentMessageId) {
+        // Delete the partially-streamed message.
+        void this.telegram.deleteMessage(chatId, sentMessageId).catch(() => undefined);
+      }
+      return { text: undefined, error: undefined };
+    }
+
+    // Final edit to show complete text with HTML formatting (remove trailing " ...").
     if (sentMessageId && responseText) {
       try {
         const html = markdownToTelegramHtml(responseText);

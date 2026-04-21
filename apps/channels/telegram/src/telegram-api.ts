@@ -22,12 +22,21 @@ export interface TelegramChat {
   username?: string;
 }
 
+export interface TelegramMessageEntity {
+  type: string; // 'mention' | 'bot_command' | 'text_mention' | ...
+  offset: number;
+  length: number;
+  user?: TelegramUser;
+}
+
 export interface TelegramMessage {
   message_id: number;
   from?: TelegramUser;
   chat: TelegramChat;
   date: number;
   text?: string;
+  entities?: TelegramMessageEntity[];
+  reply_to_message?: TelegramMessage;
 }
 
 export interface TelegramUpdate {
@@ -113,6 +122,13 @@ export class TelegramApi {
       message_id: messageId,
       text,
       ...(options?.parseMode ? { parse_mode: options.parseMode } : {}),
+    });
+  }
+
+  async deleteMessage(chatId: number, messageId: number): Promise<boolean> {
+    return this.call<boolean>('deleteMessage', {
+      chat_id: chatId,
+      message_id: messageId,
     });
   }
 
