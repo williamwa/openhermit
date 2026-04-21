@@ -2,6 +2,7 @@ import type { SessionHistoryMessage, SessionSpec } from '@openhermit/protocol';
 
 import type {
   AgentRecord,
+  AgentSkillRecord,
   MessageRow,
   ContainerRegistryEntry,
   InstructionEntry,
@@ -11,6 +12,7 @@ import type {
   MemoryUpdateInput,
   PersistedSessionIndexEntry,
   SessionLogEntry,
+  SkillRecord,
   StoreScope,
   UserAgentRecord,
   UserIdentity,
@@ -104,6 +106,25 @@ export interface UserStore {
 
   /** List users for an agent (with roles). */
   listByAgent(scope: StoreScope): Promise<UserAgentRecord[]>;
+}
+
+export interface SkillStore {
+  /** Create or update a skill in the library. */
+  upsert(skill: SkillRecord): Promise<void>;
+  /** Get a skill by ID. */
+  get(id: string): Promise<SkillRecord | undefined>;
+  /** List all skills in the library. */
+  list(): Promise<SkillRecord[]>;
+  /** Delete a skill and all its agent assignments. */
+  delete(id: string): Promise<void>;
+  /** Enable a skill for an agent (use agentId='*' for all agents). */
+  enable(agentId: string, skillId: string): Promise<void>;
+  /** Disable a skill for an agent. */
+  disable(agentId: string, skillId: string): Promise<void>;
+  /** List enabled skills for an agent (includes global '*' assignments). */
+  listEnabled(agentId: string): Promise<SkillRecord[]>;
+  /** List all agent-skill assignments. */
+  listAssignments(skillId?: string): Promise<AgentSkillRecord[]>;
 }
 
 export interface AgentStore {

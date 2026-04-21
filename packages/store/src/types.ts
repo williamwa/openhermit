@@ -135,3 +135,20 @@ export interface UserIdentity {
   channelUserId: string;
   createdAt: string;
 }
+
+export interface SkillRecord {
+  id: string;
+  name: string;
+  description: string;
+  path: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgentSkillRecord {
+  agentId: string;
+  skillId: string;
+  enabled: boolean;
+  createdAt: string;
+}

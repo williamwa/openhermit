@@ -6,7 +6,7 @@ import { LogBuffer } from './log-buffer.js';
 
 import { createAdaptorServer } from '@hono/node-server';
 
-import { DbAgentStore } from '@openhermit/store';
+import { DbAgentStore, DbSkillStore } from '@openhermit/store';
 
 import { loadEnvironmentFile } from '@openhermit/agent/langfuse';
 
@@ -81,11 +81,13 @@ export const main = async (): Promise<void> => {
 
   const instances = new AgentInstanceManager();
 
-  // Open agent store if DATABASE_URL is available.
+  // Open agent store and skill store if DATABASE_URL is available.
   let agentStore: DbAgentStore | undefined;
+  let skillStore: DbSkillStore | undefined;
   if (process.env.DATABASE_URL) {
     try {
       agentStore = await DbAgentStore.open();
+      skillStore = await DbSkillStore.open();
       logStartup('agent store connected');
     } catch (error) {
       logStartup(`agent store unavailable: ${error instanceof Error ? error.message : String(error)}`);
@@ -113,9 +115,15 @@ export const main = async (): Promise<void> => {
   const gatewayDir = path.dirname(fileURLToPath(import.meta.url));
   const publicDir = config.ui ? path.resolve(gatewayDir, '../ui/dist') : undefined;
 
+  // Pass skill store to instances so agent runners can access DB skills.
+  if (skillStore) {
+    instances.setSkillStore(skillStore);
+  }
+
   const app = createGatewayApp({
     instances,
     ...(agentStore ? { agentStore } : {}),
+    ...(skillStore ? { skillStore } : {}),
     auth,
     adminToken,
     logger: logStartup,
@@ -169,6 +177,7 @@ export const main = async (): Promise<void> => {
 
     await instances.stopAll();
     await agentStore?.close();
+    await skillStore?.close();
 
     server.close(() => {
       logStartup('server closed');

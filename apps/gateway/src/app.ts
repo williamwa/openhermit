@@ -17,7 +17,7 @@ import {
   type SyncResponse,
   type SyncToolCall,
 } from '@openhermit/protocol';
-import type { DbAgentStore } from '@openhermit/store';
+import type { DbAgentStore, DbSkillStore } from '@openhermit/store';
 import {
   NotFoundError,
   OpenHermitError,
@@ -153,6 +153,7 @@ const enforceSessionNamespace = (auth: AuthContext, sessionId: string): void => 
 export interface GatewayAppOptions {
   instances: AgentInstanceManager;
   agentStore?: DbAgentStore | undefined;
+  skillStore?: DbSkillStore | undefined;
   auth?: AuthResolverOptions | undefined;
   adminToken?: string | undefined;
   logger?: ((message: string) => void) | undefined;
@@ -913,6 +914,92 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     }
     await runner.security.writeSecrets(body as Record<string, string>);
     return c.json({ ok: true });
+  });
+
+  // --- admin: skills management ---
+
+  const requireSkillStore = (): DbSkillStore => {
+    if (!options.skillStore) {
+      throw new OpenHermitError('Skill store is not configured.', 'not_configured', 500);
+    }
+    return options.skillStore;
+  };
+
+  app.get('/api/admin/skills', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const store = requireSkillStore();
+    const skills = await store.list();
+    return c.json(skills);
+  });
+
+  app.get('/api/admin/skills/:id', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const store = requireSkillStore();
+    const skill = await store.get(c.req.param('id'));
+    if (!skill) throw new NotFoundError(`Skill not found: ${c.req.param('id')}`);
+    return c.json(skill);
+  });
+
+  app.post('/api/admin/skills', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const store = requireSkillStore();
+    const body = await c.req.json() as Record<string, unknown>;
+    if (!body.id || typeof body.id !== 'string') throw new ValidationError('id is required');
+    if (!body.name || typeof body.name !== 'string') throw new ValidationError('name is required');
+    if (!body.description || typeof body.description !== 'string') throw new ValidationError('description is required');
+    if (!body.path || typeof body.path !== 'string') throw new ValidationError('path is required');
+    const now = new Date().toISOString();
+    await store.upsert({
+      id: body.id,
+      name: body.name,
+      description: body.description,
+      path: body.path,
+      ...(body.metadata && typeof body.metadata === 'object' ? { metadata: body.metadata as Record<string, unknown> } : {}),
+      createdAt: now,
+      updatedAt: now,
+    });
+    return c.json({ ok: true }, 201);
+  });
+
+  app.delete('/api/admin/skills/:id', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const store = requireSkillStore();
+    await store.delete(c.req.param('id'));
+    return c.json({ ok: true });
+  });
+
+  app.post('/api/admin/skills/:id/enable', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const store = requireSkillStore();
+    const body = await c.req.json() as Record<string, unknown>;
+    const agentId = typeof body.agentId === 'string' ? body.agentId : '*';
+    await store.enable(agentId, c.req.param('id'));
+    return c.json({ ok: true });
+  });
+
+  app.post('/api/admin/skills/:id/disable', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const store = requireSkillStore();
+    const body = await c.req.json() as Record<string, unknown>;
+    const agentId = typeof body.agentId === 'string' ? body.agentId : '*';
+    await store.disable(agentId, c.req.param('id'));
+    return c.json({ ok: true });
+  });
+
+  // --- agent-level: effective skills list ---
+
+  app.get('/api/agents/:agentId/skills', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    const runner = instances.getRunner(agentId);
+    if (!runner) {
+      throw new NotFoundError(`Agent ${agentId} is not running.`);
+    }
+    const store = requireSkillStore();
+
+    // Merge DB-enabled skills with workspace-scanned skills
+    const { loadSkillIndex } = await import('@openhermit/agent/skills');
+    const skills = await loadSkillIndex(agentId, runner.workspace.root, store);
+    return c.json(skills);
   });
 
   // --- admin UI: static files ---

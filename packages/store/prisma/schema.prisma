@@ -150,3 +150,30 @@ model UserIdentity {
   @@index([userId], map: "idx_user_identities_user")
   @@map("user_identities")
 }
+
+model Skill {
+  id           String @id
+  name         String
+  description  String
+  path         String
+  metadataJson String @default("{}") @map("metadata_json")
+  createdAt    String @map("created_at")
+  updatedAt    String @map("updated_at")
+
+  agents AgentSkill[]
+
+  @@map("skills")
+}
+
+model AgentSkill {
+  agentId   String  @map("agent_id")
+  skillId   String  @map("skill_id")
+  enabled   Boolean @default(true)
+  createdAt String  @map("created_at")
+
+  skill Skill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@id([agentId, skillId])
+  @@index([agentId], map: "idx_agent_skills_agent")
+  @@map("agent_skills")
+}

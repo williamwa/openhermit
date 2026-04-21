@@ -5,15 +5,18 @@ export type {
   MemoryProvider,
   ContainerStore,
   InstructionStore,
+  SkillStore,
   UserStore,
   InternalStateStore,
 } from './interfaces.js';
 
 export type {
   AgentRecord,
+  AgentSkillRecord,
   StoreScope,
   PersistedSessionIndexEntry,
   SessionLogEntry,
+  SkillRecord,
   MemoryEntry,
   MemoryAddInput,
   MemoryUpdateInput,
@@ -39,4 +42,5 @@ export {
   DbInstructionStore,
   DbUserStore,
   DbAgentStore,
+  DbSkillStore,
 } from './impl/index.js';

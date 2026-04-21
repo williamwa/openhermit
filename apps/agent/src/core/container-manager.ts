@@ -715,6 +715,11 @@ export class DockerContainerManager {
       dockerArgs.push('--cpu-shares', String(config.cpu_shares));
     }
 
+    // Extra read-only bind mounts (e.g. skills directories)
+    for (const mount of config.extraBindMounts ?? []) {
+      dockerArgs.push('-v', `${mount}:ro`);
+    }
+
     // Keep container alive with a long-running process
     dockerArgs.push(config.image, 'sleep', 'infinity');
 

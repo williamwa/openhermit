@@ -9,6 +9,7 @@ import {
   type LangfuseClientLike,
 } from '@openhermit/agent/langfuse';
 import { startChannels, stopChannels } from '@openhermit/agent/channels';
+import type { SkillStore } from '@openhermit/store';
 
 import type { ChannelRegistry } from './auth.js';
 
@@ -32,6 +33,8 @@ export class AgentInstanceManager {
   private adminToken: string | undefined;
   /** Shared channel registry for external channel token auth. */
   private channelRegistry: ChannelRegistry | undefined;
+  /** Shared skill store for DB-managed skills. */
+  private skillStore: SkillStore | undefined;
 
   setGatewayBaseUrl(url: string): void {
     this.gatewayBaseUrl = url;
@@ -43,6 +46,10 @@ export class AgentInstanceManager {
 
   setChannelRegistry(registry: ChannelRegistry): void {
     this.channelRegistry = registry;
+  }
+
+  setSkillStore(store: SkillStore): void {
+    this.skillStore = store;
   }
 
   /**
@@ -94,6 +101,7 @@ export class AgentInstanceManager {
       workspace,
       security,
       ...(langfuse ? { langfuse } : {}),
+      ...(this.skillStore ? { skillStore: this.skillStore } : {}),
     });
 
     this.runners.set(agentId, runner);

@@ -2,6 +2,7 @@ import type { SessionType } from '@openhermit/protocol';
 import type { InstructionStore, StoreScope } from '@openhermit/store';
 
 import type { AgentRuntimeConfig, AgentSecurity } from '../core/index.js';
+import type { SkillIndexEntry } from '../skills.js';
 import type { Toolset } from '../tools/shared.js';
 
 // ── Prompt sections ──────────────────────────────────────────────────
@@ -40,6 +41,7 @@ export const buildSystemPrompt = async (
   toolsets: Toolset[],
   instructionSource?: InstructionSource,
   currentUser?: CurrentUserContext,
+  skills?: SkillIndexEntry[],
 ): Promise<string> => {
   const sections: string[] = [];
 
@@ -69,7 +71,16 @@ export const buildSystemPrompt = async (
     sections.push(`## Tools\n\n${descriptions.join('\n\n')}`);
   }
 
-  // 5. CONTEXT
+  // 5. SKILLS
+  if (skills && skills.length > 0) {
+    const { formatSkillsPromptSection } = await import('../skills.js');
+    const skillSection = formatSkillsPromptSection(skills);
+    if (skillSection) {
+      sections.push(skillSection);
+    }
+  }
+
+  // 6. CONTEXT
   const contextParts: string[] = [];
 
   if (currentUser) {

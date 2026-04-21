@@ -54,3 +54,4 @@ export { DbContainerStore } from './container-store.js';
 export { DbInstructionStore } from './instruction-store.js';
 export { DbUserStore } from './user-store.js';
 export { DbAgentStore } from './agent-store.js';
+export { DbSkillStore } from './skill-store.js';

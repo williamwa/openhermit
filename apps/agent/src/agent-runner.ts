@@ -66,6 +66,7 @@ import {
 import { buildToolResultPreview, persistToolResult } from './agent-runner/tool-result-persistence.js';
 import { createWebProvider, type WebProvider } from './web/index.js';
 import { runIntrospection } from './introspection/index.js';
+import { loadSkillIndex } from './skills.js';
 
 const addUserIdToList = (existing: string[], userId: string | undefined): string[] => {
   if (!userId) return existing;
@@ -75,6 +76,7 @@ const addUserIdToList = (existing: string[], userId: string | undefined): string
 export class AgentRunner implements SessionRuntime {
   readonly events = new SessionEventBroker();
   readonly security: import('./core/index.js').AgentSecurity;
+  readonly workspace: import('./core/index.js').AgentWorkspace;
 
   private readonly containerManager: DockerContainerManager;
 
@@ -109,6 +111,7 @@ export class AgentRunner implements SessionRuntime {
   ) {
     this.store = store;
     this.security = options.security;
+    this.workspace = options.workspace;
     this.scope = { agentId: options.security.agentId };
     this.containerManager =
       options.containerManager
@@ -137,6 +140,9 @@ export class AgentRunner implements SessionRuntime {
     return this.channelOutbound;
   }
 
+  /** Skill bind mounts resolved at first exec backend creation (cached). */
+  private skillBindMounts: string[] | undefined;
+
   private getOrCreateExecBackendManager(config: AgentConfig): ExecBackendManager {
     if (!this.execBackendManager) {
       this.execBackendManager = ExecBackendManager.fromConfig(
@@ -146,6 +152,7 @@ export class AgentRunner implements SessionRuntime {
           agentId: this.scope.agentId,
           workspaceDir: this.options.workspace.root,
         },
+        this.skillBindMounts,
       );
     }
     return this.execBackendManager;
@@ -1097,6 +1104,22 @@ export class AgentRunner implements SessionRuntime {
           ...(input.sessionType ? { sessionType: input.sessionType } : {}),
         }
       : undefined;
+    // Load skill index (DB-enabled + workspace-scanned)
+    const skills = input.tools
+      ? [] // Skip skill loading for introspection/compaction agents
+      : await loadSkillIndex(
+          this.scope.agentId,
+          this.options.workspace.root,
+          this.options.skillStore,
+        );
+
+    // Cache skill bind mounts for workspace container creation.
+    // System skills (from DB) have host paths that need mounting into the container.
+    if (!input.tools && this.options.skillStore && skills.length > 0) {
+      const dbSkills = await this.options.skillStore.listEnabled(this.scope.agentId);
+      this.skillBindMounts = dbSkills.map((s) => `${s.path}:/skills/${s.id}`);
+    }
+
     const baseSystemPrompt = await buildSystemPrompt(
       input.config,
       this.options.security,
@@ -1106,6 +1129,7 @@ export class AgentRunner implements SessionRuntime {
         storeScope: this.scope,
       },
       currentUser,
+      skills,
     );
     const systemPrompt = input.extraSystemPrompt
       ? `${baseSystemPrompt}\n\n${input.extraSystemPrompt}`.trim()
