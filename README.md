@@ -1,6 +1,6 @@
 # OpenHermit
 
-**Stop running AI agents on your laptop. Deploy, manage, and scale them as production services.**
+**Take your AI agents from laptop to production. Deploy, manage, and scale them as production services.**
 
 A multi-agent platform for deploying and managing autonomous AI agents at scale, with centralized state management, multi-user access control, and sandboxed execution.
 
