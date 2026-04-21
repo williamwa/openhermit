@@ -127,15 +127,14 @@ Set API keys as secrets: `hermit config secrets set ANTHROPIC_API_KEY <key>`
 
 ### Execution Backend
 
-Agents can execute commands via Docker (default), local shell, or SSH:
+Agents can execute commands via Docker (default) or local shell:
 
 ```json
 {
   "exec": {
     "backends": [
       { "type": "docker", "image": "node:20" },
-      { "type": "local", "cwd": "/path/to/project" },
-      { "type": "ssh", "host": "server.example.com", "user": "deploy" }
+      { "type": "local", "cwd": "/path/to/project" }
     ],
     "default_backend": "docker"
   }

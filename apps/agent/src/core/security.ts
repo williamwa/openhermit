@@ -108,21 +108,9 @@ const LocalBackendSchema = z.object({
   env: z.record(z.string(), z.string()).optional(),
 });
 
-const SshBackendSchema = z.object({
-  id: z.string().optional(),
-  type: z.literal('ssh'),
-  label: z.string().optional(),
-  host: z.string().min(1),
-  port: z.number().optional(),
-  user: z.string().optional(),
-  identity_file: z.string().optional(),
-  cwd: z.string().optional(),
-});
-
 const ExecBackendConfigSchema = z.discriminatedUnion('type', [
   DockerBackendSchema,
   LocalBackendSchema,
-  SshBackendSchema,
 ]);
 
 const ExecConfigSchema = z.object({

@@ -12,13 +12,10 @@ export type ExecResult = ContainerProcessResult;
 // ── Backend interface ─────────────────────────────────────────────────────
 
 export interface ExecBackend {
-  /** Unique instance id, e.g. "docker", "local", "prod-ssh". */
   readonly id: string;
-  /** Backend type: "docker" | "local" | "ssh" | custom. */
   readonly type: string;
-  /** Human-readable label for the LLM. */
   readonly label: string;
-  /** Idempotent setup (start container, verify SSH, etc.). */
+  /** Idempotent setup (start container, etc.). */
   ensure(): Promise<void>;
   /** Execute a shell command and return the result. */
   exec(command: string): Promise<ExecResult>;
@@ -48,22 +45,9 @@ export interface LocalExecBackendConfig {
   timeout_ms?: number;
 }
 
-export interface SshExecBackendConfig {
-  id?: string;
-  type: 'ssh';
-  label?: string;
-  host: string;
-  port?: number;
-  user?: string;
-  identity_file?: string;
-  cwd?: string;
-  timeout_ms?: number;
-}
-
 export type ExecBackendConfig =
   | DockerExecBackendConfig
-  | LocalExecBackendConfig
-  | SshExecBackendConfig;
+  | LocalExecBackendConfig;
 
 export interface ExecConfig {
   backends: ExecBackendConfig[];
@@ -207,105 +191,6 @@ class LocalExecBackend implements ExecBackend {
   }
 }
 
-// ── SSH backend ───────────────────────────────────────────────────────────
-
-class SshExecBackend implements ExecBackend {
-  readonly id: string;
-  readonly type = 'ssh';
-  readonly label: string;
-  private readonly host: string;
-  private readonly port: number;
-  private readonly user: string | undefined;
-  private readonly identityFile: string | undefined;
-  private readonly cwd: string | undefined;
-  private readonly timeoutMs: number;
-
-  constructor(config: SshExecBackendConfig) {
-    this.id = config.id ?? 'ssh';
-    this.label = config.label ?? `SSH (${config.user ? `${config.user}@` : ''}${config.host})`;
-    this.host = config.host;
-    this.port = config.port ?? 22;
-    this.user = config.user;
-    this.identityFile = config.identity_file;
-    this.cwd = config.cwd;
-    this.timeoutMs = config.timeout_ms ?? DEFAULT_TIMEOUT_MS;
-  }
-
-  private buildSshArgs(remoteCommand: string): string[] {
-    const args: string[] = [
-      '-o', 'StrictHostKeyChecking=accept-new',
-      '-o', 'BatchMode=yes',
-      '-p', String(this.port),
-    ];
-    if (this.identityFile) {
-      args.push('-i', this.identityFile);
-    }
-    const target = this.user ? `${this.user}@${this.host}` : this.host;
-    args.push(target, '--', remoteCommand);
-    return args;
-  }
-
-  async ensure(): Promise<void> {
-    // Verify connectivity with a quick echo.
-    const result = await this.exec('echo ok');
-    if (result.exitCode !== 0) {
-      throw new ValidationError(
-        `SSH connectivity check failed for ${this.host}: ${result.stderr.trim()}`,
-      );
-    }
-  }
-
-  async exec(command: string): Promise<ExecResult> {
-    const wrappedCommand = this.cwd
-      ? `cd ${shellEscape(this.cwd)} && ${command}`
-      : command;
-    const startedAt = Date.now();
-
-    return new Promise<ExecResult>((resolve, reject) => {
-      const child = spawn('ssh', this.buildSshArgs(wrappedCommand), {
-        env: process.env,
-      });
-
-      let stdout = '';
-      let stderr = '';
-      let timedOut = false;
-
-      const timer = setTimeout(() => {
-        timedOut = true;
-        child.kill('SIGKILL');
-      }, this.timeoutMs);
-
-      child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
-      child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
-
-      child.on('error', (error) => {
-        clearTimeout(timer);
-        reject(new Error(`Failed to execute SSH command: ${error.message}`));
-      });
-
-      child.on('close', (code) => {
-        clearTimeout(timer);
-        if (timedOut) {
-          stderr = stderr.trimEnd() + `\n[killed: command timed out after ${this.timeoutMs}ms]`;
-        }
-        resolve({
-          stdout,
-          stderr,
-          exitCode: timedOut ? 137 : (code ?? 1),
-          durationMs: Date.now() - startedAt,
-        });
-      });
-    });
-  }
-
-  async shutdown(): Promise<void> {
-    // No-op — no persistent connection.
-  }
-}
-
-/** Minimal shell-safe escaping for a single argument. */
-const shellEscape = (s: string): string => `'${s.replace(/'/g, "'\\''")}'`;
-
 // ── Register built-in backends ────────────────────────────────────────────
 
 registerExecBackend('docker', (config, context) =>
@@ -314,10 +199,6 @@ registerExecBackend('docker', (config, context) =>
 
 registerExecBackend('local', (config, context) =>
   new LocalExecBackend(config as LocalExecBackendConfig, context.workspaceDir),
-);
-
-registerExecBackend('ssh', (config) =>
-  new SshExecBackend(config as SshExecBackendConfig),
 );
 
 // ── ExecBackendManager ────────────────────────────────────────────────────
