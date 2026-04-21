@@ -1,5 +1,7 @@
 # OpenHermit
 
+**Stop running AI agents on your laptop. Deploy, manage, and scale them as production services.**
+
 A multi-agent platform for deploying and managing autonomous AI agents at scale, with centralized state management, multi-user access control, and sandboxed execution.
 
 Like a hermit crab living inside its protective shell, each agent operates inside its own container — protected, autonomous, and able to interact with the outside world safely.
