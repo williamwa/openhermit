@@ -932,6 +932,15 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     return c.json(skills);
   });
 
+  app.get('/api/admin/skills/scan', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const { scanSkillDirectory } = await import('@openhermit/agent/skills');
+    const homeDir = process.env.OPENHERMIT_HOME ?? `${process.env.HOME ?? '/root'}/.openhermit`;
+    const skillsDir = `${homeDir}/skills`;
+    const found = await scanSkillDirectory(skillsDir, skillsDir, 'system');
+    return c.json(found);
+  });
+
   app.get('/api/admin/skills/assignments', async (c) => {
     requireAdmin(c.req.header('authorization'));
     const store = requireSkillStore();

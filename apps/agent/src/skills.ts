@@ -17,7 +17,7 @@ export interface SkillIndexEntry {
 }
 
 /** Parse YAML frontmatter from a SKILL.md file. */
-const parseFrontmatter = (content: string): Record<string, string> => {
+export const parseFrontmatter = (content: string): Record<string, string> => {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return {};
 
@@ -36,7 +36,7 @@ const parseFrontmatter = (content: string): Record<string, string> => {
  * Scan a directory for SKILL.md files and return index entries.
  * Expects: `baseDir/<skillId>/SKILL.md`
  */
-const scanSkillDirectory = async (
+export const scanSkillDirectory = async (
   baseDir: string,
   containerBasePath: string,
   source: 'system' | 'workspace',
@@ -77,8 +77,9 @@ const scanSkillDirectory = async (
  * Load the effective skill index for an agent by merging:
  * 1. DB-enabled skills (system/owner-managed, mounted at /skills/)
  * 2. Workspace-scanned skills (/workspace/.openhermit/skills/)
+ * 3. Built-in skills (project repo skills/ directory)
  *
- * System skills take precedence over workspace skills with the same ID.
+ * Higher-numbered sources won't override lower-numbered ones.
  */
 export const loadSkillIndex = async (
   agentId: string,
@@ -101,7 +102,7 @@ export const loadSkillIndex = async (
     }
   }
 
-  // 2. Workspace skills (lower priority — won't override system skills)
+  // 2. Workspace skills (won't override DB skills)
   const workspaceSkillsDir = path.join(workspaceRoot, '.openhermit', 'skills');
   const wsSkills = await scanSkillDirectory(
     workspaceSkillsDir,

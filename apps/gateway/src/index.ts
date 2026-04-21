@@ -7,6 +7,7 @@ import { LogBuffer } from './log-buffer.js';
 import { createAdaptorServer } from '@hono/node-server';
 
 import { DbAgentStore, DbSkillStore } from '@openhermit/store';
+import { scanSkillDirectory } from '@openhermit/agent/skills';
 
 import { loadEnvironmentFile } from '@openhermit/agent/langfuse';
 
@@ -62,7 +63,7 @@ const listen = (
 
     server.once('error', onError);
     server.once('listening', onListening);
-    server.listen(port);
+    server.listen(port, '127.0.0.1');
   });
 
 export const main = async (): Promise<void> => {
@@ -118,6 +119,24 @@ export const main = async (): Promise<void> => {
   // Pass skill store to instances so agent runners can access DB skills.
   if (skillStore) {
     instances.setSkillStore(skillStore);
+
+    // Auto-register built-in skills into DB.
+    const builtinSkillsDir = path.resolve(gatewayDir, '../../../skills');
+    const builtinSkills = await scanSkillDirectory(builtinSkillsDir, builtinSkillsDir, 'system');
+    for (const skill of builtinSkills) {
+      const now = new Date().toISOString();
+      await skillStore.upsert({
+        id: skill.id,
+        name: skill.name,
+        description: skill.description,
+        path: skill.path,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+    if (builtinSkills.length > 0) {
+      logStartup(`registered ${builtinSkills.length} built-in skill(s)`);
+    }
   }
 
   const app = createGatewayApp({

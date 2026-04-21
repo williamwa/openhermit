@@ -110,6 +110,13 @@ export function SkillsPanel() {
 
 // ── Create / Edit dialog ──────────────────────────────────────────────────
 
+interface ScannedSkill {
+  id: string;
+  name: string;
+  description: string;
+  path: string;
+}
+
 function SkillFormDialog({
   skill,
   onClose,
@@ -123,13 +130,31 @@ function SkillFormDialog({
   const [id, setId] = useState(skill?.id ?? '');
   const [name, setName] = useState(skill?.name ?? '');
   const [description, setDescription] = useState(skill?.description ?? '');
-  const [path, setPath] = useState(skill?.path ?? '');
+  const [skillPath, setSkillPath] = useState(skill?.path ?? '');
+  const [scannedSkills, setScannedSkills] = useState<ScannedSkill[]>([]);
 
   useEffect(() => { dialogRef.current?.showModal(); }, []);
 
+  useEffect(() => {
+    if (skill) return;
+    api<ScannedSkill[]>('/api/admin/skills/scan').then(setScannedSkills).catch(() => {});
+  }, [skill]);
+
+  const handleSelectScanned = (selectedId: string) => {
+    const found = scannedSkills.find((s) => s.id === selectedId);
+    if (found) {
+      setId(found.id);
+      setName(found.name);
+      setDescription(found.description);
+      setSkillPath(found.path);
+    } else {
+      setId(selectedId);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!id.trim() || !name.trim() || !description.trim() || !path.trim()) return;
+    if (!id.trim() || !name.trim() || !description.trim() || !skillPath.trim()) return;
     try {
       await api('/api/admin/skills', {
         method: 'POST',
@@ -137,7 +162,7 @@ function SkillFormDialog({
           id: id.trim(),
           name: name.trim(),
           description: description.trim(),
-          path: path.trim(),
+          path: skillPath.trim(),
         },
       });
       onClose();
@@ -153,14 +178,29 @@ function SkillFormDialog({
         <h3>{skill ? 'Edit Skill' : 'Register Skill'}</h3>
         <label className="field">
           <span className="field__label">Skill ID</span>
-          <input
-            className="field__input"
-            required
-            placeholder="e.g. deploy-staging"
-            value={id}
-            onChange={(e) => setId(e.target.value)}
-            readOnly={!!skill}
-          />
+          {skill ? (
+            <input className="field__input" value={id} readOnly />
+          ) : scannedSkills.length > 0 ? (
+            <select
+              className="field__input"
+              required
+              value={id}
+              onChange={(e) => handleSelectScanned(e.target.value)}
+            >
+              <option value="">— Select a skill —</option>
+              {scannedSkills.map((s) => (
+                <option key={s.id} value={s.id}>{s.id} — {s.name}</option>
+              ))}
+            </select>
+          ) : (
+            <input
+              className="field__input"
+              required
+              placeholder="e.g. deploy-staging"
+              value={id}
+              onChange={(e) => setId(e.target.value)}
+            />
+          )}
         </label>
         <label className="field">
           <span className="field__label">Name</span>
@@ -188,8 +228,8 @@ function SkillFormDialog({
             className="field__input"
             required
             placeholder="e.g. /home/user/.openhermit/skills/deploy-staging"
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
+            value={skillPath}
+            onChange={(e) => setSkillPath(e.target.value)}
           />
         </label>
         <div className="dialog__actions">

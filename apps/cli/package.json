@@ -17,8 +17,8 @@
     "multi-agent"
   ],
   "bin": {
-    "openhermit": "dist/cli.js",
-    "hermit": "dist/cli.js"
+    "openhermit": "src/cli.ts",
+    "hermit": "src/cli.ts"
   },
   "files": [
     "dist/cli.js"
