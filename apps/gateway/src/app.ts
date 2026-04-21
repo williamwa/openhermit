@@ -932,6 +932,13 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     return c.json(skills);
   });
 
+  app.get('/api/admin/skills/assignments', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const store = requireSkillStore();
+    const assignments = await store.listAssignments();
+    return c.json(assignments);
+  });
+
   app.get('/api/admin/skills/:id', async (c) => {
     requireAdmin(c.req.header('authorization'));
     const store = requireSkillStore();

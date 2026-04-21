@@ -1,7 +1,8 @@
-type Tab = 'agents' | 'stats' | 'logs';
+type Tab = 'agents' | 'skills' | 'stats' | 'logs';
 
 const tabs: { id: Tab; label: string }[] = [
   { id: 'agents', label: 'Agents' },
+  { id: 'skills', label: 'Skills' },
   { id: 'stats', label: 'Stats' },
   { id: 'logs', label: 'Logs' },
 ];

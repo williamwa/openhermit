@@ -3,10 +3,11 @@ import { api, getToken, setToken } from './api';
 import { AuthScreen } from './components/AuthScreen';
 import { Topbar } from './components/Topbar';
 import { AgentsPanel } from './components/AgentsPanel';
+import { SkillsPanel } from './components/SkillsPanel';
 import { StatsPanel } from './components/StatsPanel';
 import { LogsPanel } from './components/LogsPanel';
 
-type Tab = 'agents' | 'stats' | 'logs';
+type Tab = 'agents' | 'skills' | 'stats' | 'logs';
 
 export function App() {
   const [authed, setAuthed] = useState(false);
@@ -45,6 +46,7 @@ export function App() {
     <div className="shell">
       <Topbar tab={tab} onTabChange={setTab} onSignOut={handleSignOut} />
       {tab === 'agents' && <AgentsPanel />}
+      {tab === 'skills' && <SkillsPanel />}
       {tab === 'stats' && <StatsPanel />}
       {tab === 'logs' && <LogsPanel />}
     </div>

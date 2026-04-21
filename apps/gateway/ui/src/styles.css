@@ -215,6 +215,50 @@ h3 { font-size: 1.1rem; font-weight: 600; }
   color: var(--text-muted);
 }
 
+/* ── Skill list ────────────────────────────────────────────────────────── */
+
+.skill-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 0.5rem;
+  transition: border-color 0.15s;
+}
+
+.skill-card:hover { border-color: var(--text-muted); }
+
+.skill-card__info { flex: 1; min-width: 0; }
+.skill-card__name { font-weight: 600; font-size: 0.95rem; }
+.skill-card__id { font-size: 0.8rem; color: var(--text-muted); margin-left: 0.5rem; font-family: var(--mono); }
+.skill-card__desc { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.skill-card__path { font-size: 0.75rem; color: var(--text-muted); font-family: var(--mono); margin-top: 0.15rem; }
+
+.skill-card__actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
+
+.skill-assign__hint { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem; }
+.skill-assign__hint code { font-family: var(--mono); color: var(--accent); }
+
+.assign-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.assign-row__agent {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+  min-width: 140px;
+}
+
+.assign-row__actions { margin-left: auto; }
+
 /* ── Dialog ─────────────────────────────────────────────────────────────── */
 
 dialog {
