@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:16-alpine
-    ports: ["5433:5432"]
+    ports: ["127.0.0.1:5433:5432"]
     environment:
       POSTGRES_USER: openhermit
       POSTGRES_PASSWORD: dev
