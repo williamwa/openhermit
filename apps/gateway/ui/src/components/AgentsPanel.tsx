@@ -16,6 +16,7 @@ export function AgentsPanel() {
   const [showCreate, setShowCreate] = useState(false);
   const [secretsAgent, setSecretsAgent] = useState<string | null>(null);
   const [configAgent, setConfigAgent] = useState<string | null>(null);
+  const [skillsAgent, setSkillsAgent] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -77,6 +78,9 @@ export function AgentsPanel() {
                   <button className="btn btn--sm" onClick={() => setConfigAgent(a.agentId)}>
                     Config
                   </button>
+                  <button className="btn btn--sm" onClick={() => setSkillsAgent(a.agentId)}>
+                    Skills
+                  </button>
                   <button className="btn btn--sm" onClick={() => setSecretsAgent(a.agentId)}>
                     Secrets
                   </button>
@@ -90,6 +94,7 @@ export function AgentsPanel() {
       {showCreate && <CreateAgentDialog onClose={() => setShowCreate(false)} onCreated={load} />}
       {secretsAgent && <SecretsDialog agentId={secretsAgent} onClose={() => setSecretsAgent(null)} />}
       {configAgent && <ConfigDialog agentId={configAgent} onClose={() => setConfigAgent(null)} />}
+      {skillsAgent && <AgentSkillsDialog agentId={skillsAgent} onClose={() => setSkillsAgent(null)} />}
     </div>
   );
 }
@@ -142,6 +147,61 @@ function CreateAgentDialog({ onClose, onCreated }: { onClose: () => void; onCrea
           <button className="btn btn--primary" type="submit">Create</button>
         </div>
       </form>
+    </dialog>
+  );
+}
+
+interface EffectiveSkill {
+  id: string;
+  name: string;
+  description: string;
+  path: string;
+  source: 'system' | 'workspace';
+}
+
+function AgentSkillsDialog({ agentId, onClose }: { agentId: string; onClose: () => void }) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [skills, setSkills] = useState<EffectiveSkill[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => { dialogRef.current?.showModal(); }, []);
+
+  useEffect(() => {
+    api<EffectiveSkill[]>(`/api/agents/${encodeURIComponent(agentId)}/skills`)
+      .then((data) => { setSkills(data); setLoading(false); })
+      .catch((err) => { setError((err as Error).message); setLoading(false); });
+  }, [agentId]);
+
+  return (
+    <dialog ref={dialogRef} className="dialog dialog--wide" onClose={onClose}>
+      <div className="dialog__form">
+        <h3>Active Skills — {agentId}</h3>
+
+        {loading && <p className="secrets-empty">Loading…</p>}
+        {error && <p className="config-error">{error}</p>}
+
+        {!loading && !error && skills.length === 0 && (
+          <p className="secrets-empty">No skills active for this agent.</p>
+        )}
+
+        {skills.map((s) => (
+          <div className="skill-card" key={s.id}>
+            <div className="skill-card__info">
+              <span className="skill-card__name">{s.name}</span>
+              <span className="skill-card__id">{s.id}</span>
+              <span className={`badge badge--${s.source === 'system' ? 'running' : 'stopped'}`}>
+                {s.source}
+              </span>
+              <div className="skill-card__desc">{s.description}</div>
+            </div>
+          </div>
+        ))}
+
+        <div className="dialog__actions">
+          <button className="btn btn--ghost" type="button" onClick={onClose}>Close</button>
+        </div>
+      </div>
     </dialog>
   );
 }
