@@ -194,7 +194,16 @@ POST   /admin/skills/:id/disable  # Disable for agent(s)
 ### Agent (per-agent API)
 
 ```
-GET    /agents/:agentId/skills          # List enabled skills for this agent
+GET    /agents/:agentId/skills          # List effective skills (merged, real-time)
 POST   /agents/:agentId/skills/:id/enable
 POST   /agents/:agentId/skills/:id/disable
 ```
+
+The `GET /agents/:agentId/skills` endpoint returns the **actual effective skill list** by merging two sources in real-time:
+
+1. Database: query enabled system/owner skills for this agent
+2. Workspace: scan `/workspace/.openhermit/skills/*/SKILL.md` and parse frontmatter
+
+Each entry includes a `source` field (`system` | `workspace`) indicating where the skill comes from. Dedup applies — system skills take precedence over workspace skills with the same name.
+
+This is the same logic used internally by the `skill_list` tool.
