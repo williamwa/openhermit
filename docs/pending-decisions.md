@@ -2,19 +2,9 @@
 
 Open questions and issues that need discussion before implementation.
 
-## 1. Introspection Model Quality
+## ~~1. Introspection Model Quality~~ — REMOVED
 
-**Problem:** The introspection agent running on small models (e.g., gemini-flash-lite) does not follow prompt instructions reliably. It stores browsed content as long-term memory and records article summaries in working memory instead of user intent.
-
-**Observed behavior:**
-- User browsed HN news casually, introspection stored news content as `incident/anthropic-quota-2026-03`
-- Working memory recorded article details instead of "user is browsing news"
-- Prompt explicitly says "NEVER store content the user browsed" but model ignores it
-
-**Options:**
-- A. Require a minimum model capability for introspection (e.g., always use the main model or a mid-tier model like Sonnet)
-- B. Switch to a program-driven pipeline approach (like Mem0) that doesn't depend on model judgment
-- C. Hybrid: use a structured extraction pipeline for the decision of "should I store this?", then use the agent for the actual content
+No longer relevant — introspection now uses capable models.
 
 ## 2. ~~memory_recall Search Quality~~ — RESOLVED
 
