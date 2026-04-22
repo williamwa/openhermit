@@ -11,6 +11,7 @@ import { registerDoctorCommand } from './commands/doctor.js';
 import { registerLogsCommand } from './commands/logs.js';
 import { registerSetupCommand } from './commands/setup.js';
 import { registerConfigCommand } from './commands/config.js';
+import { registerSchedulesCommand } from './commands/schedules.js';
 
 // ── Load .env (same behaviour as the gateway) ─────────────────────────
 
@@ -54,5 +55,6 @@ registerConfigCommand(program);
 registerStatusCommand(program);
 registerDoctorCommand(program);
 registerLogsCommand(program);
+registerSchedulesCommand(program);
 
 await program.parseAsync(process.argv);

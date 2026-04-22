@@ -328,6 +328,35 @@ export class GatewayClient {
    * gateway at `/agents/:agentId/...`. The agent-local client sees the
    * same API surface as if it were talking to the agent directly.
    */
+  async listSchedules(agentId: string): Promise<unknown[]> {
+    return this.getJson(`/api/admin/agents/${encodeURIComponent(agentId)}/schedules`);
+  }
+
+  async createSchedule(agentId: string, input: {
+    type: 'cron' | 'once';
+    prompt: string;
+    cronExpression?: string;
+    runAt?: string;
+    id?: string;
+    delivery?: unknown;
+    policy?: unknown;
+  }): Promise<unknown> {
+    return this.postJson(`/api/admin/agents/${encodeURIComponent(agentId)}/schedules`, input);
+  }
+
+  async updateSchedule(agentId: string, scheduleId: string, input: Record<string, unknown>): Promise<unknown> {
+    return this.putJson(`/api/admin/agents/${encodeURIComponent(agentId)}/schedules/${encodeURIComponent(scheduleId)}`, input);
+  }
+
+  async deleteSchedule(agentId: string, scheduleId: string): Promise<void> {
+    await this.deleteJson(`/api/admin/agents/${encodeURIComponent(agentId)}/schedules/${encodeURIComponent(scheduleId)}`);
+  }
+
+  async listScheduleRuns(agentId: string, scheduleId: string, limit?: number): Promise<unknown[]> {
+    const params = limit ? `?limit=${limit}` : '';
+    return this.getJson(`/api/admin/agents/${encodeURIComponent(agentId)}/schedules/${encodeURIComponent(scheduleId)}/runs${params}`);
+  }
+
   agent(agentId: string): AgentLocalClient {
     return new AgentLocalClient({
       baseUrl: joinUrl(this.baseUrl, `/agents/${encodeURIComponent(agentId)}`),
@@ -453,6 +482,40 @@ export class GatewayClient {
     }
 
     return (await response.json()) as T;
+  }
+
+  private async deleteJson<T = unknown>(path: string): Promise<T> {
+    let response: Response;
+    try {
+      response = await this.fetchImpl(joinUrl(this.baseUrl, path), {
+        method: 'DELETE',
+        headers: { authorization: `Bearer ${this.token}` },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new OpenHermitError(
+        `Gateway API is unavailable at ${joinUrl(this.baseUrl, path)}: ${message}`,
+        'gateway_api_error',
+        500,
+      );
+    }
+    if (!response.ok) {
+      const responseText = await response.text();
+      const statusCode: OpenHermitStatusCode =
+        response.status === 400 ||
+        response.status === 401 ||
+        response.status === 404 ||
+        response.status === 500
+          ? response.status
+          : 500;
+      throw new OpenHermitError(
+        `Gateway API request failed (${response.status}): ${responseText || response.statusText}`,
+        'gateway_api_error',
+        statusCode,
+      );
+    }
+    const text = await response.text();
+    return text ? JSON.parse(text) as T : {} as T;
   }
 
 }
