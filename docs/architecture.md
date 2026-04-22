@@ -334,7 +334,7 @@ The gateway (`apps/gateway/`) is a control plane that sits above per-agent runti
 
 Planned additions:
 
-- schedule management
+- schedule management for heartbeat, cron, interval, and one-shot runs
 - channel orchestration
 - monitoring
 

@@ -16,7 +16,7 @@ OpenHermit already has a working single-agent runtime with:
 - CLI client
 - local web client
 - approval gate
-- exec, web, memory, instruction tools (container tools disabled by default)
+- exec, web, memory, instruction tools (container tools removed; planned as a future plugin)
 - user model with identity resolution, role-based access control, and user management tools
 - Telegram channel adapter with identity extraction and auto-guest creation
 
@@ -100,7 +100,7 @@ There are also several active design drafts that are intentionally not yet imple
 
 ### User Model
 
-- `users` and `user_identities` tables
+- `users`, `user_identities`, and `user_agents` tables
 - `DbUserStore` with resolve, link, merge, scope isolation
 - per-session identity resolution with auto-guest creation for unknown users
 - owner auto-bootstrap on first CLI/web connection
@@ -158,10 +158,15 @@ There are also several active design drafts that are intentionally not yet imple
 
 ## Remaining Major Work
 
+### Runtime Orchestration
+
+- **general scheduler is still missing** — `heartbeat` and `cron` exist in the source/session model, but there is no durable scheduler subsystem yet
+- **control-plane schedule management is still missing** — the gateway does not yet own job definitions, trigger dispatch, retries, or run policies
+- **heartbeat is not yet first-class** — it exists as a source kind and design direction, but not as a complete managed runtime feature
+
 ### Memory Reliability
 
 - ~~**memory_recall search quality**~~ ✅ Fixed — PostgreSQL `tsvector` + GIN index with full-text search and BM25-style ranking
-- **introspection model quality** — small models ignore prompt constraints (store browsed content, record article summaries in working memory); need either a minimum model floor or structured extraction pipeline
 - ~~**working memory ownership**~~ ✅ Resolved — `working_memory_update` now exclusive to introspection agent; main agent no longer has access
 
 ### Runtime Gaps
@@ -243,6 +248,7 @@ See `docs/user-model.md`. Phase 1 (core tables, identity resolution, role-based 
 ## Phase 3 — Scheduler
 
 - replace heartbeat-centric scheduling with a general scheduler
+- make `heartbeat` and `cron` first-class scheduled run types rather than ad-hoc source kinds
 - define schedule schema
 - support triggers:
   - `cron`
@@ -264,7 +270,7 @@ See `docs/user-model.md`. Phase 1 (core tables, identity resolution, role-based 
 - refine how user-authored knowledge is organized in the external workspace
 - improve the agent's use of memory tools (`memory_add`, `memory_get`, `memory_recall`, `memory_update`, `memory_delete`)
 - add explicit “remember this” behavior on top of the MemoryProvider
-- ✅ `memory_recall` search quality fixed with FTS5 full-text search (schema v13)
+- ✅ `memory_recall` search quality fixed with PostgreSQL full-text search (`tsvector` + GIN)
 
 ## Phase 5 — Web + Channel Maturity
 
@@ -286,16 +292,16 @@ See `docs/user-model.md`. Phase 1 (core tables, identity resolution, role-based 
 
 ## Immediate Implementation Order
 
-1. ~~fix `memory_recall` search quality~~ ✅ FTS5 with porter stemming
-2. decide on introspection model quality strategy (minimum model floor vs structured pipeline)
-3. ~~resolve working memory ownership~~ ✅ introspection-only
-4. ~~fix approval gate tests~~ ✅ waitForEvent helper + registered tools + updated assertions
-5. ~~design transport protocol~~ ✅ three-layer model in `docs/transport-protocol.md`
-6. ~~implement transport Phase 1: HTTP sync + stream modes~~ ✅ `?wait=true` and `?stream=true` on POST messages
-7. ~~implement transport Phase 2: WebSocket endpoint~~ ✅ `ws://host/ws` with full RPC + event subscriptions + gateway proxy
-8. define the durable-memory vs user-knowledge boundary more tightly
-9. implement idle / sleep-time long-term consolidation
-10. design and implement the scheduler
+1. ~~fix `memory_recall` search quality~~ ✅ PostgreSQL full-text search
+2. ~~resolve working memory ownership~~ ✅ introspection-only
+3. ~~fix approval gate tests~~ ✅ waitForEvent helper + registered tools + updated assertions
+4. ~~design transport protocol~~ ✅ three-layer model in `docs/transport-protocol.md`
+5. ~~implement transport Phase 1: HTTP sync + stream modes~~ ✅ `?wait=true` and `?stream=true` on POST messages
+6. ~~implement transport Phase 2: WebSocket endpoint~~ ✅ `ws://host/ws` with full RPC + event subscriptions + gateway proxy
+7. design and implement the scheduler
+8. make heartbeat and cron first-class gateway-managed job types
+9. define the durable-memory vs user-knowledge boundary more tightly
+10. implement idle / sleep-time long-term consolidation
 
 ## Design Constraints
 
