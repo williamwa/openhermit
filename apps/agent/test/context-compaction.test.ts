@@ -6,12 +6,22 @@ import type { Api, Provider, StopReason, Usage } from '@mariozechner/pi-ai';
 
 import {
   estimateTextTokens,
+  estimateContentTokens,
   estimateAgentMessageTokens,
   estimateAgentMessagesTokens,
   getCompactionRetainedStartIndex,
   summarizeMessageForCompaction,
   buildContextCompactionBlock,
   compactContextIfNeeded,
+  truncateToolResults,
+  TOOL_RESULT_MAX_CONTEXT_RATIO,
+  getContextCompactionMaxTokens,
+  getContextCompactionRecentMessageCount,
+  getContextCompactionSummaryMaxChars,
+  DEFAULT_CONTEXT_COMPACTION_RECENT_MESSAGE_COUNT,
+  DEFAULT_CONTEXT_COMPACTION_SUMMARY_MAX_CHARS,
+  DEFAULT_CONTEXT_COMPACTION_SAFETY_MARGIN_TOKENS,
+  runCompactionSummaryTurn,
   type CompactionDeps,
   type CompactionOptions,
 } from '../src/agent-runner/context-compaction.js';
@@ -334,4 +344,385 @@ test('compactContextIfNeeded falls back to text extraction when compaction summa
       (m) => m.role === 'user' && JSON.stringify(m.content).includes('Compacted earlier session history'),
     ),
   );
+});
+
+// ── estimateContentTokens ─────────────────────────────────────────────
+
+test('estimateContentTokens handles plain string', () => {
+  assert.equal(estimateContentTokens('abcdefgh'), 2);
+});
+
+test('estimateContentTokens handles non-array non-string (object)', () => {
+  const obj = { foo: 'bar' };
+  assert.equal(estimateContentTokens(obj), estimateTextTokens(JSON.stringify(obj)));
+});
+
+test('estimateContentTokens handles array of text items', () => {
+  const content = [{ type: 'text', text: 'hello world' }];
+  assert.equal(estimateContentTokens(content), estimateTextTokens('hello world'));
+});
+
+test('estimateContentTokens handles thinking items', () => {
+  const content = [{ type: 'thinking', thinking: 'some thought' }];
+  assert.equal(estimateContentTokens(content), estimateTextTokens('some thought'));
+});
+
+test('estimateContentTokens handles toolCall items', () => {
+  const content = [{ type: 'toolCall', name: 'exec', arguments: { cmd: 'ls' } }];
+  const expected = estimateTextTokens(`exec ${JSON.stringify({ cmd: 'ls' })}`);
+  assert.equal(estimateContentTokens(content), expected);
+});
+
+test('estimateContentTokens returns 256 for image items', () => {
+  const content = [{ type: 'image', data: 'base64data' }];
+  assert.equal(estimateContentTokens(content), 256);
+});
+
+test('estimateContentTokens handles mixed content array', () => {
+  const content = [
+    { type: 'text', text: 'hello' },
+    { type: 'image', data: 'x' },
+  ];
+  assert.equal(estimateContentTokens(content), estimateTextTokens('hello') + 256);
+});
+
+test('estimateContentTokens falls back to JSON.stringify for unknown items', () => {
+  const content = [{ type: 'custom', value: 123 }];
+  assert.equal(estimateContentTokens(content), estimateTextTokens(JSON.stringify(content[0])));
+});
+
+test('estimateContentTokens handles items without type field', () => {
+  const content = [{ noType: true }];
+  assert.equal(estimateContentTokens(content), estimateTextTokens(JSON.stringify(content[0])));
+});
+
+// ── truncateToolResults ───────────────────────────────────────────────
+
+test('truncateToolResults passes through non-toolResult messages', () => {
+  const messages = [makeUserMessage('hello'), makeAssistantMessage('world')];
+  const result = truncateToolResults(messages, 100_000);
+  assert.deepEqual(result, messages);
+});
+
+test('truncateToolResults keeps small tool results unchanged', () => {
+  const messages = [makeToolResultMessage('exec', 'short output')];
+  const result = truncateToolResults(messages, 100_000);
+  assert.deepEqual(result, messages);
+});
+
+test('truncateToolResults truncates oversized tool results', () => {
+  const bigText = 'x'.repeat(200_000);
+  const messages: AgentMessage[] = [{
+    role: 'toolResult',
+    toolCallId: 'call-exec',
+    toolName: 'exec',
+    content: [{ type: 'text', text: bigText }],
+    isError: false,
+    timestamp: Date.now(),
+  }];
+  // contextWindow=1000 → maxChars = 1000 * 0.25 * 4 = 1000
+  const result = truncateToolResults(messages, 1000);
+  const resultText = (result[0] as any).content[0].text;
+  assert.ok(resultText.length < bigText.length);
+  assert.ok(resultText.includes('[truncated:'));
+});
+
+test('truncateToolResults respects TOOL_RESULT_MAX_CONTEXT_RATIO', () => {
+  assert.equal(TOOL_RESULT_MAX_CONTEXT_RATIO, 0.25);
+});
+
+test('truncateToolResults handles multiple content items with budget exhaustion', () => {
+  const messages: AgentMessage[] = [{
+    role: 'toolResult',
+    toolCallId: 'call-exec',
+    toolName: 'exec',
+    content: [
+      { type: 'text', text: 'x'.repeat(50_000) },
+      { type: 'text', text: 'second part' },
+    ],
+    isError: false,
+    timestamp: Date.now(),
+  }];
+  // contextWindow=1000 → maxChars=1000, first item exceeds budget
+  const result = truncateToolResults(messages, 1000);
+  const content = (result[0] as any).content;
+  // First item truncated, second item should be empty string (budget exhausted)
+  assert.ok(content[0].text.includes('[truncated:'));
+  assert.equal(content[1].text, '');
+});
+
+// ── Config helpers ────────────────────────────────────────────────────
+
+test('getContextCompactionRecentMessageCount returns option when set', () => {
+  assert.equal(getContextCompactionRecentMessageCount({ contextCompactionRecentMessageCount: 10 }), 10);
+});
+
+test('getContextCompactionRecentMessageCount returns default when unset', () => {
+  assert.equal(getContextCompactionRecentMessageCount({}), DEFAULT_CONTEXT_COMPACTION_RECENT_MESSAGE_COUNT);
+});
+
+test('getContextCompactionSummaryMaxChars returns option when set', () => {
+  assert.equal(getContextCompactionSummaryMaxChars({ contextCompactionSummaryMaxChars: 500 }), 500);
+});
+
+test('getContextCompactionSummaryMaxChars returns default when unset', () => {
+  assert.equal(getContextCompactionSummaryMaxChars({}), DEFAULT_CONTEXT_COMPACTION_SUMMARY_MAX_CHARS);
+});
+
+test('getContextCompactionMaxTokens returns option when explicitly set', () => {
+  assert.equal(getContextCompactionMaxTokens(stubConfig, { contextCompactionMaxTokens: 5000 }), 5000);
+});
+
+test('getContextCompactionMaxTokens derives from model config when not set', () => {
+  const result = getContextCompactionMaxTokens(stubConfig, {});
+  assert.ok(result >= 2048, 'should be at least 2048');
+  assert.ok(typeof result === 'number');
+});
+
+// ── runCompactionSummaryTurn ──────────────────────────────────────────
+
+test('runCompactionSummaryTurn returns undefined for empty messages', async () => {
+  const result = await runCompactionSummaryTurn({
+    sessionId: 's1',
+    compactedMessages: [],
+    previousCompactionSummary: undefined,
+    createAgent: async () => { throw new Error('should not be called'); },
+  });
+  assert.equal(result, undefined);
+});
+
+test('runCompactionSummaryTurn returns undefined for messages with no text', async () => {
+  // A message where summarizeMessageForCompaction returns undefined
+  const result = await runCompactionSummaryTurn({
+    sessionId: 's1',
+    compactedMessages: [{ role: 'unknown' } as unknown as AgentMessage],
+    previousCompactionSummary: undefined,
+    createAgent: async () => { throw new Error('should not be called'); },
+  });
+  assert.equal(result, undefined);
+});
+
+test('runCompactionSummaryTurn extracts JSON summary from agent response', async () => {
+  const mockAgent = {
+    prompt: async () => {},
+    waitForIdle: async () => {},
+    state: {
+      messages: [
+        {
+          role: 'assistant' as const,
+          content: [{ type: 'text' as const, text: '{"compactionSummary":"User discussed project setup."}' }],
+          ...assistantDefaults,
+          timestamp: Date.now(),
+        },
+      ],
+    },
+  };
+
+  const result = await runCompactionSummaryTurn({
+    sessionId: 's1',
+    compactedMessages: [makeUserMessage('setup the project'), makeAssistantMessage('done')],
+    previousCompactionSummary: undefined,
+    createAgent: async () => mockAgent as any,
+  });
+  assert.equal(result, 'User discussed project setup.');
+});
+
+test('runCompactionSummaryTurn handles plain text response (non-JSON)', async () => {
+  const mockAgent = {
+    prompt: async () => {},
+    waitForIdle: async () => {},
+    state: {
+      messages: [
+        {
+          role: 'assistant' as const,
+          content: [{ type: 'text' as const, text: 'The user set up a project and ran tests.' }],
+          ...assistantDefaults,
+          timestamp: Date.now(),
+        },
+      ],
+    },
+  };
+
+  const result = await runCompactionSummaryTurn({
+    sessionId: 's1',
+    compactedMessages: [makeUserMessage('hello')],
+    previousCompactionSummary: undefined,
+    createAgent: async () => mockAgent as any,
+  });
+  assert.equal(result, 'The user set up a project and ran tests.');
+});
+
+test('runCompactionSummaryTurn handles code-fenced JSON response', async () => {
+  const mockAgent = {
+    prompt: async () => {},
+    waitForIdle: async () => {},
+    state: {
+      messages: [
+        {
+          role: 'assistant' as const,
+          content: [{ type: 'text' as const, text: '```json\n{"compactionSummary":"Fenced summary."}\n```' }],
+          ...assistantDefaults,
+          timestamp: Date.now(),
+        },
+      ],
+    },
+  };
+
+  const result = await runCompactionSummaryTurn({
+    sessionId: 's1',
+    compactedMessages: [makeUserMessage('hello')],
+    previousCompactionSummary: undefined,
+    createAgent: async () => mockAgent as any,
+  });
+  assert.equal(result, 'Fenced summary.');
+});
+
+test('runCompactionSummaryTurn includes previous summary in prompt', async () => {
+  let capturedPrompt = '';
+  const mockAgent = {
+    prompt: async (msg: AgentMessage) => {
+      capturedPrompt = JSON.stringify(msg.content);
+    },
+    waitForIdle: async () => {},
+    state: {
+      messages: [
+        {
+          role: 'assistant' as const,
+          content: [{ type: 'text' as const, text: '{"compactionSummary":"Updated."}' }],
+          ...assistantDefaults,
+          timestamp: Date.now(),
+        },
+      ],
+    },
+  };
+
+  await runCompactionSummaryTurn({
+    sessionId: 's1',
+    compactedMessages: [makeUserMessage('hello')],
+    previousCompactionSummary: 'Previous context about project.',
+    createAgent: async () => mockAgent as any,
+  });
+  assert.ok(capturedPrompt.includes('Previous context about project.'));
+});
+
+// ── compactContextIfNeeded with LLM agent ─────────────────────────────
+
+test('compactContextIfNeeded uses LLM summary when createCompactionAgent is provided', async () => {
+  const longText = 'word '.repeat(200).trim();
+  const messages = [
+    makeUserMessage(longText),
+    makeAssistantMessage(longText),
+    makeUserMessage(longText),
+    makeAssistantMessage(longText),
+    makeUserMessage('recent'),
+    makeAssistantMessage('reply'),
+  ];
+
+  let summaryPersisted = '';
+  const mockAgent = {
+    prompt: async () => {},
+    waitForIdle: async () => {},
+    state: {
+      messages: [
+        {
+          role: 'assistant' as const,
+          content: [{ type: 'text' as const, text: '{"compactionSummary":"LLM generated summary."}' }],
+          ...assistantDefaults,
+          timestamp: Date.now(),
+        },
+      ],
+    },
+  };
+
+  const deps = createStubDeps({
+    options: {
+      contextCompactionMaxTokens: 800,
+      contextCompactionRecentMessageCount: 2,
+    },
+    store: {
+      messages: {
+        getCompactionSummary: async () => undefined,
+        setCompactionSummary: async (_scope: unknown, _sid: unknown, summary: string) => {
+          summaryPersisted = summary;
+        },
+      },
+    } as unknown as CompactionDeps['store'],
+    createCompactionAgent: async () => mockAgent as any,
+  });
+
+  const result = await compactContextIfNeeded('s1', stubConfig, [], messages, deps);
+  assert.ok(
+    result.some((m) => m.role === 'user' && JSON.stringify(m.content).includes('LLM generated summary')),
+  );
+  assert.equal(summaryPersisted, 'LLM generated summary.');
+});
+
+test('compactContextIfNeeded falls back to text extraction when LLM agent throws', async () => {
+  const longText = 'word '.repeat(400).trim();
+  const messages = [
+    makeUserMessage(longText),
+    makeAssistantMessage(longText),
+    makeUserMessage(longText),
+    makeAssistantMessage(longText),
+    makeUserMessage('recent question'),
+    makeAssistantMessage('recent answer'),
+  ];
+
+  const deps = createStubDeps({
+    options: {
+      contextCompactionMaxTokens: 600,
+      contextCompactionRecentMessageCount: 2,
+    },
+    createCompactionAgent: async () => { throw new Error('model unavailable'); },
+  });
+
+  const result = await compactContextIfNeeded('s1', stubConfig, [], messages, deps);
+  assert.ok(result.length < messages.length, 'should compact');
+  assert.ok(
+    result.some((m) => m.role === 'user' && JSON.stringify(m.content).includes('Compacted earlier session history')),
+  );
+});
+
+test('compactContextIfNeeded shrink-expand finds optimal retain count', async () => {
+  const longText = 'word '.repeat(300).trim();
+  const messages = [
+    makeUserMessage(longText),
+    makeAssistantMessage(longText),
+    makeUserMessage(longText),
+    makeAssistantMessage(longText),
+    makeUserMessage(longText),
+    makeAssistantMessage(longText),
+    makeUserMessage('final'),
+    makeAssistantMessage('reply'),
+  ];
+
+  const deps = createStubDeps({
+    options: {
+      contextCompactionMaxTokens: 600,
+      contextCompactionRecentMessageCount: 8,
+    },
+  });
+
+  const result = await compactContextIfNeeded('s1', stubConfig, [], messages, deps);
+  assert.ok(result.length < messages.length, 'should compact some messages');
+  assert.ok(result.some((m) => m.role === 'assistant' && JSON.stringify(m.content).includes('reply')));
+});
+
+test('compactContextIfNeeded returns original when compaction does not reduce tokens', async () => {
+  // Only 2 short messages — compaction overhead would make it bigger
+  const messages = [
+    makeUserMessage('hi'),
+    makeAssistantMessage('hello'),
+  ];
+
+  const deps = createStubDeps({
+    options: {
+      contextCompactionMaxTokens: 10,
+      contextCompactionRecentMessageCount: 1,
+    },
+  });
+
+  const result = await compactContextIfNeeded('s1', stubConfig, [], messages, deps);
+  // When compacted >= original, should return original combined
+  assert.ok(result.length >= 2);
 });
