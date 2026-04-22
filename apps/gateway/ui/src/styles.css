@@ -448,3 +448,76 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
 }
 
 .toggle input { accent-color: var(--accent); }
+
+/* ── Schedule list ─────────────────────────────────────────────────────── */
+
+.schedule-agent-select { margin-bottom: 1rem; max-width: 400px; }
+
+.schedule-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 0.5rem;
+  transition: border-color 0.15s;
+}
+
+.schedule-card:hover { border-color: var(--text-muted); }
+.schedule-card__info { flex: 1; min-width: 0; }
+.schedule-card__actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
+
+.schedule-card__prompt {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.schedule-card__meta {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+}
+
+.schedule-card__meta code { font-family: var(--mono); color: var(--accent); }
+.schedule-card__errors { color: var(--red); }
+
+.badge--active { background: rgba(74, 222, 128, 0.15); color: var(--green); }
+.badge--paused { background: rgba(250, 204, 21, 0.15); color: var(--yellow); }
+.badge--completed { background: rgba(139, 143, 167, 0.15); color: var(--text-muted); }
+.badge--failed { background: rgba(248, 113, 113, 0.15); color: var(--red); }
+
+.schedule-runs-table-wrap { overflow-x: auto; }
+
+.schedule-runs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.schedule-runs-table th,
+.schedule-runs-table td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.schedule-runs-table th {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.schedule-runs-table__error {
+  max-width: 200px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--red);
+}
