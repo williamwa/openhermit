@@ -172,7 +172,7 @@ There are also several active design drafts that are intentionally not yet imple
 ### Runtime Gaps
 
 - ~~**approval gate test reliability**~~ ✅ Fixed — added waitForEvent helper with timeout, switched to registered tools, updated stale assertions
-- **context compaction test coverage** — compaction module extracted but test coverage is thin
+- ~~**context compaction test coverage**~~ ✅ Expanded from 16 to 49 tests — covers all exported functions including truncateToolResults, LLM summary path, config helpers
 
 ### Transport Protocol
 
