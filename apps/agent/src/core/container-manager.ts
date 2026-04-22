@@ -264,12 +264,27 @@ export class DockerContainerManager {
   ): Promise<ContainerProcessResult> {
     const name = this.containerName('workspace');
 
-    if (!this.workspaceEntry || this.workspaceEntry.type !== 'workspace') {
-      throw new NotFoundError(`Workspace container not found: ${name}`);
-    }
-
-    if (this.workspaceEntry.status !== 'running') {
-      throw new ValidationError(`Workspace container is not running: ${name}`);
+    if (!this.workspaceEntry || this.workspaceEntry.type !== 'workspace' || this.workspaceEntry.status !== 'running') {
+      // Re-probe Docker in case ensure() was not called or state drifted
+      const liveContainers = await this.listLiveContainers();
+      const live = liveContainers.find((c) => c.names === name);
+      if (live && live.statusText.startsWith('Up ')) {
+        this.workspaceEntry = {
+          ...(this.workspaceEntry ?? {
+            id: live.id,
+            name,
+            image: 'unknown',
+            type: 'workspace' as const,
+            mount: '.',
+            mount_target: '/workspace',
+            created: new Date().toISOString(),
+          }),
+          status: 'running',
+          runtime_container_id: live.id,
+        };
+      } else {
+        throw new NotFoundError(`Workspace container not found: ${name}`);
+      }
     }
 
     const result = await this.docker.run(['exec', name, 'sh', '-lc', command]);

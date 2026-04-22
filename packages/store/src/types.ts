@@ -131,14 +131,12 @@ export type ScheduleType = 'cron' | 'once';
 export type ScheduleStatus = 'active' | 'paused' | 'completed' | 'failed';
 
 export interface ScheduleSessionMode {
-  kind: 'dedicated' | 'ephemeral' | 'target';
-  targetSessionId?: string;
+  kind: 'dedicated' | 'ephemeral';
 }
 
 export interface ScheduleDelivery {
   kind: 'silent' | 'session';
   sessionId?: string;
-  summaryOnly?: boolean;
 }
 
 export interface SchedulePolicy {

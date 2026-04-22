@@ -29,6 +29,7 @@ export interface CurrentUserContext {
   name?: string;
   sessionType?: SessionType;
   sessionId?: string;
+  sourceKind?: string;
 }
 
 export interface InstructionSource {
@@ -95,6 +96,17 @@ export const buildSystemPrompt = async (
         `### Current User\n\nYou are talking to user \`${currentUser.userId}\`${namePart}, role: **${currentUser.role}**.\n\nUse this ID when storing or recalling per-user memories (e.g. \`user/${currentUser.userId}/preferences\`). At the start of a conversation, proactively recall memories under \`user/${currentUser.userId}/\` to personalize your responses.\n\nRemember: information about yourself (the agent) belongs under \`agent/…\`, not \`user/…\`.`,
       );
     }
+  }
+
+  if (currentUser?.sourceKind === 'schedule') {
+    contextParts.push(
+      `### Scheduled Task\n\n`
+      + `This message was triggered by a scheduled job, not a live user conversation. `
+      + `You are running in a dedicated schedule session (\`${currentUser.sessionId ?? 'unknown'}\`).\n\n`
+      + `- Execute the task described in the user message.\n`
+      + `- If the message includes a [Delivery] instruction, use \`session_send\` to deliver the result to the specified session after completing the task.\n`
+      + `- Do not wait for follow-up messages. Complete the task in a single turn.`,
+    );
   }
 
   const runtimeLines = [`Autonomy level: ${security.getAutonomyLevel()}`];

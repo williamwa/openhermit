@@ -132,8 +132,12 @@ export class AgentRunner implements SessionRuntime {
 
   async startScheduler(): Promise<void> {
     const host: SchedulerHost = {
-      openSession: async (sessionId, source) => {
-        await this.openSession({ sessionId, source });
+      openSession: async (sessionId, source, userId) => {
+        await this.openSession({
+          sessionId,
+          source,
+          ...(userId ? { metadata: { schedule_user_id: userId } } : {}),
+        });
       },
       postMessage: async (sessionId, text) => {
         await this.postMessage(sessionId, { text });
@@ -917,6 +921,16 @@ export class AgentRunner implements SessionRuntime {
     spec: SessionSpec,
     now: string,
   ): Promise<{ userId?: string; role?: UserRole; userName?: string }> {
+    // Schedule sessions carry the creator's userId directly
+    const scheduleUserId = spec.metadata?.schedule_user_id;
+    if (spec.source.kind === 'schedule' && scheduleUserId) {
+      const user = await this.store.users.get(String(scheduleUserId));
+      if (user) {
+        const role = await this.store.users.getAgentRole(this.scope, user.userId) ?? 'guest';
+        return { userId: user.userId, role, ...(user.name ? { userName: user.name } : {}) };
+      }
+    }
+
     const channelUserId = this.deriveChannelUserId(spec);
     if (!channelUserId) return {};
 
@@ -1067,6 +1081,7 @@ export class AgentRunner implements SessionRuntime {
       ...(userId ? { userId } : {}),
       ...(userName ? { userName } : {}),
       ...(spec.source.type ? { sessionType: spec.source.type } : {}),
+      sourceKind: spec.source.kind,
     });
   }
 
@@ -1085,6 +1100,7 @@ export class AgentRunner implements SessionRuntime {
     userId?: string;
     userName?: string;
     sessionType?: import('@openhermit/protocol').SessionType;
+    sourceKind?: string;
   }): Promise<Agent> {
     const webProvider = this.resolveWebProvider(input.config);
 
@@ -1122,7 +1138,7 @@ export class AgentRunner implements SessionRuntime {
         ...(isOwnerOrUnresolved ? { instructionStore: this.store.instructions } : {}),
         ...(isOwnerOrUnresolved ? { userStore: this.store.users } : {}),
         ...(isOwnerOrUnresolved || input.userId ? { sessionStore: this.store.sessions } : {}),
-        ...(!isOwnerOrUnresolved && input.userId ? { currentUserId: input.userId } : {}),
+        ...(input.userId ? { currentUserId: input.userId } : {}),
         storeScope: this.scope,
         ...(!isGuestRole ? {
           agentId: this.scope.agentId,
@@ -1155,6 +1171,7 @@ export class AgentRunner implements SessionRuntime {
           ...(input.userName ? { name: input.userName } : {}),
           ...(input.sessionType ? { sessionType: input.sessionType } : {}),
           sessionId: input.contextSessionId,
+          ...(input.sourceKind ? { sourceKind: input.sourceKind } : {}),
         }
       : undefined;
 
@@ -1214,6 +1231,7 @@ export class AgentRunner implements SessionRuntime {
       ...(session.resolvedUserId ? { userId: session.resolvedUserId } : {}),
       ...(session.resolvedUserName ? { userName: session.resolvedUserName } : {}),
       ...(session.spec.source.type ? { sessionType: session.spec.source.type } : {}),
+      sourceKind: session.spec.source.kind,
     });
     session.agent.setModel(resolveModel(config));
     session.agent.setSystemPrompt(refreshedAgent.state.systemPrompt);

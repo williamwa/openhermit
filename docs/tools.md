@@ -68,7 +68,7 @@ Requires: `scheduleStore`
 | Tool | Description | Parameters | 🔐 | ✏️ |
 |------|-------------|------------|:--:|:--:|
 | `schedule_list` | List all scheduled jobs with status, next run time, run count | `status` (string, optional) | | |
-| `schedule_create` | Create a cron or one-time scheduled job | `type` (enum: `cron` \| `once`, required), `prompt` (string, required), `cron_expression` (string, optional), `run_at` (string, optional), `id` (string, optional), `session_mode` (string/object, optional), `delivery` (string/object, optional), `timeout_seconds` (number, optional), `model` (string, optional) | ✓ | ✓ |
+| `schedule_create` | Create a cron or one-time scheduled job | `type` (enum: `cron` \| `once`, required), `prompt` (string, required), `cron_expression` (string, optional), `run_at` (string, optional), `id` (string, optional), `session_mode` (enum: `dedicated` \| `ephemeral`, optional), `delivery` (`"silent"` or `{session: id}`, optional), `timeout_seconds` (number, optional) | ✓ | ✓ |
 | `schedule_update` | Update a schedule's status, prompt, or cron expression | `id` (string, required), `status` (enum: `active` \| `paused`, optional), `prompt` (string, optional), `cron_expression` (string, optional), `run_at` (string, optional) | ✓ | ✓ |
 | `schedule_delete` | Delete a scheduled job permanently | `id` (string, required) | ✓ | ✓ |
 | `schedule_trigger` | Trigger a scheduled job immediately | `id` (string, required) | ✓ | ✓ |

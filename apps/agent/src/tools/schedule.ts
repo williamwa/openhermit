@@ -29,17 +29,14 @@ const ScheduleCreateParams = Type.Object({
   session_mode: Type.Optional(Type.Union([
     Type.Literal('dedicated'),
     Type.Literal('ephemeral'),
-    Type.Object({ target: Type.String({ description: 'Target session ID to run in.' }) }),
-  ], { description: 'Session strategy. "dedicated" (default) reuses one session per job. "ephemeral" creates a new session each run. {target: sessionId} runs in a specific session.' })),
+  ], { description: 'Session strategy. "dedicated" (default) reuses one session per job. "ephemeral" creates a new session each run.' })),
   delivery: Type.Optional(Type.Union([
     Type.Literal('silent'),
     Type.Object({
-      session: Type.String({ description: 'Session ID to send results to via session_send.' }),
-      summary_only: Type.Optional(Type.Boolean({ description: 'Send only a brief summary (default true).' })),
+      session: Type.String({ description: 'Target session ID to deliver results to via session_send.' }),
     }),
-  ], { description: 'Result delivery. "silent" (default) keeps results in the job session only.' })),
+  ], { description: 'Result delivery. "silent" (default) keeps results in the job session only. {session: id} instructs the agent to send results to the target session.' })),
   timeout_seconds: Type.Optional(Type.Number({ description: 'Maximum execution time in seconds.' })),
-  model: Type.Optional(Type.String({ description: 'Override model for this job.' })),
 });
 
 type ScheduleCreateArgs = Static<typeof ScheduleCreateParams>;
@@ -141,13 +138,9 @@ const createScheduleCreateTool = (context: ToolContext): AgentTool<typeof Schedu
     }
 
     // Parse session_mode
-    let sessionMode: { kind: 'dedicated' | 'ephemeral' | 'target'; targetSessionId?: string } = { kind: 'dedicated' };
-    if (args.session_mode) {
-      if (typeof args.session_mode === 'string') {
-        sessionMode = { kind: args.session_mode };
-      } else if ('target' in args.session_mode) {
-        sessionMode = { kind: 'target', targetSessionId: args.session_mode.target };
-      }
+    let sessionMode: { kind: 'dedicated' | 'ephemeral' } = { kind: 'dedicated' };
+    if (args.session_mode && typeof args.session_mode === 'string') {
+      sessionMode = { kind: args.session_mode };
     }
 
     // Parse delivery
@@ -156,14 +149,13 @@ const createScheduleCreateTool = (context: ToolContext): AgentTool<typeof Schedu
       if (typeof args.delivery === 'string') {
         delivery = { kind: 'silent' };
       } else if ('session' in args.delivery) {
-        delivery = { kind: 'session', sessionId: args.delivery.session, summaryOnly: args.delivery.summary_only ?? true };
+        delivery = { kind: 'session', sessionId: args.delivery.session };
       }
     }
 
     // Parse policy
     const policy: Record<string, unknown> = {};
     if (args.timeout_seconds) policy.timeout_seconds = args.timeout_seconds;
-    if (args.model) policy.model = args.model;
 
     const schedule = await context.scheduleStore.create(context.storeScope, {
       ...(args.id ? { scheduleId: args.id } : {}),
@@ -330,7 +322,13 @@ You can create and manage scheduled jobs that run automatically at specified tim
 - **Cron jobs**: Recurring tasks using cron expressions (e.g. "0 9 * * *" for daily at 9am UTC)
 - **One-time jobs**: Execute once at a specified time
 
-Each job runs in its own session and can optionally deliver results to another session.
+Each job runs in a dedicated session. The \`prompt\` field is an **instruction to yourself** — it will be sent to you as a user message in a separate schedule session. Write it as a clear directive, not as the raw user input.
+
+For example, if the user says "remind me in 5 minutes to buy milk", the prompt should be:
+  \`Send this message to the delivery session: "Reminder: buy milk"\`
+NOT just "buy milk".
+
+If delivery is configured, include in the prompt what should be sent and how (e.g. "Send the following message to the delivery session: ...").
 
 Examples:
 - "remind me tomorrow at 9am" → \`schedule_create\` with type "once"
