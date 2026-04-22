@@ -60,6 +60,7 @@ Requires: `sessionStore`
 | `session_list` | List sessions with descriptions, last activity, message counts, source | `channel` (string, optional), `limit` (number, optional, default 20) | | |
 | `session_read` | Read message history from a session. Use `offset` to page backwards | `session_id` (string, required), `limit` (number, optional, default 50), `offset` (number, optional, default 0) | | |
 | `session_summary` | Get session summary: description, working memory, message count, recent activity | `session_id` (string, required) | | |
+| `session_send` | Send a message to another session via its connected channel (e.g. Telegram) | `session_id` (string, required), `text` (string, required) | ✓ | ✓ |
 
 ## Schedules
 
@@ -99,8 +100,8 @@ Tool availability is filtered by user role in `createBuiltInToolsets()`:
 
 | Role | Available Tools |
 |------|----------------|
-| **owner** | All tools |
-| **user** | memory, instruction, web, exec, schedule, user (read-only subset) |
-| **guest** | web, session (read-only), schedule_list, memory_get, memory_recall |
+| **owner** | All tools (memory, instruction, web, exec, user, session, session_send, schedule) |
+| **user** | memory, web, exec, session, session_send |
+| **guest** | web, session (read-only: list/read/summary), schedule_list, schedule_runs |
 
-The exact gating is implemented per-tool via the `context.userRole` check at registration time.
+Owner-only stores (`instructionStore`, `userStore`, `scheduleStore`) are only injected for the owner role. Guest-blocked tools (`exec`, `schedule_create/update/delete/trigger`) are filtered at the runner level. `session_send` requires `channelOutbound` adapters to be available.

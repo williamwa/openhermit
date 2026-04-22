@@ -12,7 +12,7 @@ OpenHermit currently implements:
 - **ephemeral containers** handle one-off isolated tasks
 - the orchestration process manages containers and persists internal state
 
-Three container types are implemented: `ephemeral`, `service`, and `workspace`.
+Currently only `workspace` containers are implemented. `ephemeral` and `service` containers are planned.
 
 ## Sandbox Shapes
 

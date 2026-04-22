@@ -223,23 +223,18 @@ The agent reads other sessions as **read-only context** — it does not switch i
 
 ## Session Integration
 
-### SessionSpec Change
+### User Resolution
 
-`SessionSpec` gains an optional `userId`:
+`SessionSpec` does not carry a `userId` field. Instead, user identity is resolved at the agent runtime level via `resolveSessionUser()`:
 
-```typescript
-interface SessionSpec {
-  sessionId: string;
-  source: SessionSource;
-  metadata?: Record<string, MetadataValue>;
-  userId?: string;  // resolved user, if known
-}
-```
+1. The adapter opens a session with a `CallerIdentity` (channel + channelUserId)
+2. The runtime resolves the identity to an internal `userId` via `UserStore`
+3. For schedule-triggered sessions, the creator's userId is passed via session metadata (`schedule_user_id`)
 
-The `userId` is resolved by the adapter or API layer when the session is opened. The agent runtime uses it to:
+The resolved user determines:
 
-- determine role and filter available tools
-- scope memory queries (future: per-user memory isolation)
+- role and available tools (owner gets all tools, guest gets read-only subset)
+- `currentUserId` for tool context (memory attribution, schedule creation)
 
 ### Session Routing
 

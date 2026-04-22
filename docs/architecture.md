@@ -195,6 +195,7 @@ Current execution states:
 - `idle`
 - `running`
 - `awaiting_approval`
+- `inactive` — session evicted from memory (e.g. replaced by `/new`), can be resumed
 
 ## HTTP API
 
@@ -334,7 +335,7 @@ The gateway (`apps/gateway/`) is a control plane that sits above per-agent runti
 
 Planned additions:
 
-- schedule management for heartbeat, cron, interval, and one-shot runs
+- gateway-level schedule management API
 - channel orchestration
 - monitoring
 

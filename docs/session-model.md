@@ -47,8 +47,9 @@ Runtime execution states:
 - `idle`
 - `running`
 - `awaiting_approval`
+- `inactive` — session is no longer actively managed in memory (e.g. replaced by `/new`)
 
-These are runtime states, not permanent session states.
+These are runtime states, not permanent session states. An `inactive` session can still be resumed later.
 
 ## 3. Adapter Binding
 

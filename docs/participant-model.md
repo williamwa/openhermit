@@ -1,4 +1,6 @@
-# Participant Model (Draft)
+# Participant Model (Draft) — Superseded
+
+> **Note**: This draft has been superseded by [user-model.md](user-model.md), which defines the implemented user/role/identity system.
 
 This document is a working draft.
 

@@ -129,7 +129,7 @@ Tracks which skills are enabled for which agents.
 ### 3. Agent-Installed Skills (agent-managed)
 
 - Stored at `/workspace/.openhermit/skills/<id>/` inside the workspace volume
-- Agent installs via `skill_install` tool: downloads from URL, writes files to workspace
+- Agent installs via `exec` (e.g. `curl`, `git clone`): downloads from URL, writes files to workspace
 - **Not stored in database** — the workspace filesystem is the source of truth. At startup, the agent runtime scans this directory and reads SKILL.md frontmatter to build the index
 - Read-write — the agent can create, update, and delete these
 - Persists across sessions (part of workspace volume)
@@ -143,14 +143,13 @@ At agent startup, all enabled skills (name + description only) are loaded into t
 ```
 ## Skills
 
-Available skills — use `skill_invoke` to activate one:
+The following skills provide specialized instructions for specific tasks. When a task matches a skill's description, read its SKILL.md for detailed instructions.
 
-- **deploy-staging**: Build, test, and deploy the current project to staging environment
-- **search-github**: Search GitHub repositories and issues by keyword
-- **my-custom-workflow**: Custom data pipeline for weekly reports
+- **deploy-staging**: Build, test, and deploy the current project to staging environment — `cat /skills/deploy-staging/SKILL.md`
+- **search-github**: Search GitHub repositories and issues by keyword — `cat /skills/search-github/SKILL.md`
 ```
 
-Full skill content (SKILL.md body) is loaded only when the skill is invoked, to conserve context window.
+Full skill content (SKILL.md body) is loaded only when the agent reads it via `cat`, to conserve context window.
 
 ### Agent Interaction
 

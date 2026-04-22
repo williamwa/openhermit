@@ -251,9 +251,9 @@ See `docs/user-model.md`. Phase 1 (core tables, identity resolution, role-based 
 - ✅ `DbScheduleStore` with CRUD, listDue, markRun
 - ✅ `Scheduler` class with croner-based cron triggers and tick-based polling
 - ✅ two schedule types: `cron` (recurring) and `once` (one-time)
-- ✅ session strategies: `dedicated`, `ephemeral`, `target` (run in specific session)
+- ✅ all schedules run in dedicated sessions (`schedule:{scheduleId}`)
 - ✅ delivery: `silent` (default) or notify via `session_send` to another session
-- ✅ execution policy: timeout, concurrency (skip/queue), model override
+- ✅ execution policy: timeout, concurrency (skip/queue)
 - ✅ error backoff: progressive delays (30s → 1m → 5m → 15m → 1h)
 - ✅ agent tools: `schedule_list`, `schedule_create`, `schedule_update`, `schedule_delete`, `schedule_trigger`
 - ✅ scheduler lifecycle integrated into AgentRunner (start on agent launch, stop on shutdown)
