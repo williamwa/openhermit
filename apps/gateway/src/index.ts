@@ -6,7 +6,7 @@ import { LogBuffer } from './log-buffer.js';
 
 import { createAdaptorServer } from '@hono/node-server';
 
-import { DbAgentStore, DbSkillStore } from '@openhermit/store';
+import { DbAgentStore, DbScheduleStore, DbSkillStore } from '@openhermit/store';
 import { scanSkillDirectory } from '@openhermit/agent/skills';
 
 import { loadEnvironmentFile } from '@openhermit/agent/langfuse';
@@ -86,10 +86,12 @@ export const main = async (): Promise<void> => {
   // Open agent store and skill store if DATABASE_URL is available.
   let agentStore: DbAgentStore | undefined;
   let skillStore: DbSkillStore | undefined;
+  let scheduleStore: DbScheduleStore | undefined;
   if (process.env.DATABASE_URL) {
     try {
       agentStore = await DbAgentStore.open();
       skillStore = await DbSkillStore.open();
+      scheduleStore = await DbScheduleStore.open();
       logStartup('agent store connected');
     } catch (error) {
       logStartup(`agent store unavailable: ${error instanceof Error ? error.message : String(error)}`);
@@ -144,6 +146,7 @@ export const main = async (): Promise<void> => {
     instances,
     ...(agentStore ? { agentStore } : {}),
     ...(skillStore ? { skillStore } : {}),
+    ...(scheduleStore ? { scheduleStore } : {}),
     auth,
     adminToken,
     logger: logStartup,
@@ -205,6 +208,7 @@ export const main = async (): Promise<void> => {
     await instances.stopAll();
     await agentStore?.close();
     await skillStore?.close();
+    await scheduleStore?.close();
 
     server.close(() => {
       logStartup('server closed');

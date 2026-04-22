@@ -18,7 +18,7 @@ import {
   type SyncResponse,
   type SyncToolCall,
 } from '@openhermit/protocol';
-import type { DbAgentStore, DbSkillStore } from '@openhermit/store';
+import type { DbAgentStore, DbScheduleStore, DbSkillStore } from '@openhermit/store';
 import {
   NotFoundError,
   OpenHermitError,
@@ -155,6 +155,7 @@ export interface GatewayAppOptions {
   instances: AgentInstanceManager;
   agentStore?: DbAgentStore | undefined;
   skillStore?: DbSkillStore | undefined;
+  scheduleStore?: DbScheduleStore | undefined;
   auth?: AuthResolverOptions | undefined;
   adminToken?: string | undefined;
   logger?: ((message: string) => void) | undefined;
@@ -1029,6 +1030,122 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const { loadSkillIndex } = await import('@openhermit/agent/skills');
     const skills = await loadSkillIndex(agentId, runner.workspace.root, store);
     return c.json(skills);
+  });
+
+  // --- admin: schedule management ---
+
+  const requireScheduleStore = (): DbScheduleStore => {
+    if (!options.scheduleStore) {
+      throw new OpenHermitError('Schedule store is not configured.', 'not_configured', 500);
+    }
+    return options.scheduleStore;
+  };
+
+  // List schedules for an agent (or all agents)
+  app.get('/api/admin/agents/:agentId/schedules', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const store = requireScheduleStore();
+    const agentId = c.req.param('agentId');
+    const status = c.req.query('status') ?? undefined;
+    const schedules = await store.list({ agentId }, status ? { status } : undefined);
+    return c.json(schedules);
+  });
+
+  // Get single schedule
+  app.get('/api/admin/agents/:agentId/schedules/:scheduleId', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const store = requireScheduleStore();
+    const schedule = await store.get({ agentId: c.req.param('agentId') }, c.req.param('scheduleId'));
+    if (!schedule) throw new NotFoundError(`Schedule not found: ${c.req.param('scheduleId')}`);
+    return c.json(schedule);
+  });
+
+  // Create schedule
+  app.post('/api/admin/agents/:agentId/schedules', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const store = requireScheduleStore();
+    const agentId = c.req.param('agentId');
+    const body = await c.req.json() as Record<string, unknown>;
+    if (!body.type || (body.type !== 'cron' && body.type !== 'once')) {
+      throw new ValidationError('type must be "cron" or "once"');
+    }
+    if (!body.prompt || typeof body.prompt !== 'string') {
+      throw new ValidationError('prompt is required');
+    }
+    if (body.type === 'cron' && (!body.cronExpression || typeof body.cronExpression !== 'string')) {
+      throw new ValidationError('cronExpression is required for cron schedules');
+    }
+    if (body.type === 'once' && (!body.runAt || typeof body.runAt !== 'string')) {
+      throw new ValidationError('runAt is required for once schedules');
+    }
+    const schedule = await store.create({ agentId }, {
+      ...(typeof body.id === 'string' ? { scheduleId: body.id } : {}),
+      type: body.type as 'cron' | 'once',
+      ...(typeof body.cronExpression === 'string' ? { cronExpression: body.cronExpression } : {}),
+      ...(typeof body.runAt === 'string' ? { runAt: body.runAt } : {}),
+      prompt: body.prompt,
+      ...(body.delivery ? { delivery: body.delivery as any } : {}),
+      ...(body.policy ? { policy: body.policy as any } : {}),
+      createdBy: 'admin',
+    });
+    // Notify agent scheduler to reload if running
+    const runner = instances.getRunner(agentId);
+    if (runner) {
+      await runner.reloadScheduler();
+    }
+    return c.json(schedule, 201);
+  });
+
+  // Update schedule
+  app.put('/api/admin/agents/:agentId/schedules/:scheduleId', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const store = requireScheduleStore();
+    const agentId = c.req.param('agentId');
+    const scheduleId = c.req.param('scheduleId');
+    const existing = await store.get({ agentId }, scheduleId);
+    if (!existing) throw new NotFoundError(`Schedule not found: ${scheduleId}`);
+    const body = await c.req.json() as Record<string, unknown>;
+    const patch: Record<string, unknown> = {};
+    if (typeof body.status === 'string') patch.status = body.status;
+    if (typeof body.prompt === 'string') patch.prompt = body.prompt;
+    if (typeof body.cronExpression === 'string') patch.cronExpression = body.cronExpression;
+    if (typeof body.runAt === 'string') patch.runAt = body.runAt;
+    if (body.delivery !== undefined) patch.delivery = body.delivery;
+    const updated = await store.update({ agentId }, scheduleId, patch as any);
+    const runner = instances.getRunner(agentId);
+    if (runner) {
+      await runner.reloadScheduler();
+    }
+    return c.json(updated);
+  });
+
+  // Delete schedule
+  app.delete('/api/admin/agents/:agentId/schedules/:scheduleId', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const store = requireScheduleStore();
+    const agentId = c.req.param('agentId');
+    const scheduleId = c.req.param('scheduleId');
+    const existing = await store.get({ agentId }, scheduleId);
+    if (!existing) throw new NotFoundError(`Schedule not found: ${scheduleId}`);
+    await store.delete({ agentId }, scheduleId);
+    const runner = instances.getRunner(agentId);
+    if (runner) {
+      await runner.reloadScheduler();
+    }
+    return c.json({ ok: true });
+  });
+
+  // Schedule run history
+  app.get('/api/admin/agents/:agentId/schedules/:scheduleId/runs', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const store = requireScheduleStore();
+    const agentId = c.req.param('agentId');
+    const scheduleId = c.req.param('scheduleId');
+    const existing = await store.get({ agentId }, scheduleId);
+    if (!existing) throw new NotFoundError(`Schedule not found: ${scheduleId}`);
+    const limit = Number(c.req.query('limit')) || 20;
+    const runs = await store.listRuns({ agentId }, scheduleId, limit);
+    return c.json(runs);
   });
 
   // --- admin UI: static files ---

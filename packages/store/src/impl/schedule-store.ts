@@ -19,6 +19,20 @@ import type {
 export class DbScheduleStore implements ScheduleStore {
   constructor(private readonly prisma: PrismaClient) {}
 
+  static async open(databaseUrl?: string): Promise<DbScheduleStore> {
+    const url = databaseUrl ?? process.env.DATABASE_URL;
+    if (!url) {
+      throw new Error('DATABASE_URL environment variable is required');
+    }
+    const prisma = new PrismaClient({ datasourceUrl: url });
+    await prisma.$connect();
+    return new DbScheduleStore(prisma);
+  }
+
+  async close(): Promise<void> {
+    await this.prisma.$disconnect();
+  }
+
   async create(scope: StoreScope, input: ScheduleCreateInput): Promise<ScheduleRecord> {
     const now = new Date().toISOString();
     const scheduleId = input.scheduleId ?? randomUUID().slice(0, 8);

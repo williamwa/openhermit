@@ -157,6 +157,11 @@ export class AgentRunner implements SessionRuntime {
     this.logRuntime('scheduler started');
   }
 
+  /** Reload the scheduler (e.g. after schedules are created/updated/deleted via admin API). */
+  async reloadScheduler(): Promise<void> {
+    await this.scheduler?.reload();
+  }
+
   /** Register a channel outbound adapter (called after channel startup). */
   registerChannelOutbound(adapter: import('@openhermit/protocol').ChannelOutbound): void {
     this.channelOutbound.set(adapter.channel, adapter);
