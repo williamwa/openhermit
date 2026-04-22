@@ -165,7 +165,7 @@ export class DockerContainerManager {
     const name = this.containerName('workspace');
     const mountTarget = '/workspace';
 
-    const liveContainers = await this.listLiveContainers().catch(() => []);
+    const liveContainers = await this.listLiveContainers();
     const live = liveContainers.find((c) => c.names === name);
     const liveStatus = live ? deriveContainerStatus(live.statusText) : undefined;
 

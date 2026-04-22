@@ -28,6 +28,7 @@ export interface CurrentUserContext {
   role: import('@openhermit/store').UserRole;
   name?: string;
   sessionType?: SessionType;
+  sessionId?: string;
 }
 
 export interface InstructionSource {
@@ -96,7 +97,11 @@ export const buildSystemPrompt = async (
     }
   }
 
-  contextParts.push(`### Runtime\n\nAutonomy level: ${security.getAutonomyLevel()}`);
+  const runtimeLines = [`Autonomy level: ${security.getAutonomyLevel()}`];
+  if (currentUser?.sessionId) {
+    runtimeLines.push(`Current session: \`${currentUser.sessionId}\``);
+  }
+  contextParts.push(`### Runtime\n\n${runtimeLines.join('\n')}`);
 
   sections.push(`## Context\n\n${contextParts.join('\n\n')}`);
 

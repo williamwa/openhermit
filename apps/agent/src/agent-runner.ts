@@ -1154,6 +1154,7 @@ export class AgentRunner implements SessionRuntime {
           role: input.userRole,
           ...(input.userName ? { name: input.userName } : {}),
           ...(input.sessionType ? { sessionType: input.sessionType } : {}),
+          sessionId: input.contextSessionId,
         }
       : undefined;
 
