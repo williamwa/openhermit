@@ -332,10 +332,11 @@ The gateway (`apps/gateway/`) is a control plane that sits above per-agent runti
 - agent registry and health checks
 - proxy routing: `/agents/{id}/...` → agent-local API
 - unified agent listing API
+- schedule management admin API (`/api/admin/agents/:id/schedules`)
+- admin UI with agent, skills, and schedule management panels
 
 Planned additions:
 
-- gateway-level schedule management API
 - channel orchestration
 - monitoring
 

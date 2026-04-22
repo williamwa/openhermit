@@ -118,7 +118,7 @@ There are also several active design drafts that are intentionally not yet imple
 ### CLI Platform
 
 - CLI restructured from single TUI chat to multi-command platform CLI using commander.js
-- commands: `setup`, `chat`, `agents`, `gateway`, `config`, `status`, `doctor`, `logs`
+- commands: `setup`, `chat`, `agents`, `gateway`, `config`, `schedules`, `status`, `doctor`, `logs`
 - `hermit setup` — interactive wizard for database, admin token, JWT secret
 - `hermit gateway start/stop` — background daemon management with PID file
 - `hermit agents list/create/start/stop/remove` — multi-agent lifecycle
@@ -161,7 +161,7 @@ There are also several active design drafts that are intentionally not yet imple
 ### Runtime Orchestration
 
 - ~~**general scheduler is still missing**~~ ✅ Implemented — `Scheduler` class with `croner`, `DbScheduleStore`, agent tools
-- **control-plane schedule management is still missing** — the gateway does not yet own job definitions, trigger dispatch, retries, or run policies
+- ~~**control-plane schedule management is still missing**~~ ✅ Gateway admin API, admin UI, and CLI `hermit schedules` all implemented
 - ~~**heartbeat is not yet first-class**~~ ✅ Resolved — heartbeat concept replaced by general cron schedules
 
 ### Memory Reliability
@@ -258,10 +258,11 @@ See `docs/user-model.md`. Phase 1 (core tables, identity resolution, role-based 
 - ✅ agent tools: `schedule_list`, `schedule_create`, `schedule_update`, `schedule_delete`, `schedule_trigger`
 - ✅ scheduler lifecycle integrated into AgentRunner (start on agent launch, stop on shutdown)
 - ✅ `heartbeat` concept removed — replaced by cron schedules
+- ✅ gateway admin API: CRUD + run history endpoints (`/api/admin/agents/:id/schedules`)
+- ✅ admin UI schedule management page (agent selector, create/pause/resume/delete, run history)
+- ✅ CLI `hermit schedules list/create/pause/resume/delete/runs`
+- ✅ SDK `GatewayClient` schedule methods
 - remaining:
-  - gateway API endpoints for schedule management
-  - CLI `hermit schedules` commands
-  - admin UI schedule view
   - `event` and `dependency` trigger types
 
 ## Phase 4 — Identity + Knowledge Maturity
@@ -289,7 +290,7 @@ See `docs/user-model.md`. Phase 1 (core tables, identity resolution, role-based 
 - ✅ `hermit status` and `hermit doctor` for platform health
 - ✅ npm publishing as `openhermit`
 - centralized monitoring (pending)
-- schedule management at control-plane level (pending)
+- ✅ schedule management at control-plane level (admin API + UI + CLI)
 
 ## Immediate Implementation Order
 
@@ -299,7 +300,7 @@ See `docs/user-model.md`. Phase 1 (core tables, identity resolution, role-based 
 4. ~~design transport protocol~~ ✅ three-layer model in `docs/transport-protocol.md`
 5. ~~implement transport Phase 1: HTTP sync + stream modes~~ ✅ `?wait=true` and `?stream=true` on POST messages
 6. ~~implement transport Phase 2: WebSocket endpoint~~ ✅ `ws://host/ws` with full RPC + event subscriptions + gateway proxy
-7. design and implement the scheduler
+7. ~~design and implement the scheduler~~ ✅ Scheduler + gateway admin API + UI + CLI
 8. ~~make heartbeat and cron first-class gateway-managed job types~~ ✅ scheduler with cron/once types
 9. define the durable-memory vs user-knowledge boundary more tightly
 10. implement idle / sleep-time long-term consolidation
