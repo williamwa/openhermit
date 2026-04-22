@@ -54,6 +54,7 @@ const createMockHost = (overrides: Partial<SchedulerHost> = {}): SchedulerHost =
   openSession: async () => {},
   postMessage: async () => {},
   postSystemMessage: async () => {},
+  deactivateSession: async () => {},
   ...overrides,
 });
 
@@ -104,6 +105,7 @@ test('Scheduler tick executes due "once" jobs', async (t) => {
   const host = createMockHost({
     openSession: async (sessionId) => { calls.push(`open:${sessionId}`); },
     postMessage: async (sessionId, text) => { calls.push(`msg:${sessionId}:${text}`); },
+    deactivateSession: async (sessionId) => { calls.push(`deactivate:${sessionId}`); },
   });
 
   const scheduler = new Scheduler(scope, store, host);
@@ -118,6 +120,7 @@ test('Scheduler tick executes due "once" jobs', async (t) => {
   assert.ok(calls.some((c) => c === 'open:schedule:once-1'), 'should open session with schedule:scheduleId');
   assert.ok(calls.some((c) => c.startsWith('msg:schedule:once-1:')), 'should post message');
   assert.ok(updateArgs?.input.status === 'completed', 'once job should be marked completed');
+  assert.ok(calls.some((c) => c === 'deactivate:schedule:once-1'), 'once job should deactivate session');
 
   await scheduler.stop();
 });
@@ -242,4 +245,50 @@ test('Scheduler passes createdBy as userId to openSession', async (t) => {
   await (scheduler as any).executeJob('user-1');
 
   assert.equal(passedUserId, 'user-abc');
+});
+
+test('Once-type schedule deactivates session after completion', async () => {
+  let deactivatedId = '';
+  const schedule = makeRecord({
+    scheduleId: 'once-deact',
+    type: 'once',
+    runAt: '2026-01-01T00:00:00.000Z',
+  });
+
+  const store = createMockStore({
+    get: async () => schedule,
+    list: async () => [],
+  });
+
+  const host = createMockHost({
+    deactivateSession: async (sid) => { deactivatedId = sid; },
+  });
+
+  const scheduler = new Scheduler(scope, store, host);
+  await (scheduler as any).executeJob('once-deact');
+
+  assert.equal(deactivatedId, 'schedule:once-deact');
+});
+
+test('Cron-type schedule does NOT deactivate session after execution', async () => {
+  let deactivated = false;
+  const schedule = makeRecord({
+    scheduleId: 'cron-nodeact',
+    type: 'cron',
+    cronExpression: '0 9 * * *',
+  });
+
+  const store = createMockStore({
+    get: async () => schedule,
+    list: async () => [],
+  });
+
+  const host = createMockHost({
+    deactivateSession: async () => { deactivated = true; },
+  });
+
+  const scheduler = new Scheduler(scope, store, host);
+  await (scheduler as any).executeJob('cron-nodeact');
+
+  assert.equal(deactivated, false, 'cron jobs should not deactivate session');
 });

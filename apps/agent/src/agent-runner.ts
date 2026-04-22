@@ -95,6 +95,7 @@ export class AgentRunner implements SessionRuntime {
   private workspaceIdleTimer: ReturnType<typeof setTimeout> | undefined;
 
   private scheduler: Scheduler | undefined;
+  private staleSessionTimer: ReturnType<typeof setInterval> | undefined;
 
   private static DEBUG = false;
 
@@ -150,11 +151,27 @@ export class AgentRunner implements SessionRuntime {
           message: text,
         });
       },
+      deactivateSession: async (sessionId) => {
+        const session = this.sessions.get(sessionId);
+        if (session) {
+          session.status = 'inactive';
+          this.clearIdleSummaryTimer(session);
+          this.persistSessionIndex(session);
+          this.sessions.delete(sessionId);
+        } else {
+          await this.store.sessions.updateStatus(this.scope, sessionId, 'inactive');
+        }
+      },
     };
 
     this.scheduler = new Scheduler(this.scope, this.store.schedules, host);
     await this.scheduler.start();
     this.logRuntime('scheduler started');
+
+    void this.markStaleSessions();
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    this.staleSessionTimer = setInterval(() => void this.markStaleSessions(), ONE_DAY_MS);
+    this.staleSessionTimer.unref?.();
   }
 
   /** Reload the scheduler (e.g. after schedules are created/updated/deleted via admin API). */
@@ -240,6 +257,11 @@ export class AgentRunner implements SessionRuntime {
       this.scheduler = undefined;
     }
 
+    if (this.staleSessionTimer) {
+      clearInterval(this.staleSessionTimer);
+      this.staleSessionTimer = undefined;
+    }
+
     if (this.workspaceIdleTimer) {
       clearTimeout(this.workspaceIdleTimer);
       this.workspaceIdleTimer = undefined;
@@ -250,6 +272,20 @@ export class AgentRunner implements SessionRuntime {
       this.execBackendManager = undefined;
     } else {
       await this.containerManager.stopWorkspaceContainer(this.scope.agentId).catch(() => {});
+    }
+  }
+
+  private static STALE_SESSION_DAYS = 5;
+
+  private async markStaleSessions(): Promise<void> {
+    try {
+      const cutoff = new Date(Date.now() - AgentRunner.STALE_SESSION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+      const count = await this.store.sessions.markStaleInactive(this.scope, cutoff);
+      if (count > 0) {
+        this.logRuntime(`marked ${count} stale session(s) as inactive (no activity for ${AgentRunner.STALE_SESSION_DAYS}+ days)`);
+      }
+    } catch (error) {
+      this.logRuntime(`failed to mark stale sessions: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

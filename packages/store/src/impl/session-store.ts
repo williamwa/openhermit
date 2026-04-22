@@ -74,6 +74,25 @@ export class DbSessionStore implements SessionStore {
     });
   }
 
+  async updateStatus(scope: StoreScope, sessionId: string, status: string): Promise<void> {
+    await this.prisma.session.update({
+      where: { agentId_sessionId: { agentId: scope.agentId, sessionId } },
+      data: { status },
+    });
+  }
+
+  async markStaleInactive(scope: StoreScope, olderThanIso: string): Promise<number> {
+    const result = await this.prisma.session.updateMany({
+      where: {
+        agentId: scope.agentId,
+        status: { notIn: ['inactive'] },
+        lastActivityAt: { lt: olderThanIso },
+      },
+      data: { status: 'inactive' },
+    });
+    return result.count;
+  }
+
   private rowToEntry(row: {
     sessionId: string;
     sourceKind: string;

@@ -5,6 +5,7 @@ export interface SchedulerHost {
   openSession(sessionId: string, source: { kind: string; interactive: boolean }, userId?: string): Promise<void>;
   postMessage(sessionId: string, text: string, metadata?: Record<string, unknown>): Promise<void>;
   postSystemMessage(sessionId: string, text: string): Promise<void>;
+  deactivateSession(sessionId: string): Promise<void>;
 }
 
 const TICK_INTERVAL_MS = 15_000;
@@ -132,6 +133,7 @@ export class Scheduler {
 
       if (schedule.type === 'once') {
         await this.store.update(this.scope, scheduleId, { status: 'completed' });
+        await this.host.deactivateSession(sessionId);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
