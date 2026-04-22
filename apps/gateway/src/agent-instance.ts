@@ -169,6 +169,13 @@ export class AgentInstanceManager {
       }
     }
 
+    // 8. Start the scheduler for cron/once jobs.
+    try {
+      await runner.startScheduler();
+    } catch (error) {
+      log(`[${agentId}] failed to start scheduler: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
     return runner;
   }
 

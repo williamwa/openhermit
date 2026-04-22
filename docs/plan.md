@@ -28,7 +28,7 @@ The main architectural direction is now stable:
 - dynamic system prompt (sections included only when corresponding tools are available)
 - LLM-powered context compaction with persistence and progressive summarization
 - session resumption context injection for cross-restart continuity
-- scheduler will be extracted from heartbeat-specific logic
+- ✅ scheduler implemented with cron/once schedule types (heartbeat concept removed)
 
 There are also several active design drafts that are intentionally not yet implemented as architecture commitments:
 
@@ -160,9 +160,9 @@ There are also several active design drafts that are intentionally not yet imple
 
 ### Runtime Orchestration
 
-- **general scheduler is still missing** — `heartbeat` and `cron` exist in the source/session model, but there is no durable scheduler subsystem yet
+- ~~**general scheduler is still missing**~~ ✅ Implemented — `Scheduler` class with `croner`, `DbScheduleStore`, agent tools
 - **control-plane schedule management is still missing** — the gateway does not yet own job definitions, trigger dispatch, retries, or run policies
-- **heartbeat is not yet first-class** — it exists as a source kind and design direction, but not as a complete managed runtime feature
+- ~~**heartbeat is not yet first-class**~~ ✅ Resolved — heartbeat concept replaced by general cron schedules
 
 ### Memory Reliability
 
@@ -245,23 +245,24 @@ See `docs/user-model.md`. Phase 1 (core tables, identity resolution, role-based 
 - evaluate proactive compaction (before reaching budget limit)
 - explore relevance-aware retention (keep important messages longer)
 
-## Phase 3 — Scheduler
+## Phase 3 — Scheduler ✅ Core Implemented
 
-- replace heartbeat-centric scheduling with a general scheduler
-- make `heartbeat` and `cron` first-class scheduled run types rather than ad-hoc source kinds
-- define schedule schema
-- support triggers:
-  - `cron`
-  - `interval`
-  - `at`
-  - `event`
-  - `dependency`
-- add execution policy:
-  - timeout
-  - retry
-  - backoff
-  - concurrency
-- dispatch scheduled work into agents as ordinary runs
+- ✅ `schedules` table in PostgreSQL with Prisma migration
+- ✅ `DbScheduleStore` with CRUD, listDue, markRun
+- ✅ `Scheduler` class with croner-based cron triggers and tick-based polling
+- ✅ two schedule types: `cron` (recurring) and `once` (one-time)
+- ✅ session strategies: `dedicated`, `ephemeral`, `target` (run in specific session)
+- ✅ delivery: `silent` (default) or notify via `session_send` to another session
+- ✅ execution policy: timeout, concurrency (skip/queue), model override
+- ✅ error backoff: progressive delays (30s → 1m → 5m → 15m → 1h)
+- ✅ agent tools: `schedule_list`, `schedule_create`, `schedule_update`, `schedule_delete`, `schedule_trigger`
+- ✅ scheduler lifecycle integrated into AgentRunner (start on agent launch, stop on shutdown)
+- ✅ `heartbeat` concept removed — replaced by cron schedules
+- remaining:
+  - gateway API endpoints for schedule management
+  - CLI `hermit schedules` commands
+  - admin UI schedule view
+  - `event` and `dependency` trigger types
 
 ## Phase 4 — Identity + Knowledge Maturity
 
@@ -299,7 +300,7 @@ See `docs/user-model.md`. Phase 1 (core tables, identity resolution, role-based 
 5. ~~implement transport Phase 1: HTTP sync + stream modes~~ ✅ `?wait=true` and `?stream=true` on POST messages
 6. ~~implement transport Phase 2: WebSocket endpoint~~ ✅ `ws://host/ws` with full RPC + event subscriptions + gateway proxy
 7. design and implement the scheduler
-8. make heartbeat and cron first-class gateway-managed job types
+8. ~~make heartbeat and cron first-class gateway-managed job types~~ ✅ scheduler with cron/once types
 9. define the durable-memory vs user-knowledge boundary more tightly
 10. implement idle / sleep-time long-term consolidation
 

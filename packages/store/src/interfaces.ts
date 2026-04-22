@@ -10,6 +10,10 @@ import type {
   MemorySearchOptions,
   MemoryUpdateInput,
   PersistedSessionIndexEntry,
+  ScheduleCreateInput,
+  ScheduleRecord,
+  ScheduleRunRecord,
+  ScheduleUpdateInput,
   SessionLogEntry,
   SkillRecord,
   StoreScope,
@@ -127,11 +131,25 @@ export interface AgentStore {
   delete(agentId: string): Promise<void>;
 }
 
+export interface ScheduleStore {
+  create(scope: StoreScope, input: ScheduleCreateInput): Promise<ScheduleRecord>;
+  get(scope: StoreScope, scheduleId: string): Promise<ScheduleRecord | undefined>;
+  list(scope: StoreScope, options?: { status?: string }): Promise<ScheduleRecord[]>;
+  listDue(scope: StoreScope, now: string): Promise<ScheduleRecord[]>;
+  update(scope: StoreScope, scheduleId: string, input: ScheduleUpdateInput): Promise<ScheduleRecord>;
+  delete(scope: StoreScope, scheduleId: string): Promise<void>;
+  markRun(scope: StoreScope, scheduleId: string, nextRunAt: string | null, error?: string): Promise<void>;
+  startRun(scope: StoreScope, scheduleId: string, sessionId: string, prompt: string): Promise<ScheduleRunRecord>;
+  finishRun(scope: StoreScope, runId: number, status: 'completed' | 'failed', error?: string): Promise<ScheduleRunRecord>;
+  listRuns(scope: StoreScope, scheduleId: string, limit?: number): Promise<ScheduleRunRecord[]>;
+}
+
 export interface InternalStateStore {
   sessions: SessionStore;
   messages: MessageStore;
   memories: MemoryProvider;
   instructions: InstructionStore;
   users: UserStore;
+  schedules: ScheduleStore;
   close(): Promise<void>;
 }

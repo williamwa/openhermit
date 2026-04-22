@@ -61,6 +61,19 @@ Requires: `sessionStore`
 | `session_read` | Read message history from a session. Use `offset` to page backwards | `session_id` (string, required), `limit` (number, optional, default 50), `offset` (number, optional, default 0) | | |
 | `session_summary` | Get session summary: description, working memory, message count, recent activity | `session_id` (string, required) | | |
 
+## Schedules
+
+Requires: `scheduleStore`
+
+| Tool | Description | Parameters | 🔐 | ✏️ |
+|------|-------------|------------|:--:|:--:|
+| `schedule_list` | List all scheduled jobs with status, next run time, run count | `status` (string, optional) | | |
+| `schedule_create` | Create a cron or one-time scheduled job | `type` (enum: `cron` \| `once`, required), `prompt` (string, required), `cron_expression` (string, optional), `run_at` (string, optional), `id` (string, optional), `session_mode` (string/object, optional), `delivery` (string/object, optional), `timeout_seconds` (number, optional), `model` (string, optional) | ✓ | ✓ |
+| `schedule_update` | Update a schedule's status, prompt, or cron expression | `id` (string, required), `status` (enum: `active` \| `paused`, optional), `prompt` (string, optional), `cron_expression` (string, optional), `run_at` (string, optional) | ✓ | ✓ |
+| `schedule_delete` | Delete a scheduled job permanently | `id` (string, required) | ✓ | ✓ |
+| `schedule_trigger` | Trigger a scheduled job immediately | `id` (string, required) | ✓ | ✓ |
+| `schedule_runs` | View execution history for a schedule | `id` (string, required), `limit` (number, optional, default 10) | | |
+
 ## Introspection-only Tools
 
 These tools are **not** available to the main agent. They are registered exclusively for the introspection agent during background session checkpoints.
@@ -87,7 +100,7 @@ Tool availability is filtered by user role in `createBuiltInToolsets()`:
 | Role | Available Tools |
 |------|----------------|
 | **owner** | All tools |
-| **user** | memory, instruction, web, exec, user (read-only subset) |
-| **guest** | web, session (read-only), memory_get, memory_recall |
+| **user** | memory, instruction, web, exec, schedule, user (read-only subset) |
+| **guest** | web, session (read-only), schedule_list, memory_get, memory_recall |
 
 The exact gating is implemented per-tool via the `context.userRole` check at registration time.

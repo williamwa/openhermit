@@ -29,25 +29,6 @@ export interface ContainerDefaultsConfig {
   network: string;
 }
 
-export interface HeartbeatConfig {
-  enabled: boolean;
-  interval_minutes: number;
-  max_iterations: number;
-  tools_allowed: string[];
-}
-
-export interface ScheduleJobConfig {
-  id: string;
-  schedule: string;
-  prompt: string;
-  enabled: boolean;
-  tools_allowed: string[];
-}
-
-export interface SchedulesConfig {
-  jobs: ScheduleJobConfig[];
-}
-
 export interface HttpApiConfig {
   preferred_port: number;
 }

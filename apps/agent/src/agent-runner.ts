@@ -67,6 +67,7 @@ import { buildToolResultPreview, persistToolResult } from './agent-runner/tool-r
 import { createWebProvider, type WebProvider } from './web/index.js';
 import { runIntrospection } from './introspection/index.js';
 import { loadSkillIndex } from './skills.js';
+import { Scheduler, type SchedulerHost } from './core/scheduler.js';
 
 const addUserIdToList = (existing: string[], userId: string | undefined): string[] => {
   if (!userId) return existing;
@@ -92,6 +93,8 @@ export class AgentRunner implements SessionRuntime {
   private readonly channelOutbound = new Map<string, import('@openhermit/protocol').ChannelOutbound>();
 
   private workspaceIdleTimer: ReturnType<typeof setTimeout> | undefined;
+
+  private scheduler: Scheduler | undefined;
 
   private static DEBUG = false;
 
@@ -125,6 +128,29 @@ export class AgentRunner implements SessionRuntime {
     const store = options.store
       ?? await DbInternalStateStore.open();
     return new AgentRunner(options, store);
+  }
+
+  async startScheduler(): Promise<void> {
+    const host: SchedulerHost = {
+      openSession: async (sessionId, source) => {
+        await this.openSession({ sessionId, source });
+      },
+      postMessage: async (sessionId, text) => {
+        await this.postMessage(sessionId, { text });
+      },
+      postSystemMessage: async (sessionId, text) => {
+        await this.store.messages.appendLogEntry(this.scope, sessionId, {
+          ts: new Date().toISOString(),
+          role: 'system',
+          type: 'schedule_notification',
+          message: text,
+        });
+      },
+    };
+
+    this.scheduler = new Scheduler(this.scope, this.store.schedules, host);
+    await this.scheduler.start();
+    this.logRuntime('scheduler started');
   }
 
   /** Register a channel outbound adapter (called after channel startup). */
@@ -198,8 +224,13 @@ export class AgentRunner implements SessionRuntime {
     }
   }
 
-  /** Stop workspace container and clean up exec backend state. */
+  /** Stop workspace container, scheduler, and clean up exec backend state. */
   async shutdown(): Promise<void> {
+    if (this.scheduler) {
+      await this.scheduler.stop();
+      this.scheduler = undefined;
+    }
+
     if (this.workspaceIdleTimer) {
       clearTimeout(this.workspaceIdleTimer);
       this.workspaceIdleTimer = undefined;
@@ -1099,6 +1130,8 @@ export class AgentRunner implements SessionRuntime {
           onExec: () => this.resetWorkspaceIdleTimer(input.config.exec?.lifecycle),
         } : {}),
         ...(this.channelOutbound.size > 0 ? { channelOutbound: this.channelOutbound } : {}),
+        ...(isOwnerOrUnresolved ? { scheduleStore: this.store.schedules } : {}),
+        ...(isOwnerOrUnresolved ? { onScheduleChange: () => this.scheduler?.reload() } : {}),
         ...(input.approvalCallback ? { approvalCallback: input.approvalCallback } : {}),
         ...(input.approvedCache ? { approvedCache: input.approvedCache } : {}),
         ...(input.onToolRequested ? { onToolRequested: input.onToolRequested } : {}),
@@ -1107,9 +1140,9 @@ export class AgentRunner implements SessionRuntime {
       tools = toolsFromToolsets(toolsets);
     }
 
-    // Guest role: strip exec and container tools
     const GUEST_BLOCKED_TOOLS = new Set([
-      'exec', 'container_run', 'container_start', 'container_stop', 'container_exec', 'container_status',
+      'exec',
+      'schedule_create', 'schedule_update', 'schedule_delete', 'schedule_trigger',
     ]);
     const filteredTools = isGuestRole
       ? tools.filter((t: any) => !GUEST_BLOCKED_TOOLS.has(t.name))

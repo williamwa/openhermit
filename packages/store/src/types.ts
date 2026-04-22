@@ -124,3 +124,84 @@ export interface AgentSkillRecord {
   enabled: boolean;
   createdAt: string;
 }
+
+// ── Schedules ────────────────────────────────────────────────────────
+
+export type ScheduleType = 'cron' | 'once';
+export type ScheduleStatus = 'active' | 'paused' | 'completed' | 'failed';
+
+export interface ScheduleSessionMode {
+  kind: 'dedicated' | 'ephemeral' | 'target';
+  targetSessionId?: string;
+}
+
+export interface ScheduleDelivery {
+  kind: 'silent' | 'session';
+  sessionId?: string;
+  summaryOnly?: boolean;
+}
+
+export interface SchedulePolicy {
+  timeout_seconds?: number;
+  max_iterations?: number;
+  concurrency?: 'skip' | 'queue';
+  model?: string;
+}
+
+export interface ScheduleRecord {
+  agentId: string;
+  scheduleId: string;
+  type: ScheduleType;
+  status: ScheduleStatus;
+  cronExpression?: string;
+  runAt?: string;
+  prompt: string;
+  sessionMode: ScheduleSessionMode;
+  delivery: ScheduleDelivery;
+  policy: SchedulePolicy;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
+  lastRunAt?: string;
+  nextRunAt?: string;
+  runCount: number;
+  consecutiveErrors: number;
+  lastError?: string;
+}
+
+export interface ScheduleCreateInput {
+  scheduleId?: string;
+  type: ScheduleType;
+  cronExpression?: string;
+  runAt?: string;
+  prompt: string;
+  sessionMode?: ScheduleSessionMode;
+  delivery?: ScheduleDelivery;
+  policy?: SchedulePolicy;
+  createdBy?: string;
+}
+
+export interface ScheduleUpdateInput {
+  status?: ScheduleStatus;
+  cronExpression?: string;
+  runAt?: string;
+  prompt?: string;
+  sessionMode?: ScheduleSessionMode;
+  delivery?: ScheduleDelivery;
+  policy?: SchedulePolicy;
+}
+
+export type ScheduleRunStatus = 'running' | 'completed' | 'failed' | 'skipped';
+
+export interface ScheduleRunRecord {
+  id: number;
+  agentId: string;
+  scheduleId: string;
+  status: ScheduleRunStatus;
+  sessionId?: string;
+  prompt: string;
+  startedAt: string;
+  finishedAt?: string;
+  durationMs?: number;
+  error?: string;
+}

@@ -15,6 +15,7 @@ import { createWebToolset } from './tools/web.js';
 import { createSessionToolset } from './tools/session.js';
 import { createUserToolset } from './tools/user.js';
 import { createExecToolset } from './tools/workspace-exec.js';
+import { createScheduleToolset } from './tools/schedule.js';
 
 export type {
   ApprovalCallback,
@@ -59,6 +60,9 @@ export const createBuiltInToolsets = (
   }
   if (context.sessionStore) {
     toolsets.push(createSessionToolset(context));
+  }
+  if (context.scheduleStore) {
+    toolsets.push(createScheduleToolset(context));
   }
   // working_memory_update is intentionally excluded from the main agent —
   // it is only available to the introspection agent to prevent overwrite conflicts.

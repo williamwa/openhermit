@@ -1335,13 +1335,13 @@ test('AgentRunner denies memory tools when no user role is resolved (guest-level
     },
   });
 
-  // heartbeat source has no channel user ID → no user resolved → guest
+  // schedule source has no channel user ID → no user resolved → guest
   await runner.openSession({
-    sessionId: 'heartbeat:guest-check',
-    source: { kind: 'heartbeat', interactive: false },
+    sessionId: 'schedule:guest-check',
+    source: { kind: 'schedule', interactive: false },
   });
-  await runner.postMessage('heartbeat:guest-check', { text: 'hi' });
-  await runner.waitForSessionIdle('heartbeat:guest-check');
+  await runner.postMessage('schedule:guest-check', { text: 'hi' });
+  await runner.waitForSessionIdle('schedule:guest-check');
 
   assert.ok(!capturedTools.includes('memory_add'), 'guest should not have memory_add');
   assert.ok(!capturedTools.includes('memory_recall'), 'guest should not have memory_recall');

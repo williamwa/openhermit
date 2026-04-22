@@ -1,7 +1,7 @@
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 import type { ChannelOutbound } from '@openhermit/protocol';
 import { ValidationError } from '@openhermit/shared';
-import type { InstructionStore, MemoryProvider, MessageStore, SessionStore, StoreScope, UserStore } from '@openhermit/store';
+import type { InstructionStore, MemoryProvider, MessageStore, ScheduleStore, SessionStore, StoreScope, UserStore } from '@openhermit/store';
 
 import { AgentSecurity, type ExecBackendManager } from '../core/index.js';
 import type { WebProvider } from '../web/index.js';
@@ -25,6 +25,10 @@ const READONLY_BLOCKED_TOOLS = new Set([
   'user_identity_unlink',
   'user_role_set',
   'user_merge',
+  'schedule_create',
+  'schedule_update',
+  'schedule_delete',
+  'schedule_trigger',
 ]);
 
 export type ApprovalDecision = 'approved' | 'rejected' | 'timed_out' | 'cancelled';
@@ -60,9 +64,11 @@ export interface ToolContext {
   storeScope?: StoreScope;
   agentId?: string;
   execBackendManager?: ExecBackendManager;
+  scheduleStore?: ScheduleStore;
   /** Channel outbound adapters keyed by channel name (e.g. 'telegram'). */
   channelOutbound?: Map<string, ChannelOutbound>;
   onExec?: () => void;
+  onScheduleChange?: () => void;
   approvalCallback?: ApprovalCallback;
   approvedCache?: Set<string>;
   onToolRequested?: ToolRequestedCallback;

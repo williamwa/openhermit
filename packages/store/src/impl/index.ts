@@ -6,6 +6,7 @@ import { DbMemoryProvider } from './memory-provider.js';
 import { DbInstructionStore } from './instruction-store.js';
 import { DbUserStore } from './user-store.js';
 import { DbAgentStore } from './agent-store.js';
+import { DbScheduleStore } from './schedule-store.js';
 
 export class DbInternalStateStore implements InternalStateStore {
   readonly sessions: DbSessionStore;
@@ -13,6 +14,7 @@ export class DbInternalStateStore implements InternalStateStore {
   readonly memories: DbMemoryProvider;
   readonly instructions: DbInstructionStore;
   readonly users: DbUserStore;
+  readonly schedules: DbScheduleStore;
 
   private constructor(private readonly prisma: PrismaClient) {
     this.sessions = new DbSessionStore(prisma);
@@ -20,6 +22,7 @@ export class DbInternalStateStore implements InternalStateStore {
     this.memories = new DbMemoryProvider(prisma);
     this.instructions = new DbInstructionStore(prisma);
     this.users = new DbUserStore(prisma);
+    this.schedules = new DbScheduleStore(prisma);
   }
 
   static async open(databaseUrl?: string): Promise<DbInternalStateStore> {
@@ -51,3 +54,4 @@ export { DbInstructionStore } from './instruction-store.js';
 export { DbUserStore } from './user-store.js';
 export { DbAgentStore } from './agent-store.js';
 export { DbSkillStore } from './skill-store.js';
+export { DbScheduleStore } from './schedule-store.js';

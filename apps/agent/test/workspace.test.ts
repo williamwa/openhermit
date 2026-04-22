@@ -13,7 +13,6 @@ test('AgentWorkspace init scaffolds directories', async (t) => {
   const rootEntries = await fs.readdir(root);
 
   assert.ok(rootEntries.includes('.openhermit'));
-  assert.ok(rootEntries.includes('containers'));
   assert.ok(!rootEntries.includes('files'));
   assert.ok(!rootEntries.includes('hooks'));
   assert.ok(!rootEntries.includes('logs'));

@@ -177,3 +177,49 @@ model AgentSkill {
   @@index([agentId], map: "idx_agent_skills_agent")
   @@map("agent_skills")
 }
+
+model Schedule {
+  agentId        String  @map("agent_id")
+  scheduleId     String  @map("schedule_id")
+  type           String
+  status         String  @default("active")
+  cronExpression String? @map("cron_expression")
+  runAt          String? @map("run_at")
+  prompt         String
+  sessionMode    String  @default("dedicated") @map("session_mode")
+  deliveryJson   String  @default("\"silent\"") @map("delivery_json")
+  policyJson     String  @default("{}") @map("policy_json")
+  createdBy      String? @map("created_by")
+  createdAt      String  @map("created_at")
+  updatedAt      String  @map("updated_at")
+  lastRunAt      String? @map("last_run_at")
+  nextRunAt      String? @map("next_run_at")
+  runCount       Int     @default(0) @map("run_count")
+  consecutiveErrors Int  @default(0) @map("consecutive_errors")
+  lastError      String? @map("last_error")
+
+  runs ScheduleRun[]
+
+  @@id([agentId, scheduleId])
+  @@index([agentId, status], map: "idx_schedules_agent_status")
+  @@index([agentId, nextRunAt], map: "idx_schedules_next_run")
+  @@map("schedules")
+}
+
+model ScheduleRun {
+  id          Int     @id @default(autoincrement())
+  agentId     String  @map("agent_id")
+  scheduleId  String  @map("schedule_id")
+  status      String
+  sessionId   String? @map("session_id")
+  prompt      String
+  startedAt   String  @map("started_at")
+  finishedAt  String? @map("finished_at")
+  durationMs  Int?    @map("duration_ms")
+  error       String?
+
+  schedule Schedule @relation(fields: [agentId, scheduleId], references: [agentId, scheduleId], onDelete: Cascade)
+
+  @@index([agentId, scheduleId, startedAt(sort: Desc)], map: "idx_schedule_runs_schedule")
+  @@map("schedule_runs")
+}
