@@ -275,7 +275,7 @@ export class AgentRunner implements SessionRuntime {
     }
   }
 
-  private static STALE_SESSION_DAYS = 5;
+  private static STALE_SESSION_DAYS = 3;
 
   private async markStaleSessions(): Promise<void> {
     try {
