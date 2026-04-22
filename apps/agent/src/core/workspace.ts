@@ -15,7 +15,6 @@ export interface ResolvePathOptions {
 
 const SCAFFOLD_DIRECTORIES = [
   '.openhermit',
-  'containers',
 ] as const;
 
 const isPathOutsideRoot = (relativePath: string): boolean =>

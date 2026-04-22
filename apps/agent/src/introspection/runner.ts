@@ -103,10 +103,8 @@ export async function runIntrospection(input: IntrospectionInput): Promise<Intro
       .join('\n\n')
       .slice(0, 32_000);
 
-    // Create tool context for introspection (no approval, no container tools)
     const toolContext: ToolContext = {
       security: input.security,
-      containerManager: undefined as any, // not used by memory tools
       memoryProvider: input.store.memories,
       messageStore: input.store.messages,
       sessionStore: input.store.sessions,

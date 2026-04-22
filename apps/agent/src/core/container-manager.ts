@@ -1,65 +1,18 @@
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 
 import { OpenHermitError, NotFoundError, ValidationError } from '@openhermit/shared';
-import {
-  type ContainerStore,
-  type StoreScope,
-  DbInternalStateStore,
-  standaloneScope,
-} from '@openhermit/store';
 
 import type {
-  ContainerListEntry,
   ContainerProcessResult,
   ContainerRegistryEntry,
   ContainerStatus,
-  ContainerType,
-  EphemeralContainerArgs,
-  ServiceContainerArgs,
   WorkspaceContainerConfig,
 } from './types.js';
 import { AgentWorkspace } from './workspace.js';
 
 const OUTPUT_START = '---OPENHERMIT_OUTPUT_START---';
 const OUTPUT_END = '---OPENHERMIT_OUTPUT_END---';
-
-const normalizeContainerRelativePath = (relativePath: string): string =>
-  path.posix.normalize(relativePath.split(path.sep).join(path.posix.sep));
-
-const isContainerMountPath = (relativePath: string): boolean => {
-  const normalized = normalizeContainerRelativePath(relativePath);
-
-  if (
-    normalized === '.' ||
-    normalized === '..' ||
-    normalized.startsWith('../') ||
-    normalized.startsWith('/')
-  ) {
-    return false;
-  }
-
-  const segments = normalized.split('/').filter(Boolean);
-
-  return segments.length >= 3 && segments[0] === 'containers' && segments[2] === 'data';
-};
-
-const normalizeContainerMountTarget = (targetPath: string): string =>
-  path.posix.normalize(targetPath.split(path.sep).join(path.posix.sep));
-
-const isValidContainerMountTarget = (targetPath: string): boolean => {
-  const normalized = normalizeContainerMountTarget(targetPath);
-
-  return (
-    normalized.length > 1 &&
-    normalized.startsWith('/') &&
-    normalized !== '/.' &&
-    normalized !== '/..' &&
-    !normalized.includes('/../')
-  );
-};
 
 const parseStructuredOutput = (stdout: string): unknown => {
   const startIndex = stdout.indexOf(OUTPUT_START);
@@ -85,26 +38,11 @@ const parseStructuredOutput = (stdout: string): unknown => {
 };
 
 const deriveContainerStatus = (statusText: string | undefined): ContainerStatus => {
-  if (!statusText) {
-    return 'unknown';
-  }
-
-  if (statusText.startsWith('Up ')) {
-    return 'running';
-  }
-
-  if (statusText.startsWith('Exited')) {
-    return 'exited';
-  }
-
-  if (statusText.startsWith('Created')) {
-    return 'created';
-  }
-
-  if (statusText.startsWith('Removed')) {
-    return 'removed';
-  }
-
+  if (!statusText) return 'unknown';
+  if (statusText.startsWith('Up ')) return 'running';
+  if (statusText.startsWith('Exited')) return 'exited';
+  if (statusText.startsWith('Created')) return 'created';
+  if (statusText.startsWith('Removed')) return 'removed';
   return 'unknown';
 };
 
@@ -170,39 +108,6 @@ class DockerCliRunner implements DockerRunner {
 export interface DockerContainerManagerOptions {
   agentId?: string;
   runner?: DockerRunner;
-  containerStore?: ContainerStore;
-  storeScope?: StoreScope;
-}
-
-/**
- * Scope-bound container registry that delegates to a `ContainerStore` with
- * a fixed `StoreScope`.  Provides the same call signatures as the old
- * `ContainerRegistryStore` so internal callers don't need to pass scope.
- */
-class ScopedContainerRegistry {
-  constructor(
-    private readonly store: ContainerStore,
-    private readonly scope: StoreScope,
-  ) {}
-
-  async readAll(): Promise<ContainerRegistryEntry[]> {
-    return this.store.readAll(this.scope);
-  }
-
-  async findByName(name: string): Promise<ContainerRegistryEntry | undefined> {
-    return this.store.findByName(this.scope, name);
-  }
-
-  async upsert(entry: ContainerRegistryEntry): Promise<void> {
-    return this.store.upsert(this.scope, entry);
-  }
-
-  async updateByName(
-    name: string,
-    update: (entry: ContainerRegistryEntry) => ContainerRegistryEntry,
-  ): Promise<ContainerRegistryEntry> {
-    return this.store.updateByName(this.scope, name, update);
-  }
 }
 
 interface LiveDockerContainer {
@@ -212,384 +117,17 @@ interface LiveDockerContainer {
   statusText: string;
 }
 
-class InMemoryContainerStore implements ContainerStore {
-  private readonly entries = new Map<string, ContainerRegistryEntry>();
-
-  private key(scope: StoreScope, name: string): string {
-    return `${scope.agentId}:${name}`;
-  }
-
-  async readAll(scope: StoreScope): Promise<ContainerRegistryEntry[]> {
-    const prefix = `${scope.agentId}:`;
-    return [...this.entries.entries()]
-      .filter(([key]) => key.startsWith(prefix))
-      .map(([, entry]) => ({ ...entry }));
-  }
-
-  async findByName(
-    scope: StoreScope,
-    name: string,
-  ): Promise<ContainerRegistryEntry | undefined> {
-    const entry = this.entries.get(this.key(scope, name));
-    return entry ? { ...entry } : undefined;
-  }
-
-  async upsert(scope: StoreScope, entry: ContainerRegistryEntry): Promise<void> {
-    this.entries.set(this.key(scope, entry.name), { ...entry });
-  }
-
-  async updateByName(
-    scope: StoreScope,
-    name: string,
-    updater: (entry: ContainerRegistryEntry) => ContainerRegistryEntry,
-  ): Promise<ContainerRegistryEntry> {
-    const existing = this.entries.get(this.key(scope, name));
-
-    if (!existing) {
-      throw new NotFoundError(`Container not found in registry: ${name}`);
-    }
-
-    const updated = updater({ ...existing });
-    this.entries.set(this.key(scope, name), { ...updated });
-    return { ...updated };
-  }
-}
-
 export class DockerContainerManager {
   private readonly docker: DockerRunner;
   private readonly agentId: string;
-
-  readonly registry!: ScopedContainerRegistry;
+  private workspaceEntry: ContainerRegistryEntry | undefined;
 
   constructor(
     private readonly workspace: AgentWorkspace,
     options: DockerContainerManagerOptions = {},
-    registry?: ScopedContainerRegistry,
   ) {
     this.docker = options.runner ?? new DockerCliRunner();
     this.agentId = options.agentId ?? 'default';
-
-    if (registry) {
-      this.registry = registry;
-    } else if (options.containerStore) {
-      this.registry = new ScopedContainerRegistry(
-        options.containerStore,
-        options.storeScope ?? standaloneScope,
-      );
-    } else {
-      this.registry = new ScopedContainerRegistry(
-        new InMemoryContainerStore(),
-        options.storeScope ?? standaloneScope,
-      );
-    }
-  }
-
-  static async create(
-    workspace: AgentWorkspace,
-    options: DockerContainerManagerOptions = {},
-  ): Promise<DockerContainerManager> {
-    if (options.containerStore) {
-      return new DockerContainerManager(workspace, options);
-    }
-
-    const store = await DbInternalStateStore.open();
-    const registry = new ScopedContainerRegistry(store.containers, standaloneScope);
-    return new DockerContainerManager(workspace, options, registry);
-  }
-
-  private async requireRegisteredService(
-    userFacingName: string,
-  ): Promise<ContainerRegistryEntry> {
-    const name = this.containerName(userFacingName);
-    const entry = await this.registry.findByName(name);
-
-    if (!entry || entry.type !== 'service') {
-      throw new NotFoundError(`Service container not found in registry: ${userFacingName}`);
-    }
-
-    return entry;
-  }
-
-  async runEphemeral(
-    args: EphemeralContainerArgs,
-  ): Promise<ContainerProcessResult & { container: ContainerRegistryEntry }> {
-    const name = this.containerName(`run-${Date.now()}-${randomUUID().slice(0, 8)}`);
-    const mountRelative = normalizeContainerRelativePath(
-      args.mount ?? `containers/${name}/data`,
-    );
-
-    if (!isContainerMountPath(mountRelative)) {
-      throw new ValidationError(
-        `Ephemeral mount path must stay under containers/{name}/data: ${mountRelative}`,
-      );
-    }
-
-    const mountPath = await this.workspace.resolve(mountRelative);
-    await fs.mkdir(mountPath, { recursive: true });
-    const mountTarget = normalizeContainerMountTarget(
-      args.mount_target ?? '/workspace',
-    );
-
-    if (!isValidContainerMountTarget(mountTarget)) {
-      throw new ValidationError(
-        `Ephemeral mount target must be an absolute in-container path: ${mountTarget}`,
-      );
-    }
-
-    const entry: ContainerRegistryEntry = {
-      id: randomUUID(),
-      name,
-      image: args.image,
-      type: 'ephemeral',
-      status: 'created',
-      ...(args.description ? { description: args.description } : {}),
-      command: args.command,
-      mount: this.workspace.toRelativePath(mountPath),
-      mount_target: mountTarget,
-      created: new Date().toISOString(),
-    };
-    await this.registry.upsert(entry);
-
-    const dockerArgs = [
-      'run',
-      '--rm',
-      '--name',
-      name,
-      '-v',
-      `${mountPath}:${mountTarget}`,
-      '-w',
-      args.workdir ?? mountTarget,
-    ];
-
-    for (const [key, value] of Object.entries(args.env ?? {})) {
-      dockerArgs.push('-e', `${key}=${value}`);
-    }
-
-    dockerArgs.push(args.image, 'sh', '-lc', args.command);
-
-    const result = await this.docker.run(dockerArgs);
-    const parsedOutput = parseStructuredOutput(result.stdout);
-    const finalizedEntry: ContainerRegistryEntry = {
-      ...entry,
-      status: 'removed',
-      exit_code: result.exitCode,
-      removed: new Date().toISOString(),
-    };
-    await this.registry.upsert(finalizedEntry);
-
-    return {
-      ...result,
-      ...(parsedOutput !== undefined ? { parsedOutput } : {}),
-      container: finalizedEntry,
-    };
-  }
-
-  async startService(args: ServiceContainerArgs): Promise<ContainerRegistryEntry> {
-    const name = this.containerName(args.name);
-    const mountRelative = normalizeContainerRelativePath(
-      args.mount ?? `containers/${args.name}/data`,
-    );
-
-    if (!isContainerMountPath(mountRelative)) {
-      throw new ValidationError(
-        `Service mount path must stay under containers/{name}/data: ${mountRelative}`,
-      );
-    }
-
-    const existing = await this.registry.findByName(name);
-
-    if (existing && existing.status === 'running') {
-      throw new ValidationError(
-        `Service container "${args.name}" is already running. Use container_stop to stop it, or container_exec to run commands inside it.`,
-      );
-    }
-
-    // Restart a stopped container.
-    if (existing && existing.status === 'stopped') {
-      const result = await this.docker.run(['start', name]);
-
-      if (result.exitCode !== 0) {
-        throw new OpenHermitError(
-          `Failed to restart service container: ${result.stderr || result.stdout}`,
-          'docker_run_failed',
-          500,
-        );
-      }
-
-      return this.registry.updateByName(name, (current) => ({
-        ...current,
-        status: 'running',
-      }));
-    }
-
-    const mountPath = await this.workspace.resolve(mountRelative);
-    await fs.mkdir(mountPath, { recursive: true });
-    const mountTarget = normalizeContainerMountTarget(
-      args.mount_target ?? '/data',
-    );
-
-    if (!isValidContainerMountTarget(mountTarget)) {
-      throw new ValidationError(
-        `Service mount target must be an absolute in-container path: ${mountTarget}`,
-      );
-    }
-
-    // Remove stale removed container so the name is available.
-    if (existing && existing.status === 'removed') {
-      await this.docker.run(['rm', '-f', name]);
-    }
-
-    const dockerArgs = [
-      'run',
-      '-d',
-      '--name',
-      name,
-      '-v',
-      `${mountPath}:${mountTarget}`,
-    ];
-
-    for (const [containerPort, hostPort] of Object.entries(args.ports ?? {})) {
-      dockerArgs.push('-p', `${hostPort}:${containerPort}`);
-    }
-
-    for (const [key, value] of Object.entries(args.env ?? {})) {
-      dockerArgs.push('-e', `${key}=${value}`);
-    }
-
-    if (args.network) {
-      dockerArgs.push('--network', args.network);
-    }
-
-    dockerArgs.push(args.image);
-
-    const result = await this.docker.run(dockerArgs);
-
-    if (result.exitCode !== 0) {
-      throw new OpenHermitError(
-        `Failed to start service container: ${result.stderr || result.stdout}`,
-        'docker_run_failed',
-        500,
-      );
-    }
-
-    const runtimeContainerId = result.stdout.trim() || existing?.runtime_container_id;
-    const entry: ContainerRegistryEntry = {
-      id: existing?.id ?? randomUUID(),
-      name,
-      image: args.image,
-      type: 'service',
-      status: 'running',
-      ...(args.description ? { description: args.description } : {}),
-      ...(args.ports ? { ports: args.ports } : {}),
-      mount: this.workspace.toRelativePath(mountPath),
-      mount_target: mountTarget,
-      ...(args.network ? { network: args.network } : {}),
-      ...(runtimeContainerId ? { runtime_container_id: runtimeContainerId } : {}),
-      created: existing?.created ?? new Date().toISOString(),
-    };
-
-    await this.registry.upsert(entry);
-    return entry;
-  }
-
-  async stopService(name: string): Promise<ContainerRegistryEntry> {
-    const entry = await this.requireRegisteredService(name);
-
-    if (entry.status === 'stopped' || entry.status === 'removed') {
-      return entry;
-    }
-
-    const result = await this.docker.run(['stop', entry.name]);
-    const missingContainer =
-      result.exitCode !== 0 &&
-      /No such container/i.test(`${result.stdout}\n${result.stderr}`);
-
-    if (result.exitCode !== 0 && !missingContainer) {
-      throw new OpenHermitError(
-        `Failed to stop service container: ${result.stderr || result.stdout}`,
-        'docker_stop_failed',
-        500,
-      );
-    }
-
-    return this.registry.updateByName(entry.name, (current) => ({
-      ...current,
-      status: missingContainer ? 'removed' : 'stopped',
-    }));
-  }
-
-  async removeService(name: string): Promise<ContainerRegistryEntry> {
-    const entry = await this.requireRegisteredService(name);
-
-    if (entry.status === 'removed') {
-      return entry;
-    }
-
-    const result = await this.docker.run(['rm', '-f', entry.name]);
-    const missingContainer =
-      result.exitCode !== 0 &&
-      /No such container/i.test(`${result.stdout}\n${result.stderr}`);
-
-    if (result.exitCode !== 0 && !missingContainer) {
-      throw new OpenHermitError(
-        `Failed to remove service container: ${result.stderr || result.stdout}`,
-        'docker_remove_failed',
-        500,
-      );
-    }
-
-    return this.registry.updateByName(entry.name, (current) => ({
-      ...current,
-      status: 'removed',
-      removed: new Date().toISOString(),
-    }));
-  }
-
-  async execInService(
-    name: string,
-    command: string,
-  ): Promise<ContainerProcessResult> {
-    const entry = await this.requireRegisteredService(name);
-
-    if (entry.status !== 'running') {
-      throw new ValidationError(`Service container is not running: ${name}`);
-    }
-
-    const result = await this.docker.run(['exec', entry.name, 'sh', '-lc', command]);
-    const parsedOutput = parseStructuredOutput(result.stdout);
-
-    return {
-      ...result,
-      ...(parsedOutput !== undefined ? { parsedOutput } : {}),
-    };
-  }
-
-  async listAll(): Promise<ContainerListEntry[]> {
-    const [registryEntries, liveContainers] = await Promise.all([
-      this.registry.readAll(),
-      this.listLiveContainers().catch(() => []),
-    ]);
-
-    const liveByName = new Map(
-      liveContainers.map((container) => [container.names, container]),
-    );
-
-    return registryEntries.map((entry) => {
-      const live = liveByName.get(entry.name);
-      const shortName = this.toShortName(entry.name);
-
-      if (!live) {
-        return { ...entry, name: shortName };
-      }
-
-      return {
-        ...entry,
-        name: shortName,
-        status: deriveContainerStatus(live.statusText),
-        runtime_container_id: live.id,
-        live_status_text: live.statusText,
-      };
-    });
   }
 
   private async listLiveContainers(): Promise<LiveDockerContainer[]> {
@@ -620,21 +158,6 @@ export class DockerContainerManager {
     return `openhermit-${this.agentId}-${suffix}`;
   }
 
-  private toShortName(fullName: string): string {
-    const prefix = `openhermit-${this.agentId}-`;
-    return fullName.startsWith(prefix) ? fullName.slice(prefix.length) : fullName;
-  }
-
-  async getWorkspaceContainer(
-    agentId: string,
-  ): Promise<ContainerRegistryEntry | undefined> {
-    return this.registry.findByName(this.containerName('workspace'));
-  }
-
-  /**
-   * Ensure a persistent workspace container exists for the given agent.
-   * Idempotent: creates if missing, starts if stopped, returns if running.
-   */
   async ensureWorkspaceContainer(
     agentId: string,
     config: WorkspaceContainerConfig,
@@ -642,85 +165,58 @@ export class DockerContainerManager {
     const name = this.containerName('workspace');
     const mountTarget = '/workspace';
 
-    let existing = await this.registry.findByName(name);
-
-    // Always check Docker for a live container — the in-memory registry may be
-    // empty after a gateway restart while the container still exists.
     const liveContainers = await this.listLiveContainers().catch(() => []);
     const live = liveContainers.find((c) => c.names === name);
     const liveStatus = live ? deriveContainerStatus(live.statusText) : undefined;
 
-    // If Docker knows about this container but the registry doesn't, re-register it.
-    if (!existing && liveStatus) {
-      existing = {
-        id: live!.id,
-        name,
-        image: config.image,
-        type: 'workspace',
-        status: liveStatus === 'running' ? 'running' : 'stopped',
-        description: `Persistent workspace container for agent ${agentId}`,
-        mount: '.',
-        mount_target: mountTarget,
+    if (liveStatus === 'running') {
+      this.workspaceEntry = {
+        ...(this.workspaceEntry ?? {
+          id: live!.id,
+          name,
+          image: config.image,
+          type: 'workspace' as const,
+          mount: '.',
+          mount_target: mountTarget,
+          created: new Date().toISOString(),
+        }),
+        status: 'running',
         runtime_container_id: live!.id,
-        created: new Date().toISOString(),
       };
-      await this.registry.upsert(existing);
+      return this.workspaceEntry;
     }
 
-    if (existing) {
-      if (liveStatus === 'running') {
-        return this.registry.updateByName(name, (current) => ({
-          ...current,
-          status: 'running',
-          runtime_container_id: live!.id,
-        }));
-      }
-
-      // Container exists but is stopped — restart it.
-      if (liveStatus === 'exited' || existing.status === 'stopped') {
-        const startResult = await this.docker.run(['start', name]);
-
-        if (startResult.exitCode === 0) {
-          return this.registry.updateByName(name, (current) => ({
-            ...current,
-            status: 'running',
-          }));
-        }
-      }
-
-      // Container is in an unrecoverable state — remove and recreate.
-      if (liveStatus) {
-        await this.docker.run(['rm', '-f', name]);
+    if (liveStatus === 'exited' || (this.workspaceEntry?.status === 'stopped' && liveStatus)) {
+      const startResult = await this.docker.run(['start', name]);
+      if (startResult.exitCode === 0) {
+        this.workspaceEntry = { ...this.workspaceEntry!, status: 'running' };
+        return this.workspaceEntry;
       }
     }
 
-    // Create the workspace container
+    // Remove stale container if it exists in an unrecoverable state.
+    if (liveStatus) {
+      await this.docker.run(['rm', '-f', name]);
+    }
+
     const workspaceRoot = this.workspace.root;
     const dockerArgs = [
-      'run',
-      '-d',
-      '--name',
-      name,
-      '-v',
-      `${workspaceRoot}:${mountTarget}`,
-      '-w',
-      mountTarget,
+      'run', '-d',
+      '--name', name,
+      '-v', `${workspaceRoot}:${mountTarget}`,
+      '-w', mountTarget,
     ];
 
     if (config.memory_limit) {
       dockerArgs.push('--memory', config.memory_limit);
     }
-
     if (config.cpu_shares) {
       dockerArgs.push('--cpu-shares', String(config.cpu_shares));
     }
-
-    // Mount skill-mounts directory read-only at /skills
     if (config.skillMountsDir) {
       dockerArgs.push('-v', `${config.skillMountsDir}:/skills:ro`);
     }
 
-    // Keep container alive with a long-running process
     dockerArgs.push(config.image, 'sleep', 'infinity');
 
     const result = await this.docker.run(dockerArgs);
@@ -734,51 +230,45 @@ export class DockerContainerManager {
     }
 
     const runtimeContainerId = result.stdout.trim();
-    const entry: ContainerRegistryEntry = {
-      id: existing?.id ?? randomUUID(),
+    this.workspaceEntry = {
+      id: this.workspaceEntry?.id ?? randomUUID(),
       name,
       image: config.image,
       type: 'workspace',
       status: 'running',
-      description: `Persistent workspace container for agent ${agentId}`,
       mount: '.',
       mount_target: mountTarget,
       ...(runtimeContainerId ? { runtime_container_id: runtimeContainerId } : {}),
-      created: existing?.created ?? new Date().toISOString(),
+      created: this.workspaceEntry?.created ?? new Date().toISOString(),
     };
 
-    await this.registry.upsert(entry);
-    return entry;
+    return this.workspaceEntry;
   }
 
   async stopWorkspaceContainer(agentId: string): Promise<void> {
     const name = this.containerName('workspace');
-    const entry = await this.registry.findByName(name);
 
-    if (!entry || entry.status === 'stopped' || entry.status === 'removed') {
+    if (this.workspaceEntry && (this.workspaceEntry.status === 'stopped' || this.workspaceEntry.status === 'removed')) {
       return;
     }
 
     await this.docker.run(['stop', name]);
-    await this.registry.updateByName(name, (current) => ({
-      ...current,
-      status: 'stopped',
-    }));
+    if (this.workspaceEntry) {
+      this.workspaceEntry = { ...this.workspaceEntry, status: 'stopped' };
+    }
   }
-
 
   async execInWorkspace(
     agentId: string,
     command: string,
   ): Promise<ContainerProcessResult> {
     const name = this.containerName('workspace');
-    const entry = await this.registry.findByName(name);
 
-    if (!entry || entry.type !== 'workspace') {
+    if (!this.workspaceEntry || this.workspaceEntry.type !== 'workspace') {
       throw new NotFoundError(`Workspace container not found: ${name}`);
     }
 
-    if (entry.status !== 'running') {
+    if (this.workspaceEntry.status !== 'running') {
       throw new ValidationError(`Workspace container is not running: ${name}`);
     }
 

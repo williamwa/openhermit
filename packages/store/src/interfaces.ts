@@ -4,7 +4,6 @@ import type {
   AgentRecord,
   AgentSkillRecord,
   MessageRow,
-  ContainerRegistryEntry,
   InstructionEntry,
   MemoryAddInput,
   MemoryEntry,
@@ -55,13 +54,6 @@ export interface MemoryProvider {
   update(scope: StoreScope, id: string, input: MemoryUpdateInput): Promise<MemoryEntry>;
   delete(scope: StoreScope, id: string): Promise<void>;
   getContextBlock(scope: StoreScope, options?: { limit?: number | undefined }): Promise<string | undefined>;
-}
-
-export interface ContainerStore {
-  readAll(scope: StoreScope): Promise<ContainerRegistryEntry[]>;
-  findByName(scope: StoreScope, name: string): Promise<ContainerRegistryEntry | undefined>;
-  upsert(scope: StoreScope, entry: ContainerRegistryEntry): Promise<void>;
-  updateByName(scope: StoreScope, name: string, updater: (e: ContainerRegistryEntry) => ContainerRegistryEntry): Promise<ContainerRegistryEntry>;
 }
 
 export interface InstructionStore {
@@ -139,7 +131,6 @@ export interface InternalStateStore {
   sessions: SessionStore;
   messages: MessageStore;
   memories: MemoryProvider;
-  containers: ContainerStore;
   instructions: InstructionStore;
   users: UserStore;
   close(): Promise<void>;

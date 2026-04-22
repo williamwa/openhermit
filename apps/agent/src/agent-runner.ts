@@ -117,8 +117,6 @@ export class AgentRunner implements SessionRuntime {
       options.containerManager
       ?? new DockerContainerManager(options.workspace, {
         agentId: options.security.agentId,
-        containerStore: this.store.containers,
-        storeScope: this.scope,
       });
   }
 
@@ -1060,8 +1058,8 @@ export class AgentRunner implements SessionRuntime {
     const webProvider = this.resolveWebProvider(input.config);
 
     // Role-based tool filtering:
-    // - owner: all tools (memory, instructions, exec, containers, web, sessions, user management)
-    // - user: memory, exec, containers, web, sessions (no instructions, no user management)
+    // - owner: all tools (memory, instructions, exec, web, sessions, user management)
+    // - user: memory, exec, web, sessions (no instructions, no user management)
     // - guest (with userId): web, sessions (filtered by userId)
     // - undefined (no user resolved): web only (no sessions — can't identify caller)
     const role = input.userRole;
@@ -1086,7 +1084,6 @@ export class AgentRunner implements SessionRuntime {
     } else {
       toolsets = createBuiltInToolsets({
         security: this.options.security,
-        containerManager: this.containerManager,
         ...(!isGuestRole ? { memoryProvider: this.store.memories } : {}),
         messageStore: this.store.messages,
         sessionId: input.contextSessionId,

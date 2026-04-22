@@ -3,7 +3,6 @@ export type {
   SessionStore,
   MessageStore,
   MemoryProvider,
-  ContainerStore,
   InstructionStore,
   SkillStore,
   UserStore,
@@ -25,9 +24,6 @@ export type {
   UserRole,
   UserRecord,
   UserIdentity,
-  ContainerType,
-  ContainerStatus,
-  ContainerRegistryEntry,
   MessageRow,
 } from './types.js';
 
@@ -38,7 +34,6 @@ export {
   DbSessionStore,
   DbMessageStore,
   DbMemoryProvider,
-  DbContainerStore,
   DbInstructionStore,
   DbUserStore,
   DbAgentStore,

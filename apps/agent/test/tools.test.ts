@@ -7,11 +7,6 @@ import type { AgentTool, AgentToolUpdateCallback } from '@mariozechner/pi-agent-
 import { Type } from '@mariozechner/pi-ai';
 import { ValidationError } from '@openhermit/shared';
 
-import {
-  type DockerCommandResult,
-  type DockerRunner,
-  DockerContainerManager,
-} from '../src/core/index.js';
 import { DbInternalStateStore, standaloneScope } from '@openhermit/store';
 import { createBuiltInTools, withApproval } from '../src/tools.js';
 import { createSessionListTool, createSessionReadTool, createSessionSummaryTool } from '../src/tools/session.js';
@@ -26,31 +21,6 @@ const getFirstText = (result: {
   const first = result.content.find((entry) => entry.type === 'text');
   return typeof first?.text === 'string' ? first.text : '';
 };
-
-class FakeDockerRunner implements DockerRunner {
-  readonly calls: string[][] = [];
-
-  constructor(private readonly results: DockerCommandResult[]) {}
-
-  async run(args: string[]): Promise<DockerCommandResult> {
-    this.calls.push(args);
-    const next = this.results.shift();
-
-    if (!next) {
-      throw new Error(`Unexpected docker call: docker ${args.join(' ')}`);
-    }
-
-    return next;
-  }
-}
-
-const okResult = (overrides: Partial<DockerCommandResult> = {}): DockerCommandResult => ({
-  stdout: '',
-  stderr: '',
-  exitCode: 0,
-  durationMs: 5,
-  ...overrides,
-});
 
 const findTool = (tools: ReturnType<typeof createBuiltInTools>, name: string) => {
   const tool = tools.find((entry) => entry.name === name);
@@ -243,51 +213,6 @@ test('withApproval distinguishes timeout from explicit rejection', async (t) => 
   assert.deepEqual(startedCalls, []);
 });
 
-test('withApproval caches container_start approval by name within a session', async (t) => {
-  const { security } = await createSecurityFixture(t, {
-    security: {
-      autonomy_level: 'supervised',
-      require_approval_for: ['container_start'],
-    },
-  });
-  await security.load();
-
-  const Params = Type.Object({
-    name: Type.String(),
-    image: Type.String(),
-  });
-
-  let execCount = 0;
-  const tool: AgentTool<typeof Params> = {
-    name: 'container_start',
-    label: 'Start Service Container',
-    description: 'test',
-    parameters: Params,
-    execute: async () => {
-      execCount += 1;
-      return { content: [{ type: 'text', text: 'started' }], details: {} };
-    },
-  };
-
-  let approvalCount = 0;
-  const cache = new Set<string>();
-  const wrapped = withApproval(
-    tool,
-    security,
-    async () => { approvalCount += 1; return 'approved'; },
-    undefined,
-    undefined,
-    cache,
-  );
-
-  await wrapped.execute('call-1', { name: 'web', image: 'nginx' });
-  await wrapped.execute('call-2', { name: 'web', image: 'nginx' });
-  await wrapped.execute('call-3', { name: 'db', image: 'postgres' });
-
-  assert.equal(execCount, 3);
-  assert.equal(approvalCount, 2, 'second call to same name should skip approval');
-});
-
 test('memory_add stores entry, memory_recall finds it, and memory_get returns full content', async (t) => {
   const { workspace, security } = await createSecurityFixture(t, {
     secrets: { ANTHROPIC_API_KEY: 'key' },
@@ -297,14 +222,8 @@ test('memory_add stores entry, memory_recall finds it, and memory_get returns fu
   const store = await DbInternalStateStore.open();
   t.after(() => store.close());
   const memoryProvider = store.memories;
-  const containerManager = new DockerContainerManager(workspace, {
-    runner: new FakeDockerRunner([]),
-    containerStore: store.containers,
-    storeScope: standaloneScope,
-  });
   const tools = createBuiltInTools({
     security,
-    containerManager,
     memoryProvider,
     storeScope: standaloneScope,
   });
@@ -353,14 +272,8 @@ test('memory_add creates entries and memory_recall searches them', async (t) => 
   const store = await DbInternalStateStore.open();
   t.after(() => store.close());
   const memoryProvider = store.memories;
-  const containerManager = new DockerContainerManager(workspace, {
-    runner: new FakeDockerRunner([]),
-    containerStore: store.containers,
-    storeScope: standaloneScope,
-  });
   const tools = createBuiltInTools({
     security,
-    containerManager,
     memoryProvider,
     storeScope: standaloneScope,
   });
@@ -397,14 +310,8 @@ test('memory_get rejects unknown IDs', async (t) => {
   const store = await DbInternalStateStore.open();
   t.after(() => store.close());
   const memoryProvider = store.memories;
-  const containerManager = new DockerContainerManager(workspace, {
-    runner: new FakeDockerRunner([]),
-    containerStore: store.containers,
-    storeScope: standaloneScope,
-  });
   const tools = createBuiltInTools({
     security,
-    containerManager,
     memoryProvider,
     storeScope: standaloneScope,
   });
@@ -434,14 +341,8 @@ test('memory_add is blocked in readonly mode', async (t) => {
   const store = await DbInternalStateStore.open();
   t.after(() => store.close());
   const memoryProvider = store.memories;
-  const containerManager = new DockerContainerManager(workspace, {
-    runner: new FakeDockerRunner([]),
-    containerStore: store.containers,
-    storeScope: standaloneScope,
-  });
   const tools = createBuiltInTools({
     security,
-    containerManager,
     memoryProvider,
     storeScope: standaloneScope,
   });
@@ -462,10 +363,6 @@ test('web_fetch returns status headers and body for a successful GET', async (t)
   });
   await security.load();
 
-  const containerManager = new DockerContainerManager(workspace, {
-    runner: new FakeDockerRunner([]),
-  });
-  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
   const tool = findTool(tools, 'web_fetch');
 
   await withMockFetch(
@@ -502,12 +399,8 @@ test('web_fetch is still wrapped by approval callbacks in createBuiltInTools', a
   const requestedCalls: Array<{ toolName: string; toolCallId: string; args: unknown }> = [];
   const startedCalls: Array<{ toolName: string; toolCallId: string; args: unknown }> = [];
 
-  const containerManager = new DockerContainerManager(workspace, {
-    runner: new FakeDockerRunner([]),
-  });
   const tools = createBuiltInTools({
     security,
-    containerManager,
     webProvider: defaultWebProvider,
     approvalCallback: async (toolName, toolCallId, args) => {
       approvalCalls.push({ toolName, toolCallId, args });
@@ -547,10 +440,6 @@ test('web_fetch truncates large responses at max_bytes', async (t) => {
   await security.load();
 
   const bigBody = 'x'.repeat(500);
-  const containerManager = new DockerContainerManager(workspace, {
-    runner: new FakeDockerRunner([]),
-  });
-  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
   const tool = findTool(tools, 'web_fetch');
 
   await withMockFetch(makeFetchMock(200, bigBody), async () => {
@@ -573,10 +462,6 @@ test('web_fetch caps max_bytes at the hard 200 KB limit', async (t) => {
   });
   await security.load();
 
-  const containerManager = new DockerContainerManager(workspace, {
-    runner: new FakeDockerRunner([]),
-  });
-  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
   const tool = findTool(tools, 'web_fetch');
 
   await withMockFetch(makeFetchMock(200, 'small body'), async () => {
@@ -598,10 +483,6 @@ test('web_fetch rejects non-http/https URLs', async (t) => {
   });
   await security.load();
 
-  const containerManager = new DockerContainerManager(workspace, {
-    runner: new FakeDockerRunner([]),
-  });
-  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
   const tool = findTool(tools, 'web_fetch');
 
   await assert.rejects(
@@ -620,10 +501,6 @@ test('web_fetch rejects malformed URLs', async (t) => {
   });
   await security.load();
 
-  const containerManager = new DockerContainerManager(workspace, {
-    runner: new FakeDockerRunner([]),
-  });
-  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
   const tool = findTool(tools, 'web_fetch');
 
   await assert.rejects(() =>
@@ -637,10 +514,6 @@ test('web_fetch rejects non-positive max_bytes', async (t) => {
   });
   await security.load();
 
-  const containerManager = new DockerContainerManager(workspace, {
-    runner: new FakeDockerRunner([]),
-  });
-  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
   const tool = findTool(tools, 'web_fetch');
 
   await assert.rejects(
@@ -660,10 +533,6 @@ test('web_fetch surfaces network errors as thrown exceptions', async (t) => {
   });
   await security.load();
 
-  const containerManager = new DockerContainerManager(workspace, {
-    runner: new FakeDockerRunner([]),
-  });
-  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
   const tool = findTool(tools, 'web_fetch');
 
   await withMockFetch(makeFetchError('ECONNREFUSED'), async () => {
@@ -688,10 +557,6 @@ test('web_fetch returns non-200 status without throwing', async (t) => {
   });
   await security.load();
 
-  const containerManager = new DockerContainerManager(workspace, {
-    runner: new FakeDockerRunner([]),
-  });
-  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
   const tool = findTool(tools, 'web_fetch');
 
   await withMockFetch(makeFetchMock(404, 'Not Found'), async () => {
@@ -712,10 +577,6 @@ test('web_fetch output markdown extracts main content as Markdown', async (t) =>
   });
   await security.load();
 
-  const containerManager = new DockerContainerManager(workspace, {
-    runner: new FakeDockerRunner([]),
-  });
-  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
   const tool = findTool(tools, 'web_fetch');
 
   const html = `
@@ -763,12 +624,9 @@ test('instruction_update stores an entry and verifies via store', async (t) => {
   const stateStore = await DbInternalStateStore.open();
   t.after(() => stateStore.close());
 
-  const docker = new FakeDockerRunner([]);
-  const containerManager = new DockerContainerManager(workspace, { runner: docker });
   const scope = { agentId: 'agent-test' };
   const tools = createBuiltInTools({
     security,
-    containerManager,
     instructionStore: stateStore.instructions,
     storeScope: scope,
   });
@@ -794,11 +652,8 @@ test('instruction_update is blocked in readonly mode', async (t) => {
   const stateStore = await DbInternalStateStore.open();
   t.after(() => stateStore.close());
 
-  const docker = new FakeDockerRunner([]);
-  const containerManager = new DockerContainerManager(workspace, { runner: docker });
   const tools = createBuiltInTools({
     security,
-    containerManager,
     instructionStore: stateStore.instructions,
     storeScope: { agentId: 'agent-test' },
   });
@@ -810,23 +665,6 @@ test('instruction_update is blocked in readonly mode', async (t) => {
     }),
     ValidationError,
   );
-});
-
-test('createBuiltInTools excludes container tools while container support is disabled', async (t) => {
-  const { workspace, security } = await createSecurityFixture(t, {
-    secrets: { ANTHROPIC_API_KEY: 'key' },
-  });
-  await security.load();
-
-  const docker = new FakeDockerRunner([]);
-  const containerManager = new DockerContainerManager(workspace, { runner: docker });
-  const tools = createBuiltInTools({ security, containerManager, webProvider: defaultWebProvider });
-
-  assert.equal(tools.some((tool) => tool.name === 'container_start'), false);
-  assert.equal(tools.some((tool) => tool.name === 'container_stop'), false);
-  assert.equal(tools.some((tool) => tool.name === 'container_exec'), false);
-  assert.equal(tools.some((tool) => tool.name === 'container_run'), false);
-  assert.equal(docker.calls.length, 0);
 });
 
 // ── Session tool access control tests ──────────────────────────────
@@ -871,7 +709,6 @@ test('session_list filters sessions by currentUserId', async (t) => {
   // user-A should see sess-a and sess-both, not sess-b
   const listTool = createSessionListTool({
     security,
-    containerManager: null as any,
     sessionStore: store.sessions,
     storeScope: scope,
     currentUserId: 'user-A',
@@ -889,7 +726,6 @@ test('session_list filters sessions by currentUserId', async (t) => {
   // Owner (no currentUserId) should see all 3
   const ownerListTool = createSessionListTool({
     security,
-    containerManager: null as any,
     sessionStore: store.sessions,
     storeScope: scope,
   });
@@ -921,7 +757,6 @@ test('session_read denies access when user is not a participant', async (t) => {
 
   const readTool = createSessionReadTool({
     security,
-    containerManager: null as any,
     sessionStore: store.sessions,
     messageStore: store.messages,
     storeScope: scope,
@@ -957,7 +792,6 @@ test('session_summary denies access when user is not a participant', async (t) =
 
   const summaryTool = createSessionSummaryTool({
     security,
-    containerManager: null as any,
     sessionStore: store.sessions,
     messageStore: store.messages,
     storeScope: scope,

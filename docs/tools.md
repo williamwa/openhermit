@@ -61,20 +61,6 @@ Requires: `sessionStore`
 | `session_read` | Read message history from a session. Use `offset` to page backwards | `session_id` (string, required), `limit` (number, optional, default 50), `offset` (number, optional, default 0) | | |
 | `session_summary` | Get session summary: description, working memory, message count, recent activity | `session_id` (string, required) | | |
 
-## Containers (disabled)
-
-Currently disabled in `tools.ts`. Defined but not registered.
-
-| Tool | Description | Parameters | 🔐 | ✏️ |
-|------|-------------|------------|:--:|:--:|
-| `container_run` | Run a one-off command in an ephemeral Docker container | `image`, `command`, `description`?, `mount`?, `mount_target`?, `env_secrets`?, `workdir`? | ✓ | ✓ |
-| `container_status` | List known containers and their current status | _(none)_ | | |
-| `container_start` | Start a long-running service container. Approval cached by container name | `name`, `image`, `description`?, `mount`?, `mount_target`?, `ports`?, `env`?, `env_secrets`?, `network`? | ✓ | ✓ |
-| `container_stop` | Stop a running service container | `name` | ✓ | ✓ |
-| `container_exec` | Execute a shell command inside a running container | `name`, `command` | ✓ | ✓ |
-
----
-
 ## Introspection-only Tools
 
 These tools are **not** available to the main agent. They are registered exclusively for the introspection agent during background session checkpoints.
@@ -92,7 +78,7 @@ The introspection agent also has access to all memory tools (`memory_get`, `memo
 
 - **Readonly mode**: All write/mutating tools (✏️) are blocked entirely via `ensureAutonomyAllows()`.
 - **Approval gating** (🔐): When autonomy is not `full`, the agent asks the user for confirmation before executing. The approval callback is provided by the channel adapter.
-- **Approval caching**: `exec` caches approval per command string; `container_start` caches per container name. Same command in a session won't prompt twice.
+- **Approval caching**: `exec` caches approval per command string. Same command in a session won't prompt twice.
 
 ## Role-based Access
 

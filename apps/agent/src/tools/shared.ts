@@ -3,7 +3,7 @@ import type { ChannelOutbound } from '@openhermit/protocol';
 import { ValidationError } from '@openhermit/shared';
 import type { InstructionStore, MemoryProvider, MessageStore, SessionStore, StoreScope, UserStore } from '@openhermit/store';
 
-import { AgentSecurity, type DockerContainerManager, type ExecBackendManager } from '../core/index.js';
+import { AgentSecurity, type ExecBackendManager } from '../core/index.js';
 import type { WebProvider } from '../web/index.js';
 
 export interface Toolset {
@@ -17,10 +17,6 @@ const READONLY_BLOCKED_TOOLS = new Set([
   'memory_update',
   'memory_delete',
   'working_memory_update',
-  'container_run',
-  'container_start',
-  'container_stop',
-  'container_exec',
   'exec',
   'instruction_update',
   'session_description_update',
@@ -53,7 +49,6 @@ export type ToolRequestedCallback = (
 
 export interface ToolContext {
   security: AgentSecurity;
-  containerManager: DockerContainerManager;
   memoryProvider?: MemoryProvider;
   messageStore?: MessageStore | undefined;
   sessionStore?: SessionStore | undefined;

@@ -161,7 +161,7 @@ Enable Telegram:
 {
   "security": {
     "autonomy_level": "supervised",
-    "require_approval_for": ["container_start"],
+    "require_approval_for": [],
     "access": "protected",
     "access_token": "<token>"
   }

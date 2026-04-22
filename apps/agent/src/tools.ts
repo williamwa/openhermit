@@ -1,6 +1,5 @@
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 
-import { createContainerToolset, summarizeContainerEntry, summarizeContainerList } from './tools/container.js';
 import { createMemoryToolset } from './tools/memory.js';
 import { withApproval } from './tools/approval.js';
 import type {
@@ -27,8 +26,6 @@ export type {
 } from './tools/shared.js';
 
 export {
-  summarizeContainerEntry,
-  summarizeContainerList,
   withApproval,
 };
 
@@ -54,8 +51,6 @@ export const createBuiltInToolsets = (
   if (context.webProvider) {
     toolsets.push(createWebToolset(context));
   }
-  // TODO: Re-enable container tools once container support is prioritized.
-  // toolsets.push(createContainerToolset(context));
   if (context.agentId) {
     toolsets.push(createExecToolset(context));
   }

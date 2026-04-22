@@ -93,8 +93,7 @@ There are also several active design drafts that are intentionally not yet imple
   - three backends: `defuddle` (default, no API key), `exa`, `tavily`
   - configured via `config.json` `web.provider` + `secrets.json` for API keys
   - tools conditionally included only when webProvider is available
-- container tools (`container_start`, `container_stop`, `container_exec`, `container_run`, `container_status`) — implemented but disabled by default
-- configurable container `mount_target`
+- container tools removed (planned as plugin)
 - instruction tool (`instruction_update`)
 - user management tools (`user_list`, `user_identity_link`, `user_identity_unlink`, `user_role_set`, `user_merge`) — owner-only
 - session management tools (`session_list`, `session_read`, `session_summary`) — owner-only

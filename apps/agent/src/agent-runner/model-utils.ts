@@ -39,17 +39,22 @@ export const formatMissingApiKeyMessage = (
   ].join(' ');
 };
 
+const OPENAI_COMPATIBLE_PROVIDERS: Record<string, { api: string; baseUrl: string }> = {
+  openrouter: { api: 'openai-completions', baseUrl: 'https://openrouter.ai/api/v1' },
+};
+
 export const resolveModel = (config: AgentConfig): Model<any> => {
-  // Custom model: when both api and base_url are specified, build a Model
-  // directly instead of looking it up in the pi-ai registry. This enables
-  // arbitrary OpenAI-compatible providers (e.g. DeepSeek, Qwen domestic).
-  if (config.model.api && config.model.base_url) {
+  const providerDefaults = OPENAI_COMPATIBLE_PROVIDERS[config.model.provider];
+  const api = config.model.api ?? providerDefaults?.api;
+  const baseUrl = config.model.base_url ?? providerDefaults?.baseUrl;
+
+  if (api && baseUrl) {
     return {
       id: config.model.model,
       name: config.model.model,
-      api: config.model.api,
+      api,
       provider: config.model.provider,
-      baseUrl: config.model.base_url,
+      baseUrl,
       reasoning: false,
       input: ['text'],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },

@@ -71,34 +71,6 @@ export interface MemorySearchOptions {
   filter?: Record<string, unknown>;
 }
 
-export type ContainerType = 'ephemeral' | 'service' | 'workspace';
-
-export type ContainerStatus =
-  | 'created'
-  | 'running'
-  | 'stopped'
-  | 'exited'
-  | 'removed'
-  | 'unknown';
-
-export interface ContainerRegistryEntry {
-  id: string;
-  name: string;
-  image: string;
-  type: ContainerType;
-  status: ContainerStatus;
-  description?: string;
-  command?: string;
-  ports?: Record<string, number>;
-  mount?: string;
-  mount_target?: string;
-  network?: string;
-  runtime_container_id?: string;
-  exit_code?: number;
-  created: string;
-  removed?: string;
-}
-
 export type MessageRow = {
   role: 'user' | 'assistant' | 'error';
   content: string;

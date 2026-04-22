@@ -158,7 +158,7 @@ export interface SecurityPolicy {
 
 export type SecretsMap = Record<string, string>;
 
-export type ContainerType = 'ephemeral' | 'service' | 'workspace';
+export type ContainerType = 'workspace';
 
 export type ContainerStatus =
   | 'created'
@@ -194,32 +194,7 @@ export interface ContainerProcessResult {
   parsedOutput?: unknown;
 }
 
-export interface EphemeralContainerArgs {
-  image: string;
-  command: string;
-  description?: string;
-  mount?: string;
-  mount_target?: string;
-  env?: Record<string, string>;
-  workdir?: string;
-}
-
-export interface ServiceContainerArgs {
-  image: string;
-  name: string;
-  description?: string;
-  mount?: string;
-  mount_target?: string;
-  ports?: Record<string, number>;
-  env?: Record<string, string>;
-  network?: string;
-}
-
-export interface ContainerListEntry extends ContainerRegistryEntry {
-  live_status_text?: string;
-}
-
 export const DEFAULT_SECURITY_POLICY: SecurityPolicy = {
   autonomy_level: 'supervised',
-  require_approval_for: ['container_start'],
+  require_approval_for: [],
 };

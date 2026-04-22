@@ -14,8 +14,6 @@ import {
 } from '../src/core/index.js';
 import { createWorkspaceFixture } from './helpers.js';
 
-const prefix = 'openhermit-default-';
-
 class FakeDockerRunner implements DockerRunner {
   readonly calls: string[][] = [];
 
@@ -44,312 +42,118 @@ const okResult = (
   ...overrides,
 });
 
-test('DockerContainerManager rejects mounts outside containers/{name}/data', async (t) => {
-  const { workspace } = await createWorkspaceFixture(t);
-  const runner = new FakeDockerRunner([]);
-  const manager = new DockerContainerManager(workspace, { runner });
-
-  await assert.rejects(
-    () =>
-      manager.runEphemeral({
-        image: 'alpine:3.20',
-        command: 'echo hello',
-        mount: 'files/not-allowed',
-      }),
-    ValidationError,
-  );
-
-  assert.equal(runner.calls.length, 0);
-});
-
-test('DockerContainerManager rejects mount traversal outside containers/{name}/data', async (t) => {
-  const { workspace } = await createWorkspaceFixture(t);
-  const runner = new FakeDockerRunner([]);
-  const manager = new DockerContainerManager(workspace, { runner });
-
-  await assert.rejects(
-    () =>
-      manager.runEphemeral({
-        image: 'alpine:3.20',
-        command: 'echo hello',
-        mount: 'containers/demo/data/../escape',
-      }),
-    ValidationError,
-  );
-
-  await assert.rejects(
-    () =>
-      manager.startService({
-        name: 'redis-cache',
-        image: 'redis:7',
-        mount: 'containers/redis-cache/data/../../oops',
-      }),
-    ValidationError,
-  );
-
-  assert.equal(runner.calls.length, 0);
-});
-
-test('DockerContainerManager rejects invalid in-container mount targets', async (t) => {
-  const { workspace } = await createWorkspaceFixture(t);
-  const runner = new FakeDockerRunner([]);
-  const manager = new DockerContainerManager(workspace, { runner });
-
-  await assert.rejects(
-    () =>
-      manager.runEphemeral({
-        image: 'alpine:3.20',
-        command: 'echo hello',
-        mount_target: 'workspace',
-      }),
-    ValidationError,
-  );
-
-  await assert.rejects(
-    () =>
-      manager.startService({
-        name: 'nginx-site',
-        image: 'nginx:1.27-alpine',
-        mount_target: '../usr/share/nginx/html',
-      }),
-    ValidationError,
-  );
-
-  assert.equal(runner.calls.length, 0);
-});
-
-test('DockerContainerManager runEphemeral records the container and parses structured output', async (t) => {
+test('ensureWorkspaceContainer creates a new container when none exists', async (t) => {
   const { workspace } = await createWorkspaceFixture(t);
   const runner = new FakeDockerRunner([
-    okResult({
-      stdout: [
-        'starting',
-        '---OPENHERMIT_OUTPUT_START---',
-        '{"ok":true,"count":2}',
-        '---OPENHERMIT_OUTPUT_END---',
-      ].join('\n'),
-      durationMs: 17,
-    }),
+    // listLiveContainers (ps -a)
+    okResult({ stdout: '' }),
+    // docker run
+    okResult({ stdout: 'container-abc\n' }),
   ]);
   const manager = new DockerContainerManager(workspace, { runner });
 
-  const result = await manager.runEphemeral({
-    image: 'node:20-alpine',
-    command: 'node -e "console.log(1)"',
-    description: 'Run a one-off node task',
-    mount_target: '/app',
-    env: {
-      DEMO: '1',
-    },
-    workdir: '/app/app',
+  const entry = await manager.ensureWorkspaceContainer('default', {
+    image: 'ubuntu:24.04',
   });
 
-  assert.equal(runner.calls.length, 1);
-  const dockerArgs = runner.calls[0] ?? [];
-  const mountIndex = dockerArgs.indexOf('-v');
-  const envIndex = dockerArgs.indexOf('-e');
+  assert.equal(entry.status, 'running');
+  assert.equal(entry.type, 'workspace');
+  assert.equal(entry.image, 'ubuntu:24.04');
+  assert.equal(entry.runtime_container_id, 'container-abc');
 
-  assert.equal(dockerArgs[0], 'run');
-  assert.equal(dockerArgs[1], '--rm');
-  assert.ok(mountIndex >= 0);
-  assert.match(dockerArgs[mountIndex + 1] ?? '', /\/containers\/openhermit-default-run-.*\/data:\/app$/);
-  assert.equal(envIndex >= 0, true);
-  assert.equal(dockerArgs[envIndex + 1], 'DEMO=1');
-  assert.equal(dockerArgs[dockerArgs.indexOf('-w') + 1], '/app/app');
-  assert.deepEqual(dockerArgs.slice(-4), [
-    'node:20-alpine',
-    'sh',
-    '-lc',
-    'node -e "console.log(1)"',
-  ]);
-
-  assert.equal(result.exitCode, 0);
-  assert.equal(result.durationMs, 17);
-  assert.deepEqual(result.parsedOutput, {
-    ok: true,
-    count: 2,
-  });
-  assert.equal(result.container.type, 'ephemeral');
-  assert.equal(result.container.status, 'removed');
-  assert.equal(result.container.description, 'Run a one-off node task');
-  assert.equal(result.container.command, 'node -e "console.log(1)"');
-  assert.equal(result.container.exit_code, 0);
-  assert.match(result.container.mount ?? '', /^containers\/openhermit-default-run-.*\/data$/);
-  assert.equal(result.container.mount_target, '/app');
-
-  const registryEntries = await manager.registry.readAll();
-  assert.equal(registryEntries.length, 1);
-  assert.equal(registryEntries[0]?.status, 'removed');
-  assert.equal(registryEntries[0]?.description, 'Run a one-off node task');
+  const runArgs = runner.calls[1]!;
+  assert.equal(runArgs[0], 'run');
+  assert.ok(runArgs.includes('ubuntu:24.04'));
+  assert.ok(runArgs.includes('sleep'));
 });
 
-test('DockerContainerManager startService and stopService persist service lifecycle', async (t) => {
+test('ensureWorkspaceContainer reuses running container', async (t) => {
   const { workspace } = await createWorkspaceFixture(t);
   const runner = new FakeDockerRunner([
-    okResult({ stdout: 'container-123\n' }),
-    okResult({}),
-  ]);
-  const manager = new DockerContainerManager(workspace, { runner });
-
-  const started = await manager.startService({
-    name: 'redis-cache',
-    image: 'redis:7',
-    description: 'Cache service',
-    mount_target: '/var/lib/redis-data',
-    ports: {
-      '6379': 6379,
-    },
-    env: {
-      ALLOW_EMPTY_PASSWORD: 'yes',
-    },
-    network: 'openhermit',
-  });
-
-  assert.equal(started.name, `${prefix}redis-cache`);
-  assert.equal(started.status, 'running');
-  assert.equal(started.runtime_container_id, 'container-123');
-  assert.equal(started.description, 'Cache service');
-  assert.equal(started.mount_target, '/var/lib/redis-data');
-  assert.deepEqual(started.ports, {
-    '6379': 6379,
-  });
-  assert.deepEqual(runner.calls[0], [
-    'run',
-    '-d',
-    '--name',
-    `${prefix}redis-cache`,
-    '-v',
-    `${workspace.root}/containers/redis-cache/data:/var/lib/redis-data`,
-    '-p',
-    '6379:6379',
-    '-e',
-    'ALLOW_EMPTY_PASSWORD=yes',
-    '--network',
-    'openhermit',
-    'redis:7',
-  ]);
-
-  const stopped = await manager.stopService('redis-cache');
-
-  assert.deepEqual(runner.calls[1], ['stop', `${prefix}redis-cache`]);
-  assert.equal(stopped.status, 'stopped');
-
-  const registryEntries = await manager.registry.readAll();
-  assert.equal(registryEntries.length, 1);
-  assert.equal(registryEntries[0]?.status, 'stopped');
-});
-
-test('DockerContainerManager tolerates stopping a missing live container when registry exists', async (t) => {
-  const { workspace } = await createWorkspaceFixture(t);
-  const runner = new FakeDockerRunner([
-    okResult({ stdout: 'container-123\n' }),
-    okResult({
-      exitCode: 1,
-      stderr: 'Error response from daemon: No such container: redis-cache',
-    }),
-  ]);
-  const manager = new DockerContainerManager(workspace, { runner });
-
-  await manager.startService({
-    name: 'redis-cache',
-    image: 'redis:7',
-  });
-
-  const stopped = await manager.stopService('redis-cache');
-
-  assert.equal(stopped.status, 'removed');
-});
-
-
-
-test('DockerContainerManager rejects stopping an unregistered service container', async (t) => {
-  const { workspace } = await createWorkspaceFixture(t);
-  const runner = new FakeDockerRunner([]);
-  const manager = new DockerContainerManager(workspace, { runner });
-
-  await assert.rejects(
-    () => manager.stopService('foreign-container'),
-    NotFoundError,
-  );
-
-  assert.equal(runner.calls.length, 0);
-});
-
-test('DockerContainerManager rejects exec for unregistered or removed service containers', async (t) => {
-  const { workspace } = await createWorkspaceFixture(t);
-  const runner = new FakeDockerRunner([
-    okResult({ stdout: 'container-123\n' }),
-    okResult({}),
-  ]);
-  const manager = new DockerContainerManager(workspace, { runner });
-
-  await assert.rejects(
-    () => manager.execInService('foreign-container', 'echo hello'),
-    NotFoundError,
-  );
-
-  await manager.startService({
-    name: 'redis-cache',
-    image: 'redis:7',
-  });
-  await manager.stopService('redis-cache');
-
-  await assert.rejects(
-    () => manager.execInService('redis-cache', 'echo hello'),
-    ValidationError,
-  );
-
-  assert.equal(runner.calls.length, 2);
-});
-
-test('DockerContainerManager listAll merges live docker status into registry entries', async (t) => {
-  const { workspace } = await createWorkspaceFixture(t);
-  const runner = new FakeDockerRunner([
-    okResult({ stdout: 'container-123\n' }),
     okResult({
       stdout: JSON.stringify({
-        ID: 'container-live',
-        Names: `${prefix}redis-cache`,
-        Image: 'redis:7',
-        Status: 'Up 15 seconds',
+        ID: 'live-123',
+        Names: 'openhermit-default-workspace',
+        Image: 'ubuntu:24.04',
+        Status: 'Up 5 minutes',
       }),
     }),
   ]);
   const manager = new DockerContainerManager(workspace, { runner });
 
-  await manager.startService({
-    name: 'redis-cache',
-    image: 'redis:7',
+  const entry = await manager.ensureWorkspaceContainer('default', {
+    image: 'ubuntu:24.04',
   });
 
-  const containers = await manager.listAll();
-
-  assert.equal(containers.length, 1);
-  assert.equal(containers[0]?.status, 'running');
-  assert.equal(containers[0]?.runtime_container_id, 'container-live');
-  assert.equal(containers[0]?.live_status_text, 'Up 15 seconds');
+  assert.equal(entry.status, 'running');
+  assert.equal(entry.runtime_container_id, 'live-123');
+  assert.equal(runner.calls.length, 1);
 });
 
-test('DockerContainerManager surfaces docker failures from startService', async (t) => {
+test('ensureWorkspaceContainer restarts stopped container', async (t) => {
   const { workspace } = await createWorkspaceFixture(t);
   const runner = new FakeDockerRunner([
     okResult({
-      exitCode: 125,
-      stderr: 'port already in use',
+      stdout: JSON.stringify({
+        ID: 'stopped-456',
+        Names: 'openhermit-default-workspace',
+        Image: 'ubuntu:24.04',
+        Status: 'Exited (0) 5 minutes ago',
+      }),
     }),
+    // docker start
+    okResult({}),
+  ]);
+  const manager = new DockerContainerManager(workspace, { runner });
+
+  const entry = await manager.ensureWorkspaceContainer('default', {
+    image: 'ubuntu:24.04',
+  });
+
+  assert.equal(entry.status, 'running');
+  assert.deepEqual(runner.calls[1], ['start', 'openhermit-default-workspace']);
+});
+
+test('stopWorkspaceContainer stops a running container', async (t) => {
+  const { workspace } = await createWorkspaceFixture(t);
+  const runner = new FakeDockerRunner([
+    okResult({ stdout: '' }),
+    okResult({ stdout: 'container-abc\n' }),
+    okResult({}),
+  ]);
+  const manager = new DockerContainerManager(workspace, { runner });
+
+  await manager.ensureWorkspaceContainer('default', { image: 'ubuntu:24.04' });
+  await manager.stopWorkspaceContainer('default');
+
+  const stopCall = runner.calls[2]!;
+  assert.deepEqual(stopCall, ['stop', 'openhermit-default-workspace']);
+});
+
+test('execInWorkspace throws when container not running', async (t) => {
+  const { workspace } = await createWorkspaceFixture(t);
+  const runner = new FakeDockerRunner([]);
+  const manager = new DockerContainerManager(workspace, { runner });
+
+  await assert.rejects(
+    () => manager.execInWorkspace('default', 'echo hello'),
+    NotFoundError,
+  );
+});
+
+test('ensureWorkspaceContainer surfaces docker failures', async (t) => {
+  const { workspace } = await createWorkspaceFixture(t);
+  const runner = new FakeDockerRunner([
+    okResult({ stdout: '' }),
+    okResult({ exitCode: 125, stderr: 'no space left on device' }),
   ]);
   const manager = new DockerContainerManager(workspace, { runner });
 
   await assert.rejects(
-    () =>
-      manager.startService({
-        name: 'redis-cache',
-        image: 'redis:7',
-      }),
+    () => manager.ensureWorkspaceContainer('default', { image: 'ubuntu:24.04' }),
     (error: unknown) => {
       assert.ok(error instanceof OpenHermitError);
       assert.equal(error.code, 'docker_run_failed');
-      assert.match(error.message, /port already in use/);
       return true;
     },
   );
