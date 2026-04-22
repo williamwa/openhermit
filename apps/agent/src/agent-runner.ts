@@ -139,8 +139,8 @@ export class AgentRunner implements SessionRuntime {
           ...(userId ? { metadata: { schedule_user_id: userId } } : {}),
         });
       },
-      postMessage: async (sessionId, text) => {
-        await this.postMessage(sessionId, { text });
+      postMessage: async (sessionId, text, metadata) => {
+        await this.postMessage(sessionId, { text, ...(metadata ? { metadata } : {}) });
       },
       postSystemMessage: async (sessionId, text) => {
         await this.store.messages.appendLogEntry(this.scope, sessionId, {
@@ -149,6 +149,14 @@ export class AgentRunner implements SessionRuntime {
           type: 'schedule_notification',
           message: text,
         });
+      },
+      deactivateSession: async (sessionId) => {
+        const session = this.sessions.get(sessionId);
+        if (session) {
+          session.status = 'inactive';
+          await this.persistSessionIndex(session);
+        }
+        this.sessions.delete(sessionId);
       },
     };
 
@@ -704,6 +712,7 @@ export class AgentRunner implements SessionRuntime {
         content: message.text,
         ...(message.attachments ? { attachments: message.attachments } : {}),
         ...(messageUserId ? { userId: messageUserId } : {}),
+        ...(message.metadata ? { metadata: message.metadata } : {}),
       });
     });
 

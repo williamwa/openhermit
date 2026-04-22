@@ -29,7 +29,7 @@ const ScheduleCreateParams = Type.Object({
   session_mode: Type.Optional(Type.Union([
     Type.Literal('dedicated'),
     Type.Literal('ephemeral'),
-  ], { description: 'Session strategy. "dedicated" (default) reuses one session per job. "ephemeral" creates a new session each run.' })),
+  ], { description: 'Session strategy. "dedicated" (default) reuses one session per schedule. "ephemeral" creates a disposable session each run.' })),
   delivery: Type.Optional(Type.Union([
     Type.Literal('silent'),
     Type.Object({
@@ -144,7 +144,7 @@ const createScheduleCreateTool = (context: ToolContext): AgentTool<typeof Schedu
     }
 
     // Parse delivery
-    let delivery: { kind: 'silent' | 'session'; sessionId?: string; summaryOnly?: boolean } = { kind: 'silent' };
+    let delivery: { kind: 'silent' | 'session'; sessionId?: string } = { kind: 'silent' };
     if (args.delivery) {
       if (typeof args.delivery === 'string') {
         delivery = { kind: 'silent' };

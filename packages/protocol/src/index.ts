@@ -37,6 +37,7 @@ export interface SessionMessage {
   text: string;
   attachments?: SessionAttachment[];
   sender?: MessageSender;
+  metadata?: Record<string, unknown>;
 }
 
 export type SessionHistoryRole = 'user' | 'assistant' | 'error';

@@ -3,8 +3,9 @@ import type { ScheduleRecord, ScheduleStore, StoreScope } from '@openhermit/stor
 
 export interface SchedulerHost {
   openSession(sessionId: string, source: { kind: string; interactive: boolean }, userId?: string): Promise<void>;
-  postMessage(sessionId: string, text: string): Promise<void>;
+  postMessage(sessionId: string, text: string, metadata?: Record<string, unknown>): Promise<void>;
   postSystemMessage(sessionId: string, text: string): Promise<void>;
+  deactivateSession(sessionId: string): Promise<void>;
 }
 
 const TICK_INTERVAL_MS = 15_000;
@@ -102,7 +103,6 @@ export class Scheduler {
 
     this.running.add(scheduleId);
 
-    // Schedule always runs in its own session
     const sessionId = schedule.sessionMode.kind === 'ephemeral'
       ? `schedule:${schedule.scheduleId}:${Date.now()}`
       : `schedule:${schedule.scheduleId}`;
@@ -117,7 +117,10 @@ export class Scheduler {
 
     try {
       await this.host.openSession(sessionId, { kind: 'schedule', interactive: false }, schedule.createdBy ?? undefined);
-      await this.host.postMessage(sessionId, prompt);
+      await this.host.postMessage(sessionId, prompt, {
+        schedule_id: schedule.scheduleId,
+        schedule_type: schedule.type,
+      });
 
       // Compute next run for cron
       let nextRunAt: string | null = null;
@@ -132,6 +135,11 @@ export class Scheduler {
 
       if (schedule.type === 'once') {
         await this.store.update(this.scope, scheduleId, { status: 'completed' });
+      }
+
+      // Ephemeral: deactivate session after use
+      if (schedule.sessionMode.kind === 'ephemeral') {
+        await this.host.deactivateSession(sessionId).catch(() => {});
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
