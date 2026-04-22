@@ -10,7 +10,6 @@ import type {
   ScheduleRecord,
   ScheduleRunRecord,
   ScheduleRunStatus,
-  ScheduleSessionMode,
   ScheduleStatus,
   ScheduleType,
   ScheduleUpdateInput,
@@ -23,7 +22,6 @@ export class DbScheduleStore implements ScheduleStore {
   async create(scope: StoreScope, input: ScheduleCreateInput): Promise<ScheduleRecord> {
     const now = new Date().toISOString();
     const scheduleId = input.scheduleId ?? randomUUID().slice(0, 8);
-    const sessionMode = input.sessionMode ?? { kind: 'dedicated' };
     const delivery: ScheduleDelivery = input.delivery ?? { kind: 'silent' };
     const policy = input.policy ?? {};
 
@@ -38,7 +36,7 @@ export class DbScheduleStore implements ScheduleStore {
         cronExpression: input.cronExpression ?? null,
         runAt: input.runAt ?? null,
         prompt: input.prompt,
-        sessionMode: JSON.stringify(sessionMode),
+        sessionMode: JSON.stringify({ kind: 'dedicated' }),
         deliveryJson: JSON.stringify(delivery),
         policyJson: JSON.stringify(policy),
         createdBy: input.createdBy ?? null,
@@ -91,7 +89,6 @@ export class DbScheduleStore implements ScheduleStore {
     if (input.cronExpression !== undefined) data.cronExpression = input.cronExpression;
     if (input.runAt !== undefined) data.runAt = input.runAt;
     if (input.prompt !== undefined) data.prompt = input.prompt;
-    if (input.sessionMode !== undefined) data.sessionMode = JSON.stringify(input.sessionMode);
     if (input.delivery !== undefined) data.deliveryJson = JSON.stringify(input.delivery);
     if (input.policy !== undefined) data.policyJson = JSON.stringify(input.policy);
 
@@ -232,7 +229,6 @@ export class DbScheduleStore implements ScheduleStore {
       ...(row.cronExpression ? { cronExpression: row.cronExpression } : {}),
       ...(row.runAt ? { runAt: row.runAt } : {}),
       prompt: row.prompt,
-      sessionMode: JSON.parse(row.sessionMode) as ScheduleSessionMode,
       delivery: JSON.parse(row.deliveryJson) as ScheduleDelivery,
       policy: JSON.parse(row.policyJson) as SchedulePolicy,
       ...(row.createdBy ? { createdBy: row.createdBy } : {}),

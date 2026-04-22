@@ -150,14 +150,6 @@ export class AgentRunner implements SessionRuntime {
           message: text,
         });
       },
-      deactivateSession: async (sessionId) => {
-        const session = this.sessions.get(sessionId);
-        if (session) {
-          session.status = 'inactive';
-          await this.persistSessionIndex(session);
-        }
-        this.sessions.delete(sessionId);
-      },
     };
 
     this.scheduler = new Scheduler(this.scope, this.store.schedules, host);

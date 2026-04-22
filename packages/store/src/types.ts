@@ -130,10 +130,6 @@ export interface AgentSkillRecord {
 export type ScheduleType = 'cron' | 'once';
 export type ScheduleStatus = 'active' | 'paused' | 'completed' | 'failed';
 
-export interface ScheduleSessionMode {
-  kind: 'dedicated' | 'ephemeral';
-}
-
 export interface ScheduleDelivery {
   kind: 'silent' | 'session';
   sessionId?: string;
@@ -154,7 +150,6 @@ export interface ScheduleRecord {
   cronExpression?: string;
   runAt?: string;
   prompt: string;
-  sessionMode: ScheduleSessionMode;
   delivery: ScheduleDelivery;
   policy: SchedulePolicy;
   createdBy?: string;
@@ -173,7 +168,6 @@ export interface ScheduleCreateInput {
   cronExpression?: string;
   runAt?: string;
   prompt: string;
-  sessionMode?: ScheduleSessionMode;
   delivery?: ScheduleDelivery;
   policy?: SchedulePolicy;
   createdBy?: string;
@@ -184,7 +178,6 @@ export interface ScheduleUpdateInput {
   cronExpression?: string;
   runAt?: string;
   prompt?: string;
-  sessionMode?: ScheduleSessionMode;
   delivery?: ScheduleDelivery;
   policy?: SchedulePolicy;
 }

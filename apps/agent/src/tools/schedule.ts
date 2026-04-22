@@ -26,10 +26,6 @@ const ScheduleCreateParams = Type.Object({
   cron_expression: Type.Optional(Type.String({ description: 'Cron expression (required for type "cron"). e.g. "0 9 * * *" for daily at 9am UTC.' })),
   run_at: Type.Optional(Type.String({ description: 'ISO 8601 datetime for one-time execution (required for type "once").' })),
   id: Type.Optional(Type.String({ description: 'Custom schedule ID. Auto-generated if omitted.' })),
-  session_mode: Type.Optional(Type.Union([
-    Type.Literal('dedicated'),
-    Type.Literal('ephemeral'),
-  ], { description: 'Session strategy. "dedicated" (default) reuses one session per schedule. "ephemeral" creates a disposable session each run.' })),
   delivery: Type.Optional(Type.Union([
     Type.Literal('silent'),
     Type.Object({
@@ -97,7 +93,6 @@ const createScheduleListTool = (context: ToolContext): AgentTool<typeof Schedule
       ...(s.cronExpression ? { cron: s.cronExpression } : {}),
       ...(s.runAt ? { runAt: s.runAt } : {}),
       prompt: s.prompt.length > 100 ? `${s.prompt.slice(0, 100)}…` : s.prompt,
-      sessionMode: s.sessionMode.kind,
       delivery: s.delivery.kind,
       runCount: s.runCount,
       ...(s.nextRunAt ? { nextRunAt: s.nextRunAt } : {}),
@@ -137,12 +132,6 @@ const createScheduleCreateTool = (context: ToolContext): AgentTool<typeof Schedu
       throw new ValidationError('run_at is required for type "once".');
     }
 
-    // Parse session_mode
-    let sessionMode: { kind: 'dedicated' | 'ephemeral' } = { kind: 'dedicated' };
-    if (args.session_mode && typeof args.session_mode === 'string') {
-      sessionMode = { kind: args.session_mode };
-    }
-
     // Parse delivery
     let delivery: { kind: 'silent' | 'session'; sessionId?: string } = { kind: 'silent' };
     if (args.delivery) {
@@ -163,7 +152,6 @@ const createScheduleCreateTool = (context: ToolContext): AgentTool<typeof Schedu
       ...(args.cron_expression ? { cronExpression: args.cron_expression } : {}),
       ...(args.run_at ? { runAt: args.run_at } : {}),
       prompt: args.prompt,
-      sessionMode,
       delivery,
       policy,
       ...(context.currentUserId ? { createdBy: context.currentUserId } : {}),
