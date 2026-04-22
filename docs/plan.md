@@ -194,7 +194,7 @@ See `docs/user-model.md`. Phase 1 (core tables, identity resolution, role-based 
 
 ### Sandbox Model
 
-- three sandbox shapes implemented: `ephemeral`, `service`, `workspace`
+- one sandbox shape implemented: `workspace` (ephemeral and service containers planned)
 - evaluate whether the workspace container should support declarative environment management (e.g. NixOS) for reproducible builds and rollback
 
 ### Storage Model Draft
