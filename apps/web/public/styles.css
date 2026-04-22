@@ -561,6 +561,136 @@ h2 {
   flex: 1;
 }
 
+/* ─── Session badges ─────────────────────────────────────────────── */
+
+.session-card__title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.session-card__title-row .session-card__title {
+  margin-bottom: 0;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-card__badges {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.session-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.6;
+}
+
+.session-badge--api,
+.session-badge--web {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.session-badge--cli {
+  color: #6b7485;
+  background: rgba(107, 116, 133, 0.08);
+}
+
+.session-badge--schedule {
+  color: var(--warning);
+  background: rgba(184, 108, 18, 0.08);
+}
+
+.session-badge--telegram {
+  color: #2196f3;
+  background: rgba(33, 150, 243, 0.08);
+}
+
+.session-badge--running {
+  color: var(--success);
+  background: rgba(13, 138, 99, 0.08);
+}
+
+.session-badge--awaiting_approval {
+  color: var(--warning);
+  background: rgba(184, 108, 18, 0.08);
+}
+
+.session-card.is-inactive {
+  opacity: 0.55;
+}
+
+/* ─── Markdown rendering ────────────────────────────────────────── */
+
+.message__body h2,
+.message__body h3,
+.message__body h4 {
+  margin: 0.8em 0 0.4em;
+  letter-spacing: -0.01em;
+}
+
+.message__body h2 { font-size: 1.1rem; }
+.message__body h3 { font-size: 1rem; }
+.message__body h4 { font-size: 0.95rem; }
+
+.message__body p {
+  margin: 0 0 0.6em;
+}
+
+.message__body p:last-child {
+  margin-bottom: 0;
+}
+
+.message__body ul {
+  margin: 0.4em 0;
+  padding-left: 1.4em;
+}
+
+.message__body li {
+  margin-bottom: 0.25em;
+}
+
+.message__body strong {
+  font-weight: 650;
+}
+
+.md-code-block {
+  margin: 0.6em 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: rgba(15, 23, 42, 0.04);
+  border: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  line-height: 1.55;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.md-code-block code {
+  font: inherit;
+}
+
+.md-inline-code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.05);
+  font-family: var(--mono);
+  font-size: 0.88em;
+}
+
 @media (max-width: 960px) {
   .shell {
     grid-template-columns: 1fr;

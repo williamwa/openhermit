@@ -1067,6 +1067,14 @@ export class AgentRunner implements SessionRuntime {
     return this.store.users.resolve(caller.channel, caller.channelUserId);
   }
 
+  async resolveCallerRole(
+    caller: { channel: string; channelUserId: string },
+  ): Promise<UserRole | undefined> {
+    const userId = await this.store.users.resolve(caller.channel, caller.channelUserId);
+    if (!userId) return undefined;
+    return this.store.users.getAgentRole(this.scope, userId) ?? 'guest';
+  }
+
   /**
    * Derive a channel user ID from a session spec's metadata and source.
    * Returns undefined if no identity can be extracted.

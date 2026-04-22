@@ -185,7 +185,8 @@ const handleRequest = async (
         if (typeof p.channel === 'string') query.channel = p.channel;
         if (p.metadata && typeof p.metadata === 'object') query.metadata = p.metadata as Record<string, string>;
         if (!callerUserId) { sendResult(ws, id, []); return; }
-        sendResult(ws, id, await runtime.listSessions(query, callerUserId));
+        const callerRole = await runtime.resolveCallerRole({ channel: conn.auth.channel, channelUserId: conn.auth.channelUserId });
+        sendResult(ws, id, await runtime.listSessions(query, callerRole === 'owner' ? undefined : callerUserId));
         return;
       }
 

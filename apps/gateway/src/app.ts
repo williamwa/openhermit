@@ -542,8 +542,12 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const runtime = resolveRunner(instances, agentId);
     const query = parseSessionListQuery(c.req.raw);
 
+    if (auth.mode === 'admin') {
+      const sessions = await runtime.listSessions(query);
+      return c.json(sessions);
+    }
+
     if (auth.mode === 'channel') {
-      // Channel tokens skip user-based filtering; namespace is enforced via query.
       if (auth.channelNamespace && !query.channel) {
         query.channel = auth.channelNamespace;
       }
@@ -553,7 +557,9 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
 
     const callerUserId = await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId });
     if (!callerUserId) return c.json([]);
-    const sessions = await runtime.listSessions(query, callerUserId);
+
+    const role = await runtime.resolveCallerRole({ channel: auth.channel, channelUserId: auth.channelUserId });
+    const sessions = await runtime.listSessions(query, role === 'owner' ? undefined : callerUserId);
     return c.json(sessions);
   });
 

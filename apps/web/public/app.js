@@ -172,6 +172,7 @@ const state = {
   eventSource: null,
   currentAssistantBody: null,
   currentTurnPending: false,
+  streamingText: '',
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -198,6 +199,41 @@ const relativeTime = (iso) => {
 };
 
 const setStatus = (text) => { connectionStatus.textContent = text; };
+
+const renderMarkdown = (text) => {
+  let html = text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    // code blocks
+    .replace(/```(\w*)\n([\s\S]*?)```/g, (_m, _lang, code) => `<pre class="md-code-block"><code>${code.trim()}</code></pre>`)
+    // inline code
+    .replace(/`([^`\n]+)`/g, '<code class="md-inline-code">$1</code>')
+    // bold
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    // italic
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    // headings
+    .replace(/^### (.+)$/gm, '<h4>$1</h4>')
+    .replace(/^## (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^# (.+)$/gm, '<h2>$1</h2>')
+    // unordered lists
+    .replace(/^[*-] (.+)$/gm, '<li>$1</li>')
+    // ordered lists
+    .replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+  // wrap consecutive <li> runs
+  html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
+  // paragraphs
+  html = html.replace(/\n{2,}/g, '</p><p>');
+  html = `<p>${html}</p>`;
+  html = html.replace(/<p><\/p>/g, '');
+  // line breaks within paragraphs
+  html = html.replace(/\n/g, '<br>');
+  // clean up around block elements
+  html = html.replace(/<p>(<(?:pre|h[2-4]|ul))/g, '$1');
+  html = html.replace(/(<\/(?:pre|h[2-4]|ul)>)<\/p>/g, '$1');
+  html = html.replace(/<br>(<(?:pre|h[2-4]|ul))/g, '$1');
+  html = html.replace(/(<\/(?:pre|h[2-4]|ul)>)<br>/g, '$1');
+  return html;
+};
 
 const clearMessages = () => {
   messagesEl.innerHTML = '';
@@ -228,7 +264,11 @@ const appendMessage = (role, text) => {
 
   const body = document.createElement('div');
   body.className = 'message__body';
-  body.textContent = text;
+  if (role === 'assistant' && text) {
+    body.innerHTML = renderMarkdown(text);
+  } else {
+    body.textContent = text;
+  }
 
   article.append(title, body);
   messagesEl.append(article);
@@ -239,7 +279,7 @@ const appendMessage = (role, text) => {
 const renderHistory = (history) => {
   clearMessages();
   if (history.length === 0) { ensureEmptyState(); return; }
-  for (const entry of [...history].reverse()) {
+  for (const entry of history) {
     if (entry.role === 'error') { appendEvent(`[error] ${entry.content}`, 'error'); continue; }
     appendMessage(entry.role, entry.content);
   }
@@ -373,7 +413,7 @@ const renderSessions = () => {
   if (state.sessions.length === 0) {
     const el = document.createElement('div');
     el.className = 'empty-state';
-    el.textContent = 'No web sessions yet. Start one to begin chatting.';
+    el.textContent = 'No sessions yet. Start one to begin chatting.';
     sessionsList.append(el);
     return;
   }
@@ -383,27 +423,49 @@ const renderSessions = () => {
     button.type = 'button';
     button.className = 'session-card';
     if (session.sessionId === state.currentSessionId) button.classList.add('is-active');
+    if (session.status === 'inactive') button.classList.add('is-inactive');
+
+    const titleRow = document.createElement('div');
+    titleRow.className = 'session-card__title-row';
 
     const title = document.createElement('div');
     title.className = 'session-card__title';
     title.textContent = session.description || session.lastMessagePreview || session.sessionId;
 
+    const badges = document.createElement('div');
+    badges.className = 'session-card__badges';
+
+    const sourceKind = session.source?.kind || 'api';
+    const sourceBadge = document.createElement('span');
+    sourceBadge.className = `session-badge session-badge--${sourceKind}`;
+    sourceBadge.textContent = session.source?.platform || sourceKind;
+    badges.append(sourceBadge);
+
+    if (session.status === 'running' || session.status === 'awaiting_approval') {
+      const statusBadge = document.createElement('span');
+      statusBadge.className = `session-badge session-badge--${session.status}`;
+      statusBadge.textContent = session.status === 'awaiting_approval' ? 'approval' : session.status;
+      badges.append(statusBadge);
+    }
+
+    titleRow.append(title, badges);
+
     const meta = document.createElement('div');
     meta.className = 'session-card__meta';
-    meta.textContent = `${relativeTime(session.lastActivityAt)} · ${session.messageCount} messages`;
+    meta.textContent = `${relativeTime(session.lastActivityAt)} · ${session.messageCount} msgs`;
 
     const preview = document.createElement('p');
     preview.className = 'session-card__preview';
     preview.textContent = session.lastMessagePreview || 'No preview yet';
 
-    button.append(title, meta, preview);
+    button.append(titleRow, meta, preview);
     button.addEventListener('click', () => void selectSession(session.sessionId));
     sessionsList.append(button);
   }
 };
 
 const refreshSessions = async () => {
-  const response = await apiFetch('/sessions?kind=web&limit=50');
+  const response = await apiFetch('/sessions?limit=50');
   if (!response.ok) throw new Error(`Failed to list sessions (${response.status})`);
   state.sessions = await response.json();
   renderSessions();
@@ -466,8 +528,12 @@ const connectToSessionStream = async (sessionId) => {
 
   source.addEventListener('text_delta', guard((event) => {
     const p = JSON.parse(event.data);
-    if (!state.currentAssistantBody) state.currentAssistantBody = appendMessage('assistant', '');
-    state.currentAssistantBody.textContent += p.text;
+    if (!state.currentAssistantBody) {
+      state.currentAssistantBody = appendMessage('assistant', '');
+      state.streamingText = '';
+    }
+    state.streamingText = (state.streamingText || '') + p.text;
+    state.currentAssistantBody.textContent = state.streamingText;
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }));
 
@@ -475,9 +541,10 @@ const connectToSessionStream = async (sessionId) => {
     const p = JSON.parse(event.data);
     if (!state.currentAssistantBody) {
       state.currentAssistantBody = appendMessage('assistant', p.text);
-    } else if (!state.currentAssistantBody.textContent) {
-      state.currentAssistantBody.textContent = p.text;
+    } else {
+      state.currentAssistantBody.innerHTML = renderMarkdown(p.text || state.streamingText || '');
     }
+    state.streamingText = '';
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }));
 
