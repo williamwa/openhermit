@@ -34,7 +34,8 @@ export type ChatItem =
   | { type: 'assistant'; text: string; streaming: boolean }
   | { type: 'event'; text: string; isError: boolean }
   | { type: 'tool'; tool: string; args?: unknown; phase: 'running' | 'done'; isError?: boolean; result?: string }
-  | { type: 'approval'; toolName: string; toolCallId: string; args?: unknown; resolved: boolean; approved?: boolean };
+  | { type: 'approval'; toolName: string; toolCallId: string; args?: unknown; resolved: boolean; approved?: boolean }
+  | { type: 'thinking' };
 
 interface Props {
   items: ChatItem[];
@@ -165,6 +166,13 @@ export function ChatMessages({ items, onApproval }: Props) {
             return <ToolCard key={i} item={item} />;
           case 'approval':
             return <ApprovalCard key={i} item={item} onApproval={onApproval} />;
+          case 'thinking':
+            return (
+              <article key={i} className="message message--assistant">
+                <div className="message__title">OpenHermit</div>
+                <div className="message__body thinking-indicator">Thinking<span className="thinking-dots" /></div>
+              </article>
+            );
         }
       })}
     </section>

@@ -28,9 +28,11 @@ export function ChatShell({ connection, onDisconnect }: Props) {
   const handleEvent = useCallback((_eventId: number, sessionId: string, event: OutboundEvent) => {
     if (sessionId !== currentSessionRef.current) return;
 
+    const dropThinking = (items: ChatItem[]) => items.filter(i => i.type !== 'thinking');
+
     switch (event.type) {
       case 'tool_call':
-        setItems(prev => [...prev, { type: 'tool', tool: event.tool as string, args: event.args, phase: 'running' }]);
+        setItems(prev => [...dropThinking(prev), { type: 'tool', tool: event.tool as string, args: event.args, phase: 'running' }]);
         break;
 
       case 'tool_result':
@@ -51,7 +53,7 @@ export function ChatShell({ connection, onDisconnect }: Props) {
         break;
 
       case 'tool_approval_required':
-        setItems(prev => [...prev, {
+        setItems(prev => [...dropThinking(prev), {
           type: 'approval',
           toolName: event.toolName as string,
           toolCallId: event.toolCallId as string,
@@ -63,14 +65,15 @@ export function ChatShell({ connection, onDisconnect }: Props) {
       case 'text_delta':
         streamingTextRef.current += event.text as string;
         setItems(prev => {
+          const clean = dropThinking(prev);
           const text = streamingTextRef.current;
-          const last = prev[prev.length - 1];
+          const last = clean[clean.length - 1];
           if (last?.type === 'assistant' && last.streaming) {
-            const updated = [...prev];
+            const updated = [...clean];
             updated[updated.length - 1] = { type: 'assistant', text, streaming: true };
             return updated;
           }
-          return [...prev, { type: 'assistant', text, streaming: true }];
+          return [...clean, { type: 'assistant', text, streaming: true }];
         });
         break;
 
@@ -90,7 +93,7 @@ export function ChatShell({ connection, onDisconnect }: Props) {
       }
 
       case 'error':
-        setItems(prev => [...prev, { type: 'event', text: event.message as string, isError: true }]);
+        setItems(prev => [...dropThinking(prev), { type: 'event', text: event.message as string, isError: true }]);
         break;
 
       case 'agent_end':
@@ -175,7 +178,7 @@ export function ChatShell({ connection, onDisconnect }: Props) {
     const sessionId = currentSessionRef.current;
     if (!ws || !sessionId || !text.trim()) return;
 
-    setItems(prev => [...prev, { type: 'user', text, streaming: false }]);
+    setItems(prev => [...prev, { type: 'user', text, streaming: false }, { type: 'thinking' }]);
     setSending(true);
     setStatus('Running');
     streamingTextRef.current = '';
