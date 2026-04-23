@@ -302,10 +302,9 @@ export class AgentRunner implements SessionRuntime {
       existing.spec = {
         ...existing.spec,
         ...spec,
-        source: {
-          ...existing.spec.source,
-          ...spec.source,
-        },
+        // Preserve the original source — reopening from a different channel
+        // (e.g. viewing a telegram session in the web UI) must not change it.
+        source: existing.spec.source,
         ...(Object.keys(mergedMetadata).length > 0
           ? { metadata: mergedMetadata }
           : {}),
@@ -346,10 +345,7 @@ export class AgentRunner implements SessionRuntime {
     };
     const effectiveSpec: SessionSpec = {
       ...spec,
-      source: {
-        ...(persisted?.source ?? {}),
-        ...spec.source,
-      },
+      source: persisted?.source ?? spec.source,
       ...(Object.keys(mergedMetadata).length > 0
         ? { metadata: mergedMetadata }
         : {}),
