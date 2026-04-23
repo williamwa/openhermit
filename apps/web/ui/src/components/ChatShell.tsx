@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { apiFetch, getJwt, getApiBase, getDisplayName, type Connection, type SessionSummary, type HistoryMessage } from '../api';
+import { AgentWsClient, getDisplayName, type Connection, type SessionSummary, type HistoryMessage, type OutboundEvent } from '../api';
 import { SessionList } from './SessionList';
 import { ChatMessages, type ChatItem } from './ChatMessages';
 import { Composer } from './Composer';
@@ -16,205 +16,177 @@ export function ChatShell({ connection, onDisconnect }: Props) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [items, setItems] = useState<ChatItem[]>([]);
-  const [status, setStatus] = useState('Idle');
+  const [status, setStatus] = useState('Connecting');
   const [sending, setSending] = useState(false);
 
-  const eventSourceRef = useRef<EventSource | null>(null);
-  const currentEventIdRef = useRef(0);
+  const wsRef = useRef<AgentWsClient | null>(null);
+  const currentSessionRef = useRef<string | null>(null);
   const streamingTextRef = useRef('');
 
-  const refreshSessions = useCallback(async () => {
-    const response = await apiFetch('/sessions?limit=50');
-    if (response.ok) {
-      setSessions(await response.json());
-    }
-  }, []);
+  currentSessionRef.current = currentSessionId;
 
-  const closeEventSource = useCallback(() => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
-    }
-  }, []);
+  const handleEvent = useCallback((_eventId: number, sessionId: string, event: OutboundEvent) => {
+    if (sessionId !== currentSessionRef.current) return;
 
-  const connectToStream = useCallback(async (sessionId: string) => {
-    closeEventSource();
-    streamingTextRef.current = '';
+    switch (event.type) {
+      case 'tool_requested':
+        setItems(prev => [...prev, { type: 'tool', tool: event.tool as string, args: event.args, phase: 'requested' }]);
+        break;
 
-    const token = await getJwt();
-    const url = `${getApiBase()}/sessions/${encodeURIComponent(sessionId)}/events?token=${encodeURIComponent(token)}`;
-    const source = new EventSource(url);
-    eventSourceRef.current = source;
-    setStatus('Streaming');
+      case 'tool_started':
+        setItems(prev => {
+          const idx = prev.findLastIndex(i => i.type === 'tool' && i.tool === event.tool && i.phase === 'requested');
+          if (idx >= 0) {
+            const updated = [...prev];
+            updated[idx] = { ...updated[idx], phase: 'running' } as ChatItem;
+            return updated;
+          }
+          return [...prev, { type: 'tool', tool: event.tool as string, args: event.args, phase: 'running' }];
+        });
+        break;
 
-    const guard = (handler: (event: MessageEvent) => void) => (event: MessageEvent) => {
-      const eventId = Number.parseInt(event.lastEventId || '0', 10);
-      if (eventId !== 0 && eventId <= currentEventIdRef.current) return;
-      currentEventIdRef.current = Math.max(currentEventIdRef.current, eventId || 0);
-      handler(event);
-    };
+      case 'tool_result':
+        setItems(prev => {
+          const idx = prev.findLastIndex(i => i.type === 'tool' && i.tool === event.tool && i.phase !== 'done');
+          if (idx >= 0) {
+            const updated = [...prev];
+            updated[idx] = {
+              ...updated[idx],
+              phase: 'done',
+              isError: event.isError as boolean,
+              result: (event.text as string) || (event.details ? JSON.stringify(event.details, null, 2) : ''),
+            } as ChatItem;
+            return updated;
+          }
+          return prev;
+        });
+        break;
 
-    source.addEventListener('tool_requested', guard((event) => {
-      const p = JSON.parse(event.data);
-      setItems(prev => [...prev, { type: 'tool', tool: p.tool, args: p.args, phase: 'requested' }]);
-    }));
+      case 'tool_approval_required':
+        setItems(prev => [...prev, {
+          type: 'approval',
+          toolName: event.toolName as string,
+          toolCallId: event.toolCallId as string,
+          args: event.args,
+          resolved: false,
+        }]);
+        break;
 
-    source.addEventListener('tool_started', guard((event) => {
-      const p = JSON.parse(event.data);
-      setItems(prev => {
-        const idx = prev.findLastIndex(i => i.type === 'tool' && i.tool === p.tool && i.phase === 'requested');
-        if (idx >= 0) {
-          const updated = [...prev];
-          updated[idx] = { ...updated[idx], phase: 'running' } as ChatItem;
-          return updated;
-        }
-        return [...prev, { type: 'tool', tool: p.tool, args: p.args, phase: 'running' }];
-      });
-    }));
+      case 'text_delta':
+        streamingTextRef.current += event.text as string;
+        setItems(prev => {
+          const text = streamingTextRef.current;
+          const last = prev[prev.length - 1];
+          if (last?.type === 'assistant' && last.streaming) {
+            const updated = [...prev];
+            updated[updated.length - 1] = { type: 'assistant', text, streaming: true };
+            return updated;
+          }
+          return [...prev, { type: 'assistant', text, streaming: true }];
+        });
+        break;
 
-    source.addEventListener('tool_result', guard((event) => {
-      const p = JSON.parse(event.data);
-      setItems(prev => {
-        const idx = prev.findLastIndex(i => i.type === 'tool' && i.tool === p.tool && i.phase !== 'done');
-        if (idx >= 0) {
-          const updated = [...prev];
-          updated[idx] = { ...updated[idx], phase: 'done', isError: p.isError, result: p.text || (p.details ? JSON.stringify(p.details, null, 2) : '') } as ChatItem;
-          return updated;
-        }
-        return prev;
-      });
-    }));
-
-    source.addEventListener('tool_approval_required', guard((event) => {
-      const p = JSON.parse(event.data);
-      setItems(prev => [...prev, { type: 'approval', toolName: p.toolName, toolCallId: p.toolCallId, args: p.args, resolved: false }]);
-    }));
-
-    source.addEventListener('text_delta', guard((event) => {
-      const p = JSON.parse(event.data);
-      streamingTextRef.current += p.text;
-      const text = streamingTextRef.current;
-      setItems(prev => {
-        const last = prev[prev.length - 1];
-        if (last?.type === 'assistant' && last.streaming) {
-          const updated = [...prev];
-          updated[updated.length - 1] = { type: 'assistant', text, streaming: true };
-          return updated;
-        }
-        return [...prev, { type: 'assistant', text, streaming: true }];
-      });
-    }));
-
-    source.addEventListener('text_final', guard((event) => {
-      const p = JSON.parse(event.data);
-      const finalText = p.text || streamingTextRef.current;
-      streamingTextRef.current = '';
-      setItems(prev => {
-        const last = prev[prev.length - 1];
-        if (last?.type === 'assistant') {
-          const updated = [...prev];
-          updated[updated.length - 1] = { type: 'assistant', text: finalText, streaming: false };
-          return updated;
-        }
-        return [...prev, { type: 'assistant', text: finalText, streaming: false }];
-      });
-    }));
-
-    source.addEventListener('error', guard((event) => {
-      if ((event as MessageEvent).data) {
-        const p = JSON.parse((event as MessageEvent).data);
-        setItems(prev => [...prev, { type: 'event', text: p.message, isError: true }]);
+      case 'text_final': {
+        const finalText = (event.text as string) || streamingTextRef.current;
+        streamingTextRef.current = '';
+        setItems(prev => {
+          const last = prev[prev.length - 1];
+          if (last?.type === 'assistant') {
+            const updated = [...prev];
+            updated[updated.length - 1] = { type: 'assistant', text: finalText, streaming: false };
+            return updated;
+          }
+          return [...prev, { type: 'assistant', text: finalText, streaming: false }];
+        });
+        break;
       }
-    }));
 
-    source.addEventListener('agent_end', guard(async () => {
-      streamingTextRef.current = '';
-      setSending(false);
-      setStatus('Idle');
-      await refreshSessions();
-    }));
+      case 'error':
+        setItems(prev => [...prev, { type: 'event', text: event.message as string, isError: true }]);
+        break;
 
-    source.addEventListener('ready', () => setStatus('Connected'));
-    source.onerror = () => setStatus('Reconnecting...');
-  }, [closeEventSource, refreshSessions]);
+      case 'agent_end':
+        streamingTextRef.current = '';
+        setSending(false);
+        setStatus('Connected');
+        wsRef.current?.listSessions().then(setSessions).catch(() => {});
+        break;
+    }
+  }, []);
+
+  const refreshSessions = useCallback(async () => {
+    if (!wsRef.current) return;
+    const list = await wsRef.current.listSessions();
+    setSessions(list);
+  }, []);
 
   const selectSession = useCallback(async (sessionId: string) => {
-    if (sessionId === currentSessionId) return;
+    const ws = wsRef.current;
+    if (!ws || sessionId === currentSessionRef.current) return;
 
-    setCurrentSessionId(sessionId);
-    currentEventIdRef.current = 0;
-    setItems([]);
-
-    await apiFetch('/sessions', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sessionId, source: { kind: 'api', interactive: true, platform: 'web' }, metadata: {} }),
-    });
-
-    const session = sessions.find(s => s.sessionId === sessionId);
-    currentEventIdRef.current = session?.lastEventId ?? 0;
-
-    const historyResponse = await apiFetch(`/sessions/${encodeURIComponent(sessionId)}/messages`);
-    if (historyResponse.ok) {
-      const history: HistoryMessage[] = await historyResponse.json();
-      const historyItems: ChatItem[] = history.map(entry => {
-        if (entry.role === 'error') return { type: 'event', text: entry.content, isError: true };
-        return { type: entry.role as 'user' | 'assistant', text: entry.content, streaming: false };
-      });
-      setItems(historyItems);
+    if (currentSessionRef.current) {
+      await ws.unsubscribe(currentSessionRef.current);
     }
 
-    await connectToStream(sessionId);
-  }, [currentSessionId, sessions, connectToStream]);
+    setCurrentSessionId(sessionId);
+    setItems([]);
+    streamingTextRef.current = '';
+
+    await ws.openSession(sessionId);
+
+    const session = sessions.find(s => s.sessionId === sessionId);
+    const lastEventId = session?.lastEventId ?? 0;
+
+    const history: HistoryMessage[] = await ws.getHistory(sessionId);
+    const historyItems: ChatItem[] = history.map(entry => {
+      if (entry.role === 'error') return { type: 'event', text: entry.content, isError: true };
+      return { type: entry.role as 'user' | 'assistant', text: entry.content, streaming: false };
+    });
+    setItems(historyItems);
+
+    await ws.subscribe(sessionId, lastEventId);
+  }, [sessions]);
 
   const createNewSession = useCallback(async () => {
-    if (currentSessionId) {
-      await apiFetch(`/sessions/${encodeURIComponent(currentSessionId)}/checkpoint`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ reason: 'new_session' }),
-      }).catch(() => {});
+    const ws = wsRef.current;
+    if (!ws) return;
+
+    if (currentSessionRef.current) {
+      await ws.checkpoint(currentSessionRef.current, 'new_session').catch(() => {});
     }
 
     const sessionId = createSessionId();
-    await apiFetch('/sessions', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sessionId, source: { kind: 'api', interactive: true, platform: 'web' }, metadata: {} }),
-    });
+    await ws.openSession(sessionId);
     await refreshSessions();
     await selectSession(sessionId);
-  }, [currentSessionId, refreshSessions, selectSession]);
+  }, [refreshSessions, selectSession]);
 
   const sendMessage = useCallback(async (text: string) => {
-    if (!currentSessionId || !text.trim()) return;
+    const ws = wsRef.current;
+    const sessionId = currentSessionRef.current;
+    if (!ws || !sessionId || !text.trim()) return;
+
     setItems(prev => [...prev, { type: 'user', text, streaming: false }]);
     setSending(true);
     setStatus('Running');
     streamingTextRef.current = '';
 
     try {
-      const response = await apiFetch(
-        `/sessions/${encodeURIComponent(currentSessionId)}/messages`,
-        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) },
-      );
-      if (!response.ok) throw new Error(`Failed to post message (${response.status})`);
-      await refreshSessions();
+      await ws.sendMessage(sessionId, text);
     } catch (error) {
       setSending(false);
-      setStatus('Idle');
+      setStatus('Connected');
       setItems(prev => [...prev, { type: 'event', text: error instanceof Error ? error.message : String(error), isError: true }]);
     }
-  }, [currentSessionId, refreshSessions]);
+  }, []);
 
   const handleApproval = useCallback(async (toolCallId: string, approved: boolean) => {
-    if (!currentSessionId) return;
+    const ws = wsRef.current;
+    const sessionId = currentSessionRef.current;
+    if (!ws || !sessionId) return;
+
     try {
-      await apiFetch(`/sessions/${encodeURIComponent(currentSessionId)}/approve`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ toolCallId, approved }),
-      });
+      await ws.approve(sessionId, toolCallId, approved);
       setItems(prev => prev.map(item =>
         item.type === 'approval' && item.toolCallId === toolCallId
           ? { ...item, resolved: true, approved }
@@ -223,17 +195,29 @@ export function ChatShell({ connection, onDisconnect }: Props) {
     } catch (error) {
       setItems(prev => [...prev, { type: 'event', text: error instanceof Error ? error.message : String(error), isError: true }]);
     }
-  }, [currentSessionId]);
+  }, []);
 
-  // Initial load
+  // Connect WS on mount
   useEffect(() => {
-    refreshSessions().then(() => {
-      // Auto-select or create session handled after sessions load
+    const client = new AgentWsClient(handleEvent, (s) => {
+      if (s === 'connected') setStatus('Connected');
+      else if (s === 'connecting') setStatus('Connecting');
+      else setStatus('Disconnected');
     });
-    return () => closeEventSource();
-  }, [refreshSessions, closeEventSource]);
+    wsRef.current = client;
 
-  // Auto-select first session after sessions load (don't create new ones)
+    client.connect()
+      .then(() => client.listSessions())
+      .then(setSessions)
+      .catch(() => setStatus('Disconnected'));
+
+    return () => {
+      client.close();
+      wsRef.current = null;
+    };
+  }, [handleEvent]);
+
+  // Auto-select first session after sessions load
   const initialLoadDone = useRef(false);
   useEffect(() => {
     if (initialLoadDone.current) return;
@@ -270,7 +254,7 @@ export function ChatShell({ connection, onDisconnect }: Props) {
         <div className="sidebar__footer">
           <div>
             <div className="sidebar__footer-name"><span className="sidebar__footer-dot" />{getDisplayName() || 'Anonymous'}</div>
-            <div className="sidebar__footer-auth">Auth: device key</div>
+            <div className="sidebar__footer-auth">Auth: device key · WS</div>
           </div>
         </div>
       </aside>

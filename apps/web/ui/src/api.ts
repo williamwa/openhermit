@@ -37,6 +37,12 @@ export interface HistoryMessage {
   content: string;
 }
 
+export interface OutboundEvent {
+  type: string;
+  sessionId: string;
+  [key: string]: unknown;
+}
+
 // ─── Device Key (ECDSA P-256) ──────────────────────────────────────────────
 
 const bufToBase64url = (buf: ArrayBuffer): string => {
@@ -211,10 +217,135 @@ export const getJwt = async (): Promise<string> => {
 
 export const initJwt = (): void => { loadJwt(); };
 
-// ─── Authenticated fetch ───────────────────────────────────────────────────
+// ─── WebSocket RPC client ─────────────────────────────────────────────────
 
-export const apiFetch = async (path: string, options: RequestInit = {}): Promise<Response> => {
-  const token = await getJwt();
-  const headers = { authorization: `Bearer ${token}`, ...(options.headers || {}) };
-  return fetch(`${apiBase}${path}`, { ...options, headers });
-};
+type WsMethod =
+  | 'session.open'
+  | 'session.message'
+  | 'session.approve'
+  | 'session.checkpoint'
+  | 'session.list'
+  | 'session.history'
+  | 'session.subscribe'
+  | 'session.unsubscribe';
+
+interface PendingRequest {
+  resolve: (result: unknown) => void;
+  reject: (error: Error) => void;
+}
+
+export type WsEventHandler = (eventId: number, sessionId: string, event: OutboundEvent) => void;
+export type WsStatusHandler = (status: 'connecting' | 'connected' | 'disconnected') => void;
+
+export class AgentWsClient {
+  private ws: WebSocket | null = null;
+  private requestId = 0;
+  private pending = new Map<string, PendingRequest>();
+  private onEvent: WsEventHandler;
+  private onStatus: WsStatusHandler;
+  private disposed = false;
+
+  constructor(onEvent: WsEventHandler, onStatus: WsStatusHandler) {
+    this.onEvent = onEvent;
+    this.onStatus = onStatus;
+  }
+
+  async connect(): Promise<void> {
+    const token = await getJwt();
+    const httpBase = getApiBase();
+    const wsBase = httpBase.replace(/^http/, 'ws');
+    const url = `${wsBase}/ws?token=${encodeURIComponent(token)}`;
+
+    this.onStatus('connecting');
+
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(url);
+      this.ws = ws;
+
+      ws.onopen = () => {
+        this.onStatus('connected');
+        resolve();
+      };
+
+      ws.onerror = () => {
+        if (!this.ws) reject(new Error('WebSocket connection failed'));
+      };
+
+      ws.onclose = () => {
+        this.onStatus('disconnected');
+        for (const p of this.pending.values()) p.reject(new Error('Connection closed'));
+        this.pending.clear();
+        this.ws = null;
+      };
+
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data as string);
+          if (msg.kind === 'response') {
+            const p = this.pending.get(msg.id);
+            if (p) {
+              this.pending.delete(msg.id);
+              if (msg.error) p.reject(new Error(msg.error.message));
+              else p.resolve(msg.result);
+            }
+          } else if (msg.kind === 'event') {
+            this.onEvent(msg.eventId, msg.sessionId, msg.event);
+          }
+        } catch { /* ignore malformed messages */ }
+      };
+    });
+  }
+
+  private send<T = unknown>(method: WsMethod, params?: Record<string, unknown>): Promise<T> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error('Not connected'));
+    }
+    const id = String(++this.requestId);
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
+      this.ws!.send(JSON.stringify({ kind: 'request', id, method, params }));
+    });
+  }
+
+  async listSessions(limit = 50): Promise<SessionSummary[]> {
+    return this.send('session.list', { limit });
+  }
+
+  async openSession(sessionId: string): Promise<void> {
+    await this.send('session.open', {
+      sessionId,
+      source: { kind: 'api', interactive: true, platform: 'web' },
+      metadata: {},
+    });
+  }
+
+  async getHistory(sessionId: string): Promise<HistoryMessage[]> {
+    return this.send('session.history', { sessionId });
+  }
+
+  async subscribe(sessionId: string, lastEventId?: number): Promise<void> {
+    await this.send('session.subscribe', { sessionId, lastEventId });
+  }
+
+  async unsubscribe(sessionId: string): Promise<void> {
+    await this.send('session.unsubscribe', { sessionId }).catch(() => {});
+  }
+
+  async sendMessage(sessionId: string, text: string): Promise<void> {
+    await this.send('session.message', { sessionId, text });
+  }
+
+  async approve(sessionId: string, toolCallId: string, approved: boolean): Promise<void> {
+    await this.send('session.approve', { sessionId, toolCallId, approved });
+  }
+
+  async checkpoint(sessionId: string, reason: string): Promise<void> {
+    await this.send('session.checkpoint', { sessionId, reason });
+  }
+
+  close(): void {
+    this.disposed = true;
+    this.ws?.close();
+    this.ws = null;
+  }
+}
