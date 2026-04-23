@@ -282,7 +282,7 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
 
               streamedAssistantText = '';
             },
-            onToolStarted: (tool, args) => {
+            onToolCall: (tool, args) => {
               ensureAgentLabel();
               const formatted = formatDebugValue(args);
               const suffix = formatted

@@ -183,13 +183,9 @@ export const waitForAssistantTurn = async (
           continue;
         }
 
-        if (frame.event === 'tool_requested') {
-          continue;
-        }
-
-        if (frame.event === 'tool_started') {
-          if (out?.onToolStarted) {
-            out.onToolStarted(String(payload.tool ?? 'unknown'), payload.args);
+        if (frame.event === 'tool_call') {
+          if (out?.onToolCall) {
+            out.onToolCall(String(payload.tool ?? 'unknown'), payload.args);
           } else {
             writeToolStarted(String(payload.tool ?? 'unknown'), payload.args);
           }
@@ -352,13 +348,9 @@ export const streamAssistantTurn = async (
         continue;
       }
 
-      if (event.type === 'tool_requested') {
-        continue;
-      }
-
-      if (event.type === 'tool_started') {
-        if (out?.onToolStarted) {
-          out.onToolStarted(String(event.tool ?? 'unknown'), event.args);
+      if (event.type === 'tool_call') {
+        if (out?.onToolCall) {
+          out.onToolCall(String(event.tool ?? 'unknown'), event.args);
         } else {
           writeToolStarted(String(event.tool ?? 'unknown'), event.args);
         }

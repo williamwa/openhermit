@@ -406,10 +406,8 @@ test('web_fetch is still wrapped by approval callbacks in createBuiltInTools', a
       approvalCalls.push({ toolName, toolCallId, args });
       return 'approved';
     },
-    onToolRequested: async (toolName, toolCallId, args) => {
+    onToolCall: async (toolName, toolCallId, args) => {
       requestedCalls.push({ toolName, toolCallId, args });
-    },
-    onToolStarted: async (toolName, toolCallId, args) => {
       startedCalls.push({ toolName, toolCallId, args });
     },
   });

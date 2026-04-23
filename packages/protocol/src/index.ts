@@ -52,7 +52,7 @@ export interface SessionHistoryMessage {
   model?: string;
   stopReason?: string;
   tool?: string;
-  toolPhase?: 'requested' | 'started' | 'result';
+  toolPhase?: 'call' | 'result';
   toolIsError?: boolean;
   toolArgs?: unknown;
 }
@@ -104,8 +104,7 @@ export const isCallerIdentity = (value: unknown): value is CallerIdentity =>
 export type OutboundEvent =
   | { type: 'text_delta'; sessionId: string; text: string }
   | { type: 'text_final'; sessionId: string; text: string }
-  | { type: 'tool_requested'; sessionId: string; tool: string; args?: unknown }
-  | { type: 'tool_started'; sessionId: string; tool: string; args?: unknown }
+  | { type: 'tool_call'; sessionId: string; tool: string; args?: unknown }
   | {
       type: 'tool_result';
       sessionId: string;

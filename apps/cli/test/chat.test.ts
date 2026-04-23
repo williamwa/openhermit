@@ -258,8 +258,7 @@ test('waitForAssistantTurn prints tool starts and result labels without result b
             encoder.encode(
               [
                 'event: ready\ndata: {"sessionId":"cli:test"}\n\n',
-                'id: 1\nevent: tool_requested\ndata: {"tool":"write_file","args":{"path":"files/test.py","content":"print(1)"}}\n\n',
-                'id: 2\nevent: tool_started\ndata: {"tool":"write_file","args":{"path":"files/test.py","content":"print(1)"}}\n\n',
+                'id: 1\nevent: tool_call\ndata: {"tool":"write_file","args":{"path":"files/test.py","content":"print(1)"}}\n\n',
                 'id: 3\nevent: tool_result\ndata: {"tool":"write_file","isError":false,"text":"Wrote files/test.py","details":{"path":"files/test.py","bytes":8}}\n\n',
                 'id: 4\nevent: text_final\ndata: {"text":"Done."}\n\n',
                 'id: 5\nevent: agent_end\ndata: {"sessionId":"cli:test"}\n\n',

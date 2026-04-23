@@ -51,8 +51,7 @@ import {
   type ApprovalCallback,
   type ApprovalDecision,
   type Toolset,
-  type ToolRequestedCallback,
-  type ToolStartedCallback,
+  type ToolCallCallback,
   createBuiltInToolsets,
   toolsFromToolsets,
 } from './tools.js';
@@ -393,17 +392,10 @@ export class AgentRunner implements SessionRuntime {
       approvalCallback,
       (...args) => {
         if (!session) {
-          throw new Error('Session was not initialized before tool execution was requested.');
+          throw new Error('Session was not initialized before tool call.');
         }
 
-        return this.makeToolRequestedCallback(session)(...args);
-      },
-      (...args) => {
-        if (!session) {
-          throw new Error('Session was not initialized before tool execution started.');
-        }
-
-        return this.makeToolStartedCallback(session)(...args);
+        return this.makeToolCallCallback(session)(...args);
       },
       approvedCache,
       langfuseTurnContext,
@@ -823,48 +815,24 @@ export class AgentRunner implements SessionRuntime {
     };
   }
 
-  private makeToolStartedCallback(session: RunnerSession): ToolStartedCallback {
+  private makeToolCallCallback(session: RunnerSession): ToolCallCallback {
     return async (toolName, toolCallId, args) => {
       const ts = new Date().toISOString();
       session.status = 'running';
       session.updatedAt = ts;
 
       await this.events.publish({
-        type: 'tool_started',
+        type: 'tool_call',
         sessionId: session.spec.sessionId,
         tool: toolName,
         ...(args !== undefined ? { args } : {}),
       });
 
       await this.queueSideEffect(session, async () => {
-        await this.store.messages.appendLogEntry(this.scope,session.spec.sessionId, {
+        await this.store.messages.appendLogEntry(this.scope, session.spec.sessionId, {
           ts,
           role: 'tool_call',
-          type: 'tool_started',
-          name: toolName,
-          args,
-          toolCallId,
-        });
-      });
-    };
-  }
-
-  private makeToolRequestedCallback(session: RunnerSession): ToolRequestedCallback {
-    return async (toolName, toolCallId, args) => {
-      const ts = new Date().toISOString();
-
-      await this.events.publish({
-        type: 'tool_requested',
-        sessionId: session.spec.sessionId,
-        tool: toolName,
-        ...(args !== undefined ? { args } : {}),
-      });
-
-      await this.queueSideEffect(session, async () => {
-        await this.store.messages.appendLogEntry(this.scope,session.spec.sessionId, {
-          ts,
-          role: 'tool_call',
-          type: 'tool_requested',
+          type: 'tool_call',
           name: toolName,
           args,
           toolCallId,
@@ -1122,8 +1090,7 @@ export class AgentRunner implements SessionRuntime {
     spec: SessionSpec,
     config: AgentConfig,
     approvalCallback?: ApprovalCallback,
-    onToolRequested?: ToolRequestedCallback,
-    onToolStarted?: ToolStartedCallback,
+    onToolCall?: ToolCallCallback,
     approvedCache?: Set<string>,
     langfuseTurnContext?: LangfuseTurnContext,
     userRole?: UserRole,
@@ -1135,8 +1102,7 @@ export class AgentRunner implements SessionRuntime {
       agentSessionId: spec.sessionId,
       contextSessionId: spec.sessionId,
       ...(spec.source.interactive && approvalCallback ? { approvalCallback } : {}),
-      ...(onToolRequested ? { onToolRequested } : {}),
-      ...(onToolStarted ? { onToolStarted } : {}),
+      ...(onToolCall ? { onToolCall } : {}),
       ...(approvedCache ? { approvedCache } : {}),
       ...(langfuseTurnContext ? { langfuseTurnContext } : {}),
       ...(userRole ? { userRole } : {}),
@@ -1153,8 +1119,7 @@ export class AgentRunner implements SessionRuntime {
     contextSessionId: string;
     approvalCallback?: ApprovalCallback;
     approvedCache?: Set<string>;
-    onToolRequested?: ToolRequestedCallback;
-    onToolStarted?: ToolStartedCallback;
+    onToolCall?: ToolCallCallback;
     extraSystemPrompt?: string;
     tools?: any[];
     langfuseTurnContext?: LangfuseTurnContext;
@@ -1212,8 +1177,7 @@ export class AgentRunner implements SessionRuntime {
         ...(isOwnerOrUnresolved ? { onScheduleChange: () => this.scheduler?.reload() } : {}),
         ...(input.approvalCallback ? { approvalCallback: input.approvalCallback } : {}),
         ...(input.approvedCache ? { approvedCache: input.approvedCache } : {}),
-        ...(input.onToolRequested ? { onToolRequested: input.onToolRequested } : {}),
-        ...(input.onToolStarted ? { onToolStarted: input.onToolStarted } : {}),
+        ...(input.onToolCall ? { onToolCall: input.onToolCall } : {}),
       });
       tools = toolsFromToolsets(toolsets);
     }
@@ -1287,8 +1251,7 @@ export class AgentRunner implements SessionRuntime {
       agentSessionId: session.spec.sessionId,
       contextSessionId: session.spec.sessionId,
       ...(approvalCallback ? { approvalCallback } : {}),
-      onToolRequested: this.makeToolRequestedCallback(session),
-      onToolStarted: this.makeToolStartedCallback(session),
+      onToolCall: this.makeToolCallCallback(session),
       ...(session.resolvedUserRole ? { userRole: session.resolvedUserRole } : {}),
       ...(session.resolvedUserId ? { userId: session.resolvedUserId } : {}),
       ...(session.resolvedUserName ? { userName: session.resolvedUserName } : {}),

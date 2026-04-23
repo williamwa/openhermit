@@ -4,8 +4,7 @@ import { AgentSecurity } from '../core/index.js';
 import {
   type ApprovalCallback,
   asTextContent,
-  type ToolRequestedCallback,
-  type ToolStartedCallback,
+  type ToolCallCallback,
 } from './shared.js';
 
 const approvalCacheKey = (toolName: string, args: unknown): string | undefined => {
@@ -36,12 +35,11 @@ export const withApproval = (
   tool: AgentTool<any>,
   security: AgentSecurity,
   approvalCallback: ApprovalCallback | undefined,
-  onToolRequested?: ToolRequestedCallback,
-  onToolStarted?: ToolStartedCallback,
+  onToolCall?: ToolCallCallback,
   approvedCache?: Set<string>,
 ): AgentTool<any> => {
   if (!approvalCallback) {
-    if (!onToolRequested && !onToolStarted) {
+    if (!onToolCall) {
       return tool;
     }
 
@@ -53,8 +51,7 @@ export const withApproval = (
         signal?: AbortSignal,
         onUpdate?: Parameters<AgentTool<any>['execute']>[3],
       ) => {
-        await onToolRequested?.(tool.name, toolCallId, args);
-        await onToolStarted?.(tool.name, toolCallId, args);
+        await onToolCall(tool.name, toolCallId, args);
         return tool.execute(toolCallId, args, signal, onUpdate);
       },
     };
@@ -71,8 +68,6 @@ export const withApproval = (
       const needsApproval =
         security.getAutonomyLevel() !== 'full' &&
         security.requiresApproval(tool.name);
-
-      await onToolRequested?.(tool.name, toolCallId, args);
 
       if (needsApproval) {
         const cacheKey = approvalCacheKey(tool.name, args);
@@ -106,7 +101,7 @@ export const withApproval = (
         }
       }
 
-      await onToolStarted?.(tool.name, toolCallId, args);
+      await onToolCall?.(tool.name, toolCallId, args);
       return tool.execute(toolCallId, args, signal, onUpdate);
     },
   };

@@ -570,16 +570,7 @@ test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
   assert.ok(
     backlog.some(
       (entry) =>
-        entry.event.type === 'tool_requested' &&
-        entry.event.tool === 'memory_get' &&
-        'args' in entry.event &&
-        JSON.stringify(entry.event.args) === JSON.stringify({ key: 'fact' }),
-      ),
-  );
-  assert.ok(
-    backlog.some(
-      (entry) =>
-        entry.event.type === 'tool_started' &&
+        entry.event.type === 'tool_call' &&
         entry.event.tool === 'memory_get' &&
         'args' in entry.event &&
         JSON.stringify(entry.event.args) === JSON.stringify({ key: 'fact' }),
@@ -609,15 +600,7 @@ test('AgentRunner executes built-in tools through pi-agent-core', async (t) => {
     sessionEntries.some(
       (entry) =>
         entry.role === 'tool_call' &&
-        entry.type === 'tool_requested' &&
-        entry.name === 'memory_get',
-    ),
-  );
-  assert.ok(
-    sessionEntries.some(
-      (entry) =>
-        entry.role === 'tool_call' &&
-        entry.type === 'tool_started' &&
+        entry.type === 'tool_call' &&
         entry.name === 'memory_get',
     ),
   );
@@ -781,12 +764,8 @@ test('AgentRunner pauses on require_approval_for and resumes after respondToAppr
     'tool_approval_required event was published',
   );
   assert.ok(
-    backlogBefore.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'memory_add'),
-    'tool_requested is published before approval resolves',
-  );
-  assert.ok(
-    !backlogBefore.some((e) => e.event.type === 'tool_started' && e.event.tool === 'memory_add'),
-    'tool_started is not published before approval resolves',
+    !backlogBefore.some((e) => e.event.type === 'tool_call' && e.event.tool === 'memory_add'),
+    'tool_call is not published before approval resolves',
   );
   const approvalEvent = backlogBefore.find((e) => e.event.type === 'tool_approval_required');
   assert.equal(approvalEvent?.event.type, 'tool_approval_required');
@@ -811,7 +790,7 @@ test('AgentRunner pauses on require_approval_for and resumes after respondToAppr
 
   const backlogAfter = runner.events.getBacklog('cli:approval-session');
   assert.ok(
-    backlogAfter.some((e) => e.event.type === 'tool_started' && e.event.tool === 'memory_add'),
+    backlogAfter.some((e) => e.event.type === 'tool_call' && e.event.tool === 'memory_add'),
     'memory_add only starts after approval',
   );
   assert.ok(
@@ -883,12 +862,8 @@ test('AgentRunner rejects tool call when respondToApproval sends false', async (
 
   const backlog = runner.events.getBacklog('cli:deny-session');
   assert.ok(
-    backlog.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'memory_add'),
-    'tool_requested is still published before a denied approval',
-  );
-  assert.ok(
-    !backlog.some((e) => e.event.type === 'tool_started' && e.event.tool === 'memory_add'),
-    'tool_started is not published when approval is denied',
+    !backlog.some((e) => e.event.type === 'tool_call' && e.event.tool === 'memory_add'),
+    'tool_call is not published when approval is denied',
   );
   const toolResult = backlog.find((e) => e.event.type === 'tool_result' && e.event.tool === 'memory_add');
   assert.ok(toolResult, 'tool_result event was published');
@@ -955,12 +930,8 @@ test('AgentRunner skips approval for full autonomy level', async (t) => {
     'no approval event for full autonomy',
   );
   assert.ok(
-    backlog.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'memory_add'),
-    'tool_requested is published for full autonomy',
-  );
-  assert.ok(
-    backlog.some((e) => e.event.type === 'tool_started' && e.event.tool === 'memory_add'),
-    'tool_started is published for full autonomy',
+    backlog.some((e) => e.event.type === 'tool_call' && e.event.tool === 'memory_add'),
+    'tool_call is published for full autonomy',
   );
   assert.ok(
     backlog.some((e) => e.event.type === 'tool_result' && e.event.tool === 'memory_add'),
@@ -1006,12 +977,8 @@ test('AgentRunner skips approval for non-interactive sessions', async (t) => {
     'no approval event for non-interactive session',
   );
   assert.ok(
-    backlog.some((e) => e.event.type === 'tool_requested' && e.event.tool === 'memory_add'),
-    'tool_requested is published for non-interactive sessions',
-  );
-  assert.ok(
-    backlog.some((e) => e.event.type === 'tool_started' && e.event.tool === 'memory_add'),
-    'tool_started is published for non-interactive sessions',
+    backlog.some((e) => e.event.type === 'tool_call' && e.event.tool === 'memory_add'),
+    'tool_call is published for non-interactive sessions',
   );
   assert.ok(
     backlog.some((e) => e.event.type === 'tool_result' && e.event.tool === 'memory_add'),

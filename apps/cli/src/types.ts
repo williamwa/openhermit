@@ -24,8 +24,7 @@ export type CliCommand =
 export interface AssistantOutput {
   onTextDelta?: (text: string) => void;
   onTextFinal?: (text: string, sawDelta: boolean) => void;
-  onToolRequested?: (tool: string, args: unknown) => void;
-  onToolStarted?: (tool: string, args: unknown) => void;
+  onToolCall?: (tool: string, args: unknown) => void;
   onToolResult?: (tool: string, isError: boolean, text: unknown, details: unknown) => void;
   onApprovalPrompt?: (toolName: string, args: unknown) => void;
   onError?: (message: string) => void;

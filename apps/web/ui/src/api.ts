@@ -36,7 +36,7 @@ export interface HistoryMessage {
   role: string;
   content: string;
   tool?: string;
-  toolPhase?: 'requested' | 'started' | 'result';
+  toolPhase?: 'call' | 'result';
   toolIsError?: boolean;
   toolArgs?: unknown;
 }

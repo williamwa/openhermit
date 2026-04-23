@@ -39,13 +39,7 @@ export type ApprovalCallback = (
   args: unknown,
 ) => Promise<ApprovalDecision>;
 
-export type ToolStartedCallback = (
-  toolName: string,
-  toolCallId: string,
-  args: unknown,
-) => Promise<void> | void;
-
-export type ToolRequestedCallback = (
+export type ToolCallCallback = (
   toolName: string,
   toolCallId: string,
   args: unknown,
@@ -71,8 +65,7 @@ export interface ToolContext {
   onScheduleChange?: () => void;
   approvalCallback?: ApprovalCallback;
   approvedCache?: Set<string>;
-  onToolRequested?: ToolRequestedCallback;
-  onToolStarted?: ToolStartedCallback;
+  onToolCall?: ToolCallCallback;
 }
 
 /** Maximum characters for a single tool result text block (~256 KB). */

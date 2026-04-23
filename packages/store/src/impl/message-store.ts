@@ -59,9 +59,8 @@ const mapEventRowToHistoryMessage = (row: {
     return message;
   }
 
-  if (row.eventType === 'tool_requested' || row.eventType === 'tool_started' || row.eventType === 'tool_result') {
-    const phase = row.eventType === 'tool_requested' ? 'requested' as const
-      : row.eventType === 'tool_started' ? 'started' as const
+  if (row.eventType === 'tool_call' || row.eventType === 'tool_result') {
+    const phase = row.eventType === 'tool_call' ? 'call' as const
       : 'result' as const;
     return {
       ts: row.ts,
@@ -69,7 +68,7 @@ const mapEventRowToHistoryMessage = (row: {
       content: (payload?.text as string) ?? '',
       tool: (payload?.name as string) || (payload?.tool as string) || '',
       toolPhase: phase,
-      toolIsError: phase === 'result' ? (payload?.isError as boolean) ?? false : undefined,
+      toolIsError: phase === 'result' ? ((payload?.isError as boolean) ?? false) : false,
       toolArgs: payload?.args,
     };
   }
@@ -153,7 +152,7 @@ export class DbMessageStore implements MessageStore {
         sessionId,
         OR: [
           { content: { not: null } },
-          { eventType: { in: ['tool_requested', 'tool_started', 'tool_result'] } },
+          { eventType: { in: ['tool_call', 'tool_result'] } },
         ],
       },
       orderBy: [{ ts: 'asc' }, { id: 'asc' }],

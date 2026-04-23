@@ -33,7 +33,7 @@ export type ChatItem =
   | { type: 'user'; text: string; streaming: false }
   | { type: 'assistant'; text: string; streaming: boolean }
   | { type: 'event'; text: string; isError: boolean }
-  | { type: 'tool'; tool: string; args?: unknown; phase: 'requested' | 'running' | 'done'; isError?: boolean; result?: string }
+  | { type: 'tool'; tool: string; args?: unknown; phase: 'running' | 'done'; isError?: boolean; result?: string }
   | { type: 'approval'; toolName: string; toolCallId: string; args?: unknown; resolved: boolean; approved?: boolean };
 
 interface Props {

@@ -29,20 +29,8 @@ export function ChatShell({ connection, onDisconnect }: Props) {
     if (sessionId !== currentSessionRef.current) return;
 
     switch (event.type) {
-      case 'tool_requested':
-        setItems(prev => [...prev, { type: 'tool', tool: event.tool as string, args: event.args, phase: 'requested' }]);
-        break;
-
-      case 'tool_started':
-        setItems(prev => {
-          const idx = prev.findLastIndex(i => i.type === 'tool' && i.tool === event.tool && i.phase === 'requested');
-          if (idx >= 0) {
-            const updated = [...prev];
-            updated[idx] = { ...updated[idx], phase: 'running' } as ChatItem;
-            return updated;
-          }
-          return [...prev, { type: 'tool', tool: event.tool as string, args: event.args, phase: 'running' }];
-        });
+      case 'tool_call':
+        setItems(prev => [...prev, { type: 'tool', tool: event.tool as string, args: event.args, phase: 'running' }]);
         break;
 
       case 'tool_result':
@@ -143,16 +131,11 @@ export function ChatShell({ connection, onDisconnect }: Props) {
       if (entry.role === 'tool') {
         // Merge into existing tool card if it's for the same tool invocation
         const last = historyItems[historyItems.length - 1];
-        if (last?.type === 'tool' && last.tool === entry.tool && last.phase !== 'done') {
-          if (entry.toolPhase === 'result') {
-            last.phase = 'done';
-            last.isError = entry.toolIsError;
-            last.result = entry.content || undefined;
-          } else if (entry.toolPhase === 'started') {
-            last.phase = 'running';
-          }
+        if (last?.type === 'tool' && last.tool === entry.tool && last.phase !== 'done' && entry.toolPhase === 'result') {
+          last.phase = 'done';
+          last.isError = entry.toolIsError;
+          last.result = entry.content || undefined;
         } else if (entry.toolPhase === 'result') {
-          // Standalone result (no prior requested/started visible)
           historyItems.push({
             type: 'tool', tool: entry.tool || '', args: entry.toolArgs,
             phase: 'done', isError: entry.toolIsError, result: entry.content || undefined,
@@ -160,7 +143,7 @@ export function ChatShell({ connection, onDisconnect }: Props) {
         } else {
           historyItems.push({
             type: 'tool', tool: entry.tool || '', args: entry.toolArgs,
-            phase: entry.toolPhase === 'started' ? 'running' : 'requested',
+            phase: 'running',
           });
         }
         continue;

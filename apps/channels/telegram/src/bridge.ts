@@ -462,7 +462,7 @@ export class TelegramBridge implements ChannelOutbound {
             continue;
           }
 
-          // tool_requested, tool_started, tool_result — skip for now.
+          // tool_call, tool_result — skip for now.
         }
 
         if (sawAgentEnd) break;

@@ -7,8 +7,7 @@ import type {
   ApprovalDecision,
   Toolset,
   ToolContext,
-  ToolRequestedCallback,
-  ToolStartedCallback,
+  ToolCallCallback,
 } from './tools/shared.js';
 import { createInstructionToolset } from './tools/instruction.js';
 import { createWebToolset } from './tools/web.js';
@@ -22,8 +21,7 @@ export type {
   ApprovalDecision,
   Toolset,
   ToolContext,
-  ToolRequestedCallback,
-  ToolStartedCallback,
+  ToolCallCallback,
 } from './tools/shared.js';
 
 export {
@@ -39,7 +37,7 @@ export const createBuiltInTools = (context: ToolContext): AgentTool<any>[] =>
 export const createBuiltInToolsets = (
   context: ToolContext,
 ): Toolset[] => {
-  const { security, approvalCallback, approvedCache, onToolRequested, onToolStarted } = context;
+  const { security, approvalCallback, approvedCache, onToolCall } = context;
 
   const toolsets: Toolset[] = [];
 
@@ -75,8 +73,7 @@ export const createBuiltInToolsets = (
         tool,
         security,
         approvalCallback,
-        onToolRequested,
-        onToolStarted,
+        onToolCall,
         approvedCache,
       ),
     ),
