@@ -411,6 +411,7 @@ h2 { font-size: 14px; font-weight: 600; }
 /* ─── Tool cards ────────────────────────────────────────────────── */
 
 .tool-card {
+  max-width: 780px;
   margin-bottom: 4px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
