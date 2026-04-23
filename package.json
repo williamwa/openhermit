@@ -14,17 +14,18 @@
   ],
   "scripts": {
     "clean:build": "node scripts/clean-build.mjs",
-    "build": "npm run clean:build && cd packages/store && npx prisma generate && cd ../.. && tsc -b && cp -r packages/store/src/generated packages/store/dist/ && npm run build:ui -w @openhermit/gateway",
-    "dev:gateway-ui": "npm run dev:ui -w @openhermit/gateway",
+    "build": "npm run clean:build && cd packages/store && npx prisma generate && cd ../.. && tsc -b && cp -r packages/store/src/generated packages/store/dist/ && npm run build:ui -w @openhermit/gateway && npm run build:ui -w @openhermit/web",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run build && export $(cat .env | xargs) && DATABASE_URL=$DATABASE_URL_TEST node --import tsx --test apps/agent/test/*.test.ts apps/cli/test/*.test.ts apps/web/test/*.test.ts",
-    "dev:agent": "node --env-file=.env --import tsx --watch apps/agent/src/index.ts",
-    "chat:agent": "node --env-file=.env --import tsx apps/cli/src/index.ts",
-    "dev:cli": "node --env-file=.env --import tsx apps/cli/src/index.ts",
-    "dev:web": "node --env-file=.env --import tsx apps/web/src/index.ts",
-    "dev:gateway": "node --env-file=.env --import tsx apps/gateway/src/index.ts",
-    "dev:telegram": "node --env-file=.env --import tsx apps/channels/telegram/src/index.ts",
-    "dev:studio": "export $(cat .env | xargs) && cd packages/store && npx prisma studio"
+    "dev:gateway": "node -C development --import tsx apps/gateway/src/index.ts",
+    "dev:web": "node -C development --import tsx apps/web/src/index.ts",
+    "dev:cli": "node -C development --import tsx apps/cli/src/cli.ts",
+    "dev:telegram": "node -C development --import tsx apps/channels/telegram/src/index.ts",
+    "dev:studio": "export $(cat .env | xargs) && cd packages/store && npx prisma studio",
+    "start:gateway": "node apps/gateway/dist/index.js",
+    "start:web": "node apps/web/dist/index.js",
+    "start:cli": "node apps/cli/dist/cli.js",
+    "start:telegram": "node apps/channels/telegram/dist/index.js"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",

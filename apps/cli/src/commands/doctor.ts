@@ -3,6 +3,7 @@ import { access } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { Command } from 'commander';
+import { resolveOpenHermitHome } from '@openhermit/shared';
 
 import { resolveGatewayUrl } from './shared.js';
 
@@ -24,7 +25,7 @@ const commandVersion = (cmd: string, args: string[]): Promise<string> =>
   });
 
 const buildChecks = (): Check[] => {
-  const homeDir = process.env.OPENHERMIT_HOME ?? `${process.env.HOME ?? '/root'}/.openhermit`;
+  const homeDir = resolveOpenHermitHome();
 
   return [
     {

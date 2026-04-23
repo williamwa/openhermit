@@ -26,6 +26,7 @@ import {
   ValidationError,
   getErrorMessage,
   jsonError,
+  resolveOpenHermitHome,
 } from '@openhermit/shared';
 
 import type { AgentRunner, SessionEventEnvelope } from '@openhermit/agent/agent-runner';
@@ -348,7 +349,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
       );
     }
 
-    const homeDir = process.env.OPENHERMIT_HOME ?? `${process.env.HOME ?? '/root'}/.openhermit`;
+    const homeDir = resolveOpenHermitHome();
     const now = new Date().toISOString();
     const record = await agentStore.create({
       agentId: body.agentId,
@@ -962,7 +963,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   app.get('/api/admin/skills/scan', async (c) => {
     requireAdmin(c.req.header('authorization'));
     const { scanSkillDirectory } = await import('@openhermit/agent/skills');
-    const homeDir = process.env.OPENHERMIT_HOME ?? `${process.env.HOME ?? '/root'}/.openhermit`;
+    const homeDir = resolveOpenHermitHome();
     const skillsDir = `${homeDir}/skills`;
     const found = await scanSkillDirectory(skillsDir, skillsDir, 'system');
     return c.json(found);

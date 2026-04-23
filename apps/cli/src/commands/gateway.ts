@@ -1,22 +1,31 @@
 import { spawn } from 'node:child_process';
+import { access } from 'node:fs/promises';
 import { readFile, writeFile, unlink, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { Command } from 'commander';
+import { resolveOpenHermitHome } from '@openhermit/shared';
 
 import { resolveGatewayUrl, handleError } from './shared.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
-/** Resolve the gateway entry script relative to the monorepo layout. */
-const resolveGatewayEntry = (): string => {
-  const cliDir = path.dirname(fileURLToPath(import.meta.url));
-  return path.resolve(cliDir, '../../../gateway/src/index.ts');
+const cliDir = path.dirname(fileURLToPath(import.meta.url));
+const gatewayAppDir = path.resolve(cliDir, '../../../gateway');
+
+const resolveGatewaySpawn = async (): Promise<{ bin: string; args: string[] }> => {
+  const distEntry = path.join(gatewayAppDir, 'dist/index.js');
+  try {
+    await access(distEntry);
+    return { bin: process.execPath, args: [distEntry] };
+  } catch {
+    const srcEntry = path.join(gatewayAppDir, 'src/index.ts');
+    return { bin: process.execPath, args: ['-C', 'development', '--import', 'tsx', srcEntry] };
+  }
 };
 
-const resolveHomeDir = (): string =>
-  process.env.OPENHERMIT_HOME ?? `${process.env.HOME ?? '/root'}/.openhermit`;
+const resolveHomeDir = resolveOpenHermitHome;
 
 const pidFilePath = (): string => path.join(resolveHomeDir(), 'gateway.pid');
 
@@ -65,7 +74,7 @@ export const registerGatewayCommand = (program: Command): void => {
           return;
         }
 
-        const entry = resolveGatewayEntry();
+        const { bin, args } = await resolveGatewaySpawn();
         const home = resolveHomeDir();
         await mkdir(home, { recursive: true });
 
@@ -74,7 +83,7 @@ export const registerGatewayCommand = (program: Command): void => {
         const out = openSync(logFile, 'a');
         const err = openSync(logFile, 'a');
 
-        const child = spawn('tsx', [entry], {
+        const child = spawn(bin, args, {
           detached: true,
           stdio: ['ignore', out, err],
           env: { ...process.env },
@@ -136,8 +145,8 @@ export const registerGatewayCommand = (program: Command): void => {
     .description('Start the gateway in the foreground (for development)')
     .action(async () => {
       try {
-        const entry = resolveGatewayEntry();
-        const child = spawn('tsx', [entry], {
+        const { bin, args } = await resolveGatewaySpawn();
+        const child = spawn(bin, args, {
           stdio: 'inherit',
           env: { ...process.env },
         });

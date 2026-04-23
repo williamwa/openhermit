@@ -1,5 +1,6 @@
 import { pathToFileURL } from 'node:url';
 
+import { loadEnv } from '@openhermit/shared';
 import { TelegramApi } from './telegram-api.js';
 import { TelegramBridge } from './bridge.js';
 import { TelegramBot } from './bot.js';
@@ -10,6 +11,7 @@ const log = (message: string): void => {
 };
 
 export const main = async (): Promise<void> => {
+  await loadEnv();
   const config = await loadConfig();
   log(`mode: ${config.mode}`);
   log(`agent: ${config.agentBaseUrl}`);

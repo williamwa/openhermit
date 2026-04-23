@@ -1,5 +1,6 @@
 import { pathToFileURL } from 'node:url';
 
+import { loadEnv } from '@openhermit/shared';
 import { createWebServer } from './server.js';
 
 export { createWebServer } from './server.js';
@@ -7,6 +8,7 @@ export { createWebServer } from './server.js';
 const defaultPort = 4310;
 
 export const main = async (): Promise<void> => {
+  await loadEnv();
   const rawPort = process.env.OPENHERMIT_WEB_PORT ?? process.env.PORT;
   const port = rawPort ? Number.parseInt(rawPort, 10) : defaultPort;
 

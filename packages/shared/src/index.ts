@@ -1,3 +1,5 @@
+export { loadEnv, resolveOpenHermitHome } from './env.js';
+
 export interface JsonErrorBody {
   error: {
     code: string;

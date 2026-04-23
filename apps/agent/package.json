@@ -4,11 +4,26 @@
   "version": "0.1.0",
   "type": "module",
   "exports": {
-    "./agent-runner": "./src/agent-runner.ts",
-    "./core": "./src/core/index.ts",
-    "./langfuse": "./src/langfuse.ts",
-    "./channels": "./src/channels.ts",
-    "./skills": "./src/skills.ts"
+    "./agent-runner": {
+      "development": "./src/agent-runner.ts",
+      "default": "./dist/agent-runner.js"
+    },
+    "./core": {
+      "development": "./src/core/index.ts",
+      "default": "./dist/core/index.js"
+    },
+    "./langfuse": {
+      "development": "./src/langfuse.ts",
+      "default": "./dist/langfuse.js"
+    },
+    "./channels": {
+      "development": "./src/channels.ts",
+      "default": "./dist/channels.js"
+    },
+    "./skills": {
+      "development": "./src/skills.ts",
+      "default": "./dist/skills.js"
+    }
   },
   "scripts": {
     "build": "tsc -b",

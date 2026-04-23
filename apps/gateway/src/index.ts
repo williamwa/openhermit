@@ -9,7 +9,7 @@ import { createAdaptorServer } from '@hono/node-server';
 import { DbAgentStore, DbScheduleStore, DbSkillStore } from '@openhermit/store';
 import { scanSkillDirectory } from '@openhermit/agent/skills';
 
-import { loadEnvironmentFile } from '@openhermit/agent/langfuse';
+import { loadEnv, resolveOpenHermitHome } from '@openhermit/shared';
 
 import { AgentInstanceManager } from './agent-instance.js';
 import { syncSkillMounts } from './skill-mounts.js';
@@ -68,15 +68,14 @@ const listen = (
   });
 
 export const main = async (): Promise<void> => {
-  // Load .env from the project root (falls back gracefully if missing).
-  const gatewayEnvPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../.env');
-  const loadedEnvCount = await loadEnvironmentFile(gatewayEnvPath);
+  // Load .env: ~/.openhermit/.env (production) then cwd/.env (development).
+  const loadedEnvCount = await loadEnv();
   if (loadedEnvCount > 0) {
-    logStartup(`loaded ${loadedEnvCount} env var(s) from ${gatewayEnvPath}`);
+    logStartup(`loaded ${loadedEnvCount} env var(s)`);
   }
 
-  // Load gateway.json (env vars override for secrets/port).
-  const homeDir = process.env.OPENHERMIT_HOME ?? `${process.env.HOME ?? '/root'}/.openhermit`;
+  // Load gateway.json.
+  const homeDir = resolveOpenHermitHome();
   const configPath = path.join(homeDir, DEFAULT_CONFIG_FILENAME);
   const config = await loadGatewayConfig(configPath);
   logStartup(`config loaded from ${configPath}`);
