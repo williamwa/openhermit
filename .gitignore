@@ -8,3 +8,6 @@ dist/
 .openhermit-dev/
 .DS_Store
 TODO.md
+apps/cli/generated/
+apps/cli/prisma/
+apps/cli/public/

@@ -12,17 +12,25 @@ import { resolveGatewayUrl, handleError } from './shared.js';
 // ── Helpers ────────────────────────────────────────────────────────────
 
 const cliDir = path.dirname(fileURLToPath(import.meta.url));
-const gatewayAppDir = path.resolve(cliDir, '../../../gateway');
 
 const resolveGatewaySpawn = async (): Promise<{ bin: string; args: string[] }> => {
-  const distEntry = path.join(gatewayAppDir, 'dist/index.js');
+  // 1. Bundled gateway (npm installed package): dist/gateway.js next to dist/cli.js
+  const bundledEntry = path.resolve(cliDir, '../dist/gateway.js');
   try {
-    await access(distEntry);
-    return { bin: process.execPath, args: [distEntry] };
-  } catch {
-    const srcEntry = path.join(gatewayAppDir, 'src/index.ts');
-    return { bin: process.execPath, args: ['-C', 'development', '--import', 'tsx', srcEntry] };
-  }
+    await access(bundledEntry);
+    return { bin: process.execPath, args: [bundledEntry] };
+  } catch { /* not bundled — try monorepo paths */ }
+
+  // 2. Monorepo built: apps/gateway/dist/index.js
+  const monoDistEntry = path.resolve(cliDir, '../../../gateway/dist/index.js');
+  try {
+    await access(monoDistEntry);
+    return { bin: process.execPath, args: [monoDistEntry] };
+  } catch { /* not built — fall back to source */ }
+
+  // 3. Monorepo dev: apps/gateway/src/index.ts via tsx
+  const monoSrcEntry = path.resolve(cliDir, '../../../gateway/src/index.ts');
+  return { bin: process.execPath, args: ['-C', 'development', '--import', 'tsx', monoSrcEntry] };
 };
 
 const resolveHomeDir = resolveOpenHermitHome;
