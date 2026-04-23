@@ -1,30 +1,13 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
+import { marked } from 'marked';
+import remend from 'remend';
 import { apiFetch } from '../api';
 
 // ─── Markdown renderer ─────────────────────────────────────────────────────
 
-const renderMarkdown = (text: string): string => {
-  let html = text
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/```(\w*)\n([\s\S]*?)```/g, (_m, _lang, code) => `<pre class="md-code-block"><code>${(code as string).trim()}</code></pre>`)
-    .replace(/`([^`\n]+)`/g, '<code class="md-inline-code">$1</code>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/^### (.+)$/gm, '<h4>$1</h4>')
-    .replace(/^## (.+)$/gm, '<h3>$1</h3>')
-    .replace(/^# (.+)$/gm, '<h2>$1</h2>')
-    .replace(/^[*-] (.+)$/gm, '<li>$1</li>')
-    .replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
-  html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
-  html = html.replace(/\n{2,}/g, '</p><p>');
-  html = `<p>${html}</p>`;
-  html = html.replace(/<p><\/p>/g, '');
-  html = html.replace(/\n/g, '<br>');
-  html = html.replace(/<p>(<(?:pre|h[2-4]|ul))/g, '$1');
-  html = html.replace(/(<\/(?:pre|h[2-4]|ul)>)<\/p>/g, '$1');
-  html = html.replace(/<br>(<(?:pre|h[2-4]|ul))/g, '$1');
-  html = html.replace(/(<\/(?:pre|h[2-4]|ul)>)<br>/g, '$1');
-  return html;
+const renderMarkdown = (text: string, streaming = false): string => {
+  const src = streaming ? remend(text, { linkMode: 'text-only' }) : text;
+  return marked.parse(src, { async: false }) as string;
 };
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -149,11 +132,7 @@ export function ChatMessages({ items, onApproval }: Props) {
             return (
               <article key={i} className="message message--assistant">
                 <div className="message__title">OpenHermit</div>
-                {item.streaming ? (
-                  <div className="message__body">{item.text}</div>
-                ) : (
-                  <div className="message__body" dangerouslySetInnerHTML={{ __html: renderMarkdown(item.text) }} />
-                )}
+                <div className="message__body" dangerouslySetInnerHTML={{ __html: renderMarkdown(item.text, item.streaming) }} />
               </article>
             );
           case 'event':

@@ -370,9 +370,11 @@ h2 { font-size: 14px; font-weight: 600; }
 }
 
 .message__body {
-  white-space: pre-wrap;
-  line-height: 1.55;
+  line-height: 1.45;
 }
+.message__body p { margin: 0.3em 0; }
+.message__body > :first-child { margin-top: 0; }
+.message__body > :last-child { margin-bottom: 0; }
 
 .event {
   padding: 6px 10px;
@@ -538,8 +540,7 @@ h2 { font-size: 14px; font-weight: 600; }
 .message__body h2 { font-size: 14px; }
 .message__body h3 { font-size: 13px; }
 .message__body h4 { font-size: 13px; }
-.message__body p { margin: 0 0 0.5em; }
-.message__body p:last-child { margin-bottom: 0; }
+.message__body pre { white-space: pre-wrap; }
 .message__body ul { margin: 0.3em 0; padding-left: 1.2em; }
 .message__body li { margin-bottom: 0.15em; }
 .message__body strong { font-weight: 600; }
