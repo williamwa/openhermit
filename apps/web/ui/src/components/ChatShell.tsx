@@ -138,20 +138,36 @@ export function ChatShell({ connection, onDisconnect }: Props) {
     const lastEventId = session?.lastEventId ?? 0;
 
     const history: HistoryMessage[] = await ws.getHistory(sessionId);
-    const historyItems: ChatItem[] = history.map(entry => {
+    const historyItems: ChatItem[] = [];
+    for (const entry of history) {
       if (entry.role === 'tool') {
-        return {
-          type: 'tool' as const,
-          tool: entry.tool || '',
-          args: entry.toolArgs,
-          phase: entry.toolPhase === 'result' ? 'done' as const : (entry.toolPhase === 'started' ? 'running' as const : 'requested' as const),
-          isError: entry.toolIsError,
-          result: entry.toolPhase === 'result' ? entry.content : undefined,
-        };
+        // Merge into existing tool card if it's for the same tool invocation
+        const last = historyItems[historyItems.length - 1];
+        if (last?.type === 'tool' && last.tool === entry.tool && last.phase !== 'done') {
+          if (entry.toolPhase === 'result') {
+            last.phase = 'done';
+            last.isError = entry.toolIsError;
+            last.result = entry.content || undefined;
+          } else if (entry.toolPhase === 'started') {
+            last.phase = 'running';
+          }
+        } else if (entry.toolPhase === 'result') {
+          // Standalone result (no prior requested/started visible)
+          historyItems.push({
+            type: 'tool', tool: entry.tool || '', args: entry.toolArgs,
+            phase: 'done', isError: entry.toolIsError, result: entry.content || undefined,
+          });
+        } else {
+          historyItems.push({
+            type: 'tool', tool: entry.tool || '', args: entry.toolArgs,
+            phase: entry.toolPhase === 'started' ? 'running' : 'requested',
+          });
+        }
+        continue;
       }
-      if (entry.role === 'error') return { type: 'event', text: entry.content, isError: true };
-      return { type: entry.role as 'user' | 'assistant', text: entry.content, streaming: false };
-    });
+      if (entry.role === 'error') { historyItems.push({ type: 'event', text: entry.content, isError: true }); continue; }
+      historyItems.push({ type: entry.role as 'user' | 'assistant', text: entry.content, streaming: false });
+    }
     setItems(historyItems);
 
     await ws.subscribe(sessionId, lastEventId);
