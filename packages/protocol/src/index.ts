@@ -40,7 +40,7 @@ export interface SessionMessage {
   metadata?: Record<string, unknown>;
 }
 
-export type SessionHistoryRole = 'user' | 'assistant' | 'error';
+export type SessionHistoryRole = 'user' | 'assistant' | 'error' | 'tool';
 
 export interface SessionHistoryMessage {
   ts: string;
@@ -51,6 +51,10 @@ export interface SessionHistoryMessage {
   provider?: string;
   model?: string;
   stopReason?: string;
+  tool?: string;
+  toolPhase?: 'requested' | 'started' | 'result';
+  toolIsError?: boolean;
+  toolArgs?: unknown;
 }
 
 export type SessionStatus = 'idle' | 'running' | 'awaiting_approval' | 'inactive';

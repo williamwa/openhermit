@@ -139,6 +139,16 @@ export function ChatShell({ connection, onDisconnect }: Props) {
 
     const history: HistoryMessage[] = await ws.getHistory(sessionId);
     const historyItems: ChatItem[] = history.map(entry => {
+      if (entry.role === 'tool') {
+        return {
+          type: 'tool' as const,
+          tool: entry.tool || '',
+          args: entry.toolArgs,
+          phase: entry.toolPhase === 'result' ? 'done' as const : (entry.toolPhase === 'started' ? 'running' as const : 'requested' as const),
+          isError: entry.toolIsError,
+          result: entry.toolPhase === 'result' ? entry.content : undefined,
+        };
+      }
       if (entry.role === 'error') return { type: 'event', text: entry.content, isError: true };
       return { type: entry.role as 'user' | 'assistant', text: entry.content, streaming: false };
     });

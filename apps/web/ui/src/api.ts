@@ -35,6 +35,10 @@ export interface SessionSummary {
 export interface HistoryMessage {
   role: string;
   content: string;
+  tool?: string;
+  toolPhase?: 'requested' | 'started' | 'result';
+  toolIsError?: boolean;
+  toolArgs?: unknown;
 }
 
 export interface OutboundEvent {

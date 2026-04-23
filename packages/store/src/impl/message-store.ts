@@ -59,6 +59,21 @@ const mapEventRowToHistoryMessage = (row: {
     return message;
   }
 
+  if (row.eventType === 'tool_requested' || row.eventType === 'tool_started' || row.eventType === 'tool_result') {
+    const phase = row.eventType === 'tool_requested' ? 'requested' as const
+      : row.eventType === 'tool_started' ? 'started' as const
+      : 'result' as const;
+    return {
+      ts: row.ts,
+      role: 'tool' as const,
+      content: (payload?.text as string) ?? '',
+      tool: (payload?.tool as string) ?? '',
+      toolPhase: phase,
+      toolIsError: phase === 'result' ? (payload?.isError as boolean) ?? false : undefined,
+      toolArgs: payload?.args,
+    };
+  }
+
   return {
     ts: row.ts,
     role: 'error',
@@ -136,9 +151,12 @@ export class DbMessageStore implements MessageStore {
       where: {
         agentId: scope.agentId,
         sessionId,
-        content: { not: null },
+        OR: [
+          { content: { not: null } },
+          { eventType: { in: ['tool_requested', 'tool_started', 'tool_result'] } },
+        ],
       },
-      orderBy: [{ ts: 'desc' }, { id: 'desc' }],
+      orderBy: [{ ts: 'asc' }, { id: 'asc' }],
     });
 
     return rows.map(mapEventRowToHistoryMessage);
