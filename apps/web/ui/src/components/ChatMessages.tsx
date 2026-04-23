@@ -60,24 +60,30 @@ function ToolCard({ item }: { item: Extract<ChatItem, { type: 'tool' }> }) {
     return compact.length <= 120 ? compact : JSON.stringify(value, null, 2);
   };
 
+  const hasBody = item.args != null || item.result;
+
   return (
-    <div className={`tool-card ${doneClass}`}>
-      <div className="tool-card__header">
+    <details className={`tool-card ${doneClass}`} open={item.phase !== 'done'}>
+      <summary className="tool-card__header">
         <span className="tool-card__icon">{icon}</span>
         <span className="tool-card__name">{item.tool}</span>
         <span className={`tool-card__status${item.phase === 'done' ? (item.isError ? ' tool-card__status--error' : ' tool-card__status--done') : ''}`}>
           {statusText}
         </span>
-      </div>
-      {item.args != null && (
-        <pre className="tool-card__args">{formatArgs(item.args)}</pre>
+      </summary>
+      {hasBody && (
+        <div className="tool-card__body">
+          {item.args != null && (
+            <pre className="tool-card__args">{formatArgs(item.args)}</pre>
+          )}
+          {item.result && (
+            <pre className="tool-card__result">
+              {item.result.length > 800 ? item.result.slice(0, 800) + '...' : item.result}
+            </pre>
+          )}
+        </div>
       )}
-      {item.result && (
-        <pre className="tool-card__result">
-          {item.result.length > 800 ? item.result.slice(0, 800) + '...' : item.result}
-        </pre>
-      )}
-    </div>
+    </details>
   );
 }
 

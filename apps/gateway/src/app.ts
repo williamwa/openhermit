@@ -258,14 +258,14 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
       }
 
       // Check if this is a new or returning user
-      const existingUserId = await instance.runner.resolveCallerUserId({
+      const existingUserId = await instance.resolveCallerUserId({
         channel: authResult.channel,
         channelUserId: authResult.channelUserId,
       });
       const isNewDevice = !existingUserId;
 
-      if (existingUserId && authResult.displayName && instance.runner.updateUserName) {
-        await instance.runner.updateUserName(
+      if (existingUserId && authResult.displayName && instance.updateUserName) {
+        await instance.updateUserName(
           { channel: authResult.channel, channelUserId: authResult.channelUserId },
           authResult.displayName,
         );

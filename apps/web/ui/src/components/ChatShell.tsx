@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { apiFetch, getJwt, getApiBase, type Connection, type SessionSummary, type HistoryMessage } from '../api';
+import { apiFetch, getJwt, getApiBase, getDisplayName, type Connection, type SessionSummary, type HistoryMessage } from '../api';
 import { SessionList } from './SessionList';
 import { ChatMessages, type ChatItem } from './ChatMessages';
 import { Composer } from './Composer';
@@ -248,6 +248,8 @@ export function ChatShell({ connection, onDisconnect }: Props) {
 
   const currentSession = sessions.find(s => s.sessionId === currentSessionId);
   const sessionTitle = currentSession?.description || currentSession?.lastMessagePreview || currentSessionId || 'No session';
+  const isWebSession = !currentSession || currentSession.source?.kind === 'api' && currentSession.source?.platform === 'web';
+  const readOnly = currentSession != null && !isWebSession;
 
   return (
     <div className="shell">
@@ -266,6 +268,12 @@ export function ChatShell({ connection, onDisconnect }: Props) {
           currentSessionId={currentSessionId}
           onSelect={sessionId => void selectSession(sessionId)}
         />
+        <div className="sidebar__footer">
+          <div>
+            <div className="sidebar__footer-name"><span className="sidebar__footer-dot" />{getDisplayName() || 'Anonymous'}</div>
+            <div className="sidebar__footer-auth">Auth: device key</div>
+          </div>
+        </div>
       </aside>
 
       <main className="chat">
@@ -279,7 +287,13 @@ export function ChatShell({ connection, onDisconnect }: Props) {
 
         <ChatMessages items={items} onApproval={handleApproval} />
 
-        <Composer onSend={sendMessage} disabled={sending || !currentSessionId} />
+        {readOnly ? (
+          <div className="composer composer--readonly">
+            <span>Read-only — this session was created via {currentSession.source?.platform || currentSession.source?.kind || 'another channel'}</span>
+          </div>
+        ) : (
+          <Composer onSend={sendMessage} disabled={sending || !currentSessionId} />
+        )}
       </main>
     </div>
   );
