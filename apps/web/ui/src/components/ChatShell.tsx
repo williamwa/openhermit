@@ -233,18 +233,17 @@ export function ChatShell({ connection, onDisconnect }: Props) {
     return () => closeEventSource();
   }, [refreshSessions, closeEventSource]);
 
-  // Auto-select first session or create one after sessions load
+  // Auto-select first session after sessions load (don't create new ones)
   const initialLoadDone = useRef(false);
   useEffect(() => {
     if (initialLoadDone.current) return;
     if (sessions.length > 0 && !currentSessionId) {
       initialLoadDone.current = true;
       void selectSession(sessions[0].sessionId);
-    } else if (sessions.length === 0 && !currentSessionId) {
+    } else if (sessions.length === 0) {
       initialLoadDone.current = true;
-      void createNewSession();
     }
-  }, [sessions, currentSessionId, selectSession, createNewSession]);
+  }, [sessions, currentSessionId, selectSession]);
 
   const currentSession = sessions.find(s => s.sessionId === currentSessionId);
   const sessionTitle = currentSession?.description || currentSession?.lastMessagePreview || currentSessionId || 'No session';
