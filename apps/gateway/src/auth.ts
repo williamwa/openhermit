@@ -209,9 +209,12 @@ export class DeviceKeyAuthProvider implements UserAuthProvider {
     // Derive stable device identifier from public key fingerprint
     const fingerprint = bufferToHex(await crypto.subtle.digest('SHA-256', rawPublicKey));
 
+    const displayName = typeof body.display_name === 'string' ? body.display_name.trim() : undefined;
+
     return {
       channel: 'web',
       channelUserId: fingerprint,
+      ...(displayName ? { displayName } : {}),
     };
   }
 }

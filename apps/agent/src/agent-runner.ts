@@ -1067,6 +1067,18 @@ export class AgentRunner implements SessionRuntime {
     return this.store.users.resolve(caller.channel, caller.channelUserId);
   }
 
+  async updateUserName(
+    caller: { channel: string; channelUserId: string },
+    name: string,
+  ): Promise<void> {
+    const userId = await this.store.users.resolve(caller.channel, caller.channelUserId);
+    if (!userId) return;
+    const user = await this.store.users.get(userId);
+    if (user) {
+      await this.store.users.upsert({ ...user, name });
+    }
+  }
+
   async resolveCallerRole(
     caller: { channel: string; channelUserId: string },
   ): Promise<UserRole | undefined> {

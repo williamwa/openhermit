@@ -25,6 +25,8 @@ export interface SessionRuntime {
   listSessionMessages(sessionId: string, callerUserId?: string): Promise<SessionHistoryMessage[]>;
   /** Resolve a channel identity to an internal userId (read-only). */
   resolveCallerUserId?(caller: { channel: string; channelUserId: string }): Promise<string | undefined>;
+  /** Update a user's display name by channel identity. */
+  updateUserName?(caller: { channel: string; channelUserId: string }, name: string): Promise<void>;
   checkpointSession(
     sessionId: string,
     reason?: 'manual' | 'new_session' | 'turn_limit' | 'idle',

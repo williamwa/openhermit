@@ -257,13 +257,32 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
         throw new UnauthorizedError('Invalid credentials.');
       }
 
+      // Check if this is a new or returning user
+      const existingUserId = await instance.runner.resolveCallerUserId({
+        channel: authResult.channel,
+        channelUserId: authResult.channelUserId,
+      });
+      const isNewDevice = !existingUserId;
+
+      if (existingUserId && authResult.displayName && instance.runner.updateUserName) {
+        await instance.runner.updateUserName(
+          { channel: authResult.channel, channelUserId: authResult.channelUserId },
+          authResult.displayName,
+        );
+      }
+
       const { token, expiresAt } = await signJwt(authOptions.jwt, {
         agentId,
         channel: authResult.channel,
         channelUserId: authResult.channelUserId,
       });
 
-      return c.json({ token, expiresAt });
+      return c.json({
+        token,
+        expiresAt,
+        isNewDevice,
+        ...(authResult.displayName ? { displayName: authResult.displayName } : {}),
+      });
     });
 
     // General auth middleware for all agent routes (except auth/token)
