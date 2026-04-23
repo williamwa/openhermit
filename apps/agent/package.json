@@ -1,7 +1,7 @@
 {
   "name": "@openhermit/agent",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "exports": {
     "./agent-runner": {
@@ -33,9 +33,9 @@
   "dependencies": {
     "@mariozechner/pi-agent-core": "^0.57.1",
     "@mariozechner/pi-ai": "^0.57.1",
-    "@openhermit/protocol": "0.1.0",
-    "@openhermit/shared": "0.1.0",
-    "@openhermit/store": "0.1.0",
+    "@openhermit/protocol": "0.2.0",
+    "@openhermit/shared": "0.2.0",
+    "@openhermit/store": "0.2.0",
     "croner": "^10.0.1",
     "defuddle": "^0.11.0",
     "jsdom": "^24.0.0",
@@ -43,6 +43,6 @@
     "zod": "^4.3.6"
   },
   "optionalDependencies": {
-    "@openhermit/channel-telegram": "0.1.0"
+    "@openhermit/channel-telegram": "0.2.0"
   }
 }

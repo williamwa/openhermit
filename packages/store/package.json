@@ -1,7 +1,7 @@
 {
   "name": "@openhermit/store",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "main": "dist/index.js",
   "exports": {
@@ -16,8 +16,8 @@
     "typecheck": "tsc -p tsconfig.json --pretty false --noEmit"
   },
   "dependencies": {
-    "@openhermit/protocol": "0.1.0",
-    "@openhermit/shared": "0.1.0",
+    "@openhermit/protocol": "0.2.0",
+    "@openhermit/shared": "0.2.0",
     "@prisma/client": "^6.19.3"
   },
   "devDependencies": {

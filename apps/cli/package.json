@@ -1,6 +1,6 @@
 {
   "name": "openhermit",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "OpenHermit — multi-agent platform CLI",
   "type": "module",
   "license": "MIT",
@@ -17,11 +17,11 @@
     "multi-agent"
   ],
   "bin": {
-    "openhermit": "src/cli.ts",
-    "hermit": "src/cli.ts"
+    "openhermit": "dist/cli.js",
+    "hermit": "dist/cli.js"
   },
   "files": [
-    "dist/cli.js"
+    "dist/"
   ],
   "scripts": {
     "build": "tsc -b",
@@ -37,8 +37,8 @@
     "commander": "^12.1.0"
   },
   "devDependencies": {
-    "@openhermit/sdk": "0.1.0",
-    "@openhermit/shared": "0.1.0",
+    "@openhermit/sdk": "0.2.0",
+    "@openhermit/shared": "0.2.0",
     "tsup": "^8.5.1"
   }
 }

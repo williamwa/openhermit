@@ -7,3 +7,4 @@ dist/
 .cloudmind-dev/
 .openhermit-dev/
 .DS_Store
+TODO.md

@@ -1,7 +1,7 @@
 {
   "name": "@openhermit/gateway",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
@@ -13,10 +13,10 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.14.0",
-    "@openhermit/agent": "0.1.0",
-    "@openhermit/protocol": "0.1.0",
-    "@openhermit/shared": "0.1.0",
-    "@openhermit/store": "0.1.0",
+    "@openhermit/agent": "0.2.0",
+    "@openhermit/protocol": "0.2.0",
+    "@openhermit/shared": "0.2.0",
+    "@openhermit/store": "0.2.0",
     "hono": "^4.7.2",
     "jose": "^6.2.2",
     "react": "^19.1.0",
