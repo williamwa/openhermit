@@ -1,23 +1,31 @@
-import { PrismaClient } from '../generated/prisma/index.js';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { eq, and, inArray, asc } from 'drizzle-orm';
+import pg from 'pg';
 
 import type { SkillStore } from '../interfaces.js';
 import type { AgentSkillRecord, SkillRecord } from '../types.js';
+import * as schema from '../schema.js';
+import { skills, agentSkills } from '../schema.js';
+import type { DrizzleDb } from './index.js';
 
 export class DbSkillStore implements SkillStore {
-  constructor(private readonly prisma: PrismaClient) {}
+  private pool?: pg.Pool;
+
+  constructor(private readonly db: DrizzleDb) {}
 
   static async open(databaseUrl?: string): Promise<DbSkillStore> {
     const url = databaseUrl ?? process.env.DATABASE_URL;
-    if (!url) {
-      throw new Error('DATABASE_URL environment variable is required');
-    }
-    const prisma = new PrismaClient({ datasourceUrl: url });
-    await prisma.$connect();
-    return new DbSkillStore(prisma);
+    if (!url) throw new Error('DATABASE_URL environment variable is required');
+    const pool = new pg.Pool({ connectionString: url });
+    await pool.query('SELECT 1');
+    const db = drizzle(pool, { schema });
+    const store = new DbSkillStore(db);
+    store.pool = pool;
+    return store;
   }
 
   async close(): Promise<void> {
-    await this.prisma.$disconnect();
+    await this.pool?.end();
   }
 
   async upsert(skill: SkillRecord): Promise<void> {
@@ -29,72 +37,74 @@ export class DbSkillStore implements SkillStore {
       createdAt: skill.createdAt,
       updatedAt: skill.updatedAt,
     };
-
-    await this.prisma.skill.upsert({
-      where: { id: skill.id },
-      create: { id: skill.id, ...data },
-      update: data,
-    });
+    await this.db.insert(skills).values({ id: skill.id, ...data })
+      .onConflictDoUpdate({ target: skills.id, set: data });
   }
 
   async get(id: string): Promise<SkillRecord | undefined> {
-    const row = await this.prisma.skill.findUnique({ where: { id } });
+    const [row] = await this.db.select().from(skills).where(eq(skills.id, id));
     if (!row) return undefined;
     return this.rowToRecord(row);
   }
 
   async list(): Promise<SkillRecord[]> {
-    const rows = await this.prisma.skill.findMany({ orderBy: { name: 'asc' } });
+    const rows = await this.db.select().from(skills).orderBy(asc(skills.name));
     return rows.map((r) => this.rowToRecord(r));
   }
 
   async delete(id: string): Promise<void> {
-    await this.prisma.skill.delete({ where: { id } }).catch(() => undefined);
+    await this.db.delete(skills).where(eq(skills.id, id)).catch(() => undefined);
   }
 
   async enable(agentId: string, skillId: string): Promise<void> {
     const now = new Date().toISOString();
-    await this.prisma.agentSkill.upsert({
-      where: { agentId_skillId: { agentId, skillId } },
-      create: { agentId, skillId, enabled: true, createdAt: now },
-      update: { enabled: true },
-    });
+    await this.db.insert(agentSkills)
+      .values({ agentId, skillId, enabled: true, createdAt: now })
+      .onConflictDoUpdate({
+        target: [agentSkills.agentId, agentSkills.skillId],
+        set: { enabled: true },
+      });
   }
 
   async disable(agentId: string, skillId: string): Promise<void> {
-    await this.prisma.agentSkill.update({
-      where: { agentId_skillId: { agentId, skillId } },
-      data: { enabled: false },
-    }).catch(() => undefined);
+    await this.db.update(agentSkills).set({ enabled: false })
+      .where(and(eq(agentSkills.agentId, agentId), eq(agentSkills.skillId, skillId)))
+      .catch(() => undefined);
   }
 
   async listEnabled(agentId: string): Promise<SkillRecord[]> {
-    const rows = await this.prisma.agentSkill.findMany({
-      where: {
-        agentId: { in: [agentId, '*'] },
-        enabled: true,
-      },
-      include: { skill: true },
-    });
+    const rows = await this.db.select({
+      skillId: agentSkills.skillId,
+      id: skills.id,
+      name: skills.name,
+      description: skills.description,
+      path: skills.path,
+      metadataJson: skills.metadataJson,
+      createdAt: skills.createdAt,
+      updatedAt: skills.updatedAt,
+    }).from(agentSkills)
+      .innerJoin(skills, eq(agentSkills.skillId, skills.id))
+      .where(and(
+        inArray(agentSkills.agentId, [agentId, '*']),
+        eq(agentSkills.enabled, true),
+      ));
 
-    // Dedup: if both '*' and specific agentId exist for the same skill,
-    // the specific assignment takes precedence (but both are enabled here).
     const seen = new Set<string>();
-    const skills: SkillRecord[] = [];
+    const result: SkillRecord[] = [];
     for (const row of rows) {
       if (!seen.has(row.skillId)) {
         seen.add(row.skillId);
-        skills.push(this.rowToRecord(row.skill));
+        result.push(this.rowToRecord(row));
       }
     }
-
-    return skills.sort((a, b) => a.name.localeCompare(b.name));
+    return result.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   async listAssignments(skillId?: string): Promise<AgentSkillRecord[]> {
-    const rows = await this.prisma.agentSkill.findMany({
-      ...(skillId ? { where: { skillId } } : {}),
-    });
+    const q = skillId
+      ? this.db.select().from(agentSkills).where(eq(agentSkills.skillId, skillId))
+      : this.db.select().from(agentSkills);
+    const rows = await q;
     return rows.map((r) => ({
       agentId: r.agentId,
       skillId: r.skillId,

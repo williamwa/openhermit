@@ -21,8 +21,6 @@
   },
   "files": [
     "dist/",
-    "generated/",
-    "prisma/",
     "public/"
   ],
   "scripts": {
@@ -31,7 +29,7 @@
     "typecheck": "tsc -p tsconfig.typecheck.json --pretty false",
     "test": "npm run build && node --import tsx --test test/*.test.ts",
     "prepublishOnly": "npm run bundle && npm run copy:assets",
-    "copy:assets": "cp -r ../../packages/store/prisma prisma && cp -r ../../packages/store/src/generated generated && mkdir -p public/admin public/web && cp -r ../../apps/gateway/ui/dist/* public/admin/ 2>/dev/null; cp -r ../../apps/web/public/* public/web/ 2>/dev/null; true",
+    "copy:assets": "mkdir -p public/admin public/web && cp -r ../../apps/gateway/ui/dist/* public/admin/ 2>/dev/null; cp -r ../../apps/web/public/* public/web/ 2>/dev/null; true",
     "dev": "tsx src/cli.ts",
     "dev:chat": "tsx src/index.ts"
   },
@@ -40,7 +38,8 @@
     "@mariozechner/pi-agent-core": "^0.57.1",
     "@mariozechner/pi-ai": "^0.57.1",
     "@mariozechner/pi-tui": "^0.57.1",
-    "@prisma/client": "^6.19.3",
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.20.0",
     "commander": "^12.1.0",
     "croner": "^10.0.1",
     "defuddle": "^0.11.0",

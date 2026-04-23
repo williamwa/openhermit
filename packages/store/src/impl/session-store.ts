@@ -1,41 +1,37 @@
+import { eq, and, ne, lt, desc } from 'drizzle-orm';
 import type { MetadataValue, SessionStatus, SessionType } from '@openhermit/protocol';
-import type { PrismaClient } from '../generated/prisma/index.js';
 
 import type { SessionStore } from '../interfaces.js';
 import type { PersistedSessionIndexEntry, StoreScope } from '../types.js';
+import { sessions } from '../schema.js';
+import type { DrizzleDb } from './index.js';
 
 export class DbSessionStore implements SessionStore {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly db: DrizzleDb) {}
 
-  async waitForIdle(): Promise<void> {
-    // Prisma handles connection management internally.
-  }
+  async waitForIdle(): Promise<void> {}
 
   async list(scope: StoreScope, options?: { userId?: string; includeInactive?: boolean }): Promise<PersistedSessionIndexEntry[]> {
-    const rows = await this.prisma.session.findMany({
-      where: {
-        agentId: scope.agentId,
-        ...(!options?.includeInactive ? { status: { not: 'inactive' } } : {}),
-      },
-      orderBy: { lastActivityAt: 'desc' },
-    });
+    const conditions = [eq(sessions.agentId, scope.agentId)];
+    if (!options?.includeInactive) {
+      conditions.push(ne(sessions.status, 'inactive'));
+    }
+
+    const rows = await this.db.select().from(sessions)
+      .where(and(...conditions))
+      .orderBy(desc(sessions.lastActivityAt));
 
     let entries = rows.map((row) => this.rowToEntry(row));
-
     if (options?.userId) {
       entries = entries.filter((e) => e.userIds?.includes(options.userId!));
     }
-
     return entries;
   }
 
   async get(scope: StoreScope, sessionId: string): Promise<PersistedSessionIndexEntry | undefined> {
-    const row = await this.prisma.session.findUnique({
-      where: { agentId_sessionId: { agentId: scope.agentId, sessionId } },
-    });
-
-    if (!row) return undefined;
-    return this.rowToEntry(row);
+    const [row] = await this.db.select().from(sessions)
+      .where(and(eq(sessions.agentId, scope.agentId), eq(sessions.sessionId, sessionId)));
+    return row ? this.rowToEntry(row) : undefined;
   }
 
   async upsert(scope: StoreScope, entry: PersistedSessionIndexEntry): Promise<void> {
@@ -56,60 +52,38 @@ export class DbSessionStore implements SessionStore {
       userIdsJson: JSON.stringify(entry.userIds ?? []),
     };
 
-    await this.prisma.session.upsert({
-      where: { agentId_sessionId: { agentId: scope.agentId, sessionId: entry.sessionId } },
-      create: {
-        agentId: scope.agentId,
-        sessionId: entry.sessionId,
-        ...data,
-      },
-      update: data,
+    await this.db.insert(sessions).values({
+      agentId: scope.agentId,
+      sessionId: entry.sessionId,
+      ...data,
+    }).onConflictDoUpdate({
+      target: [sessions.agentId, sessions.sessionId],
+      set: data,
     });
   }
 
   async updateDescription(scope: StoreScope, sessionId: string, description: string, source: 'fallback' | 'ai'): Promise<void> {
-    await this.prisma.session.update({
-      where: { agentId_sessionId: { agentId: scope.agentId, sessionId } },
-      data: { description, descriptionSource: source },
-    });
+    await this.db.update(sessions).set({ description, descriptionSource: source })
+      .where(and(eq(sessions.agentId, scope.agentId), eq(sessions.sessionId, sessionId)));
   }
 
   async updateStatus(scope: StoreScope, sessionId: string, status: string): Promise<void> {
-    await this.prisma.session.update({
-      where: { agentId_sessionId: { agentId: scope.agentId, sessionId } },
-      data: { status },
-    });
+    await this.db.update(sessions).set({ status })
+      .where(and(eq(sessions.agentId, scope.agentId), eq(sessions.sessionId, sessionId)));
   }
 
   async markStaleInactive(scope: StoreScope, olderThanIso: string): Promise<number> {
-    const result = await this.prisma.session.updateMany({
-      where: {
-        agentId: scope.agentId,
-        status: { notIn: ['inactive'] },
-        lastActivityAt: { lt: olderThanIso },
-      },
-      data: { status: 'inactive' },
-    });
-    return result.count;
+    const result = await this.db.update(sessions).set({ status: 'inactive' })
+      .where(and(
+        eq(sessions.agentId, scope.agentId),
+        ne(sessions.status, 'inactive'),
+        lt(sessions.lastActivityAt, olderThanIso),
+      ))
+      .returning();
+    return result.length;
   }
 
-  private rowToEntry(row: {
-    sessionId: string;
-    sourceKind: string;
-    sourcePlatform: string | null;
-    interactive: number;
-    createdAt: string;
-    lastActivityAt: string;
-    description: string | null;
-    descriptionSource: string | null;
-    messageCount: number;
-    completedTurnCount: number;
-    lastMessagePreview: string | null;
-    metadataJson: string;
-    status: string;
-    type: string;
-    userIdsJson: string;
-  }): PersistedSessionIndexEntry {
+  private rowToEntry(row: typeof sessions.$inferSelect): PersistedSessionIndexEntry {
     const metadata = JSON.parse(row.metadataJson || '{}') as Record<string, unknown>;
     const entry: PersistedSessionIndexEntry = {
       sessionId: row.sessionId,
@@ -127,26 +101,15 @@ export class DbSessionStore implements SessionStore {
       ...(row.type !== 'direct' ? { type: row.type as SessionType } : {}),
     };
 
-    if (row.description !== null) {
-      entry.description = row.description;
-    }
-
+    if (row.description !== null) entry.description = row.description;
     if (row.descriptionSource === 'fallback' || row.descriptionSource === 'ai') {
       entry.descriptionSource = row.descriptionSource;
     }
-
-    if (row.lastMessagePreview !== null) {
-      entry.lastMessagePreview = row.lastMessagePreview;
-    }
-
-    if (Object.keys(metadata).length > 0) {
-      entry.metadata = metadata as Record<string, MetadataValue>;
-    }
+    if (row.lastMessagePreview !== null) entry.lastMessagePreview = row.lastMessagePreview;
+    if (Object.keys(metadata).length > 0) entry.metadata = metadata as Record<string, MetadataValue>;
 
     const userIds = JSON.parse(row.userIdsJson || '[]') as string[];
-    if (userIds.length > 0) {
-      entry.userIds = userIds;
-    }
+    if (userIds.length > 0) entry.userIds = userIds;
 
     return entry;
   }

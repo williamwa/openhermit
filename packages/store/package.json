@@ -11,16 +11,17 @@
     }
   },
   "scripts": {
-    "build": "prisma generate && tsc -b && cp -r src/generated dist/",
-    "prisma:generate": "prisma generate",
+    "build": "tsc -b",
     "typecheck": "tsc -p tsconfig.json --pretty false --noEmit"
   },
   "dependencies": {
     "@openhermit/protocol": "0.2.0",
     "@openhermit/shared": "0.2.0",
-    "@prisma/client": "^6.19.3"
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.20.0"
   },
   "devDependencies": {
-    "prisma": "^6.19.3"
+    "@types/pg": "^8.20.0",
+    "drizzle-kit": "^0.31.10"
   }
 }

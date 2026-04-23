@@ -107,18 +107,20 @@ const startCompose = (): Promise<void> =>
     );
   });
 
-const runPrismaMigrate = (): Promise<void> =>
-  new Promise((resolve, reject) => {
-    console.log('\nRunning database migrations...');
-    const child = spawn('npx', ['prisma', 'migrate', 'deploy'], {
-      stdio: 'inherit',
-      cwd: path.resolve(process.cwd(), 'packages/store'),
-    });
-    child.on('error', reject);
-    child.on('exit', (code) =>
-      code === 0 ? resolve() : reject(new Error(`prisma migrate exited with code ${code}`)),
-    );
-  });
+const runMigrations = async (databaseUrl: string): Promise<void> => {
+  console.log('\nRunning database migrations...');
+  const pg = await import('pg');
+  const client = new pg.default.Client({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    const { readFile: rf } = await import('node:fs/promises');
+    const migrationDir = path.resolve(process.cwd(), 'packages/store/drizzle');
+    const initSql = await rf(path.join(migrationDir, '0000_init.sql'), 'utf8');
+    await client.query(initSql);
+  } finally {
+    await client.end();
+  }
+};
 
 // ── Setup command ──────────────────────────────────────────────────────
 
@@ -183,12 +185,10 @@ export const registerSetupCommand = (program: Command): void => {
         }
       }
 
-      // Run migrations if we have a DATABASE_URL and the store package exists.
-      if (env.has('DATABASE_URL') && await fileExists(path.resolve(process.cwd(), 'packages/store/prisma'))) {
-        // Temporarily set DATABASE_URL so prisma can see it.
-        process.env.DATABASE_URL = env.get('DATABASE_URL');
+      // Run migrations if we have a DATABASE_URL and the migrations directory exists.
+      if (env.has('DATABASE_URL') && await fileExists(path.resolve(process.cwd(), 'packages/store/drizzle'))) {
         try {
-          await runPrismaMigrate();
+          await runMigrations(env.get('DATABASE_URL')!);
           console.log('  → migrations applied');
         } catch (error) {
           console.error(`  ✗ migration failed: ${error instanceof Error ? error.message : String(error)}`);

@@ -1,5 +1,8 @@
-import { PrismaClient } from '../generated/prisma/index.js';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import pg from 'pg';
+
 import type { InternalStateStore } from '../interfaces.js';
+import * as schema from '../schema.js';
 import { DbSessionStore } from './session-store.js';
 import { DbMessageStore } from './message-store.js';
 import { DbMemoryProvider } from './memory-provider.js';
@@ -7,6 +10,12 @@ import { DbInstructionStore } from './instruction-store.js';
 import { DbUserStore } from './user-store.js';
 import { DbAgentStore } from './agent-store.js';
 import { DbScheduleStore } from './schedule-store.js';
+
+export type DrizzleDb = ReturnType<typeof drizzle<typeof schema>>;
+
+export function createDb(pool: pg.Pool) {
+  return drizzle(pool, { schema });
+}
 
 export class DbInternalStateStore implements InternalStateStore {
   readonly sessions: DbSessionStore;
@@ -16,13 +25,16 @@ export class DbInternalStateStore implements InternalStateStore {
   readonly users: DbUserStore;
   readonly schedules: DbScheduleStore;
 
-  private constructor(private readonly prisma: PrismaClient) {
-    this.sessions = new DbSessionStore(prisma);
-    this.messages = new DbMessageStore(prisma);
-    this.memories = new DbMemoryProvider(prisma);
-    this.instructions = new DbInstructionStore(prisma);
-    this.users = new DbUserStore(prisma);
-    this.schedules = new DbScheduleStore(prisma);
+  private constructor(
+    private readonly pool: pg.Pool,
+    db: DrizzleDb,
+  ) {
+    this.sessions = new DbSessionStore(db);
+    this.messages = new DbMessageStore(db);
+    this.memories = new DbMemoryProvider(db);
+    this.instructions = new DbInstructionStore(db);
+    this.users = new DbUserStore(db);
+    this.schedules = new DbScheduleStore(db);
   }
 
   static async open(databaseUrl?: string): Promise<DbInternalStateStore> {
@@ -31,19 +43,14 @@ export class DbInternalStateStore implements InternalStateStore {
       throw new Error('DATABASE_URL environment variable is required');
     }
 
-    const prisma = new PrismaClient({ datasourceUrl: url });
-
-    try {
-      await prisma.$connect();
-      return new DbInternalStateStore(prisma);
-    } catch (error) {
-      await prisma.$disconnect();
-      throw error;
-    }
+    const pool = new pg.Pool({ connectionString: url });
+    await pool.query('SELECT 1');
+    const db = createDb(pool);
+    return new DbInternalStateStore(pool, db);
   }
 
   async close(): Promise<void> {
-    await this.prisma.$disconnect();
+    await this.pool.end();
   }
 }
 

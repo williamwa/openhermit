@@ -1,49 +1,54 @@
-import { PrismaClient } from '../generated/prisma/index.js';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { eq, sql } from 'drizzle-orm';
+import pg from 'pg';
+
 import type { AgentStore } from '../interfaces.js';
 import type { AgentRecord } from '../types.js';
+import * as schema from '../schema.js';
+import { agents, instructions, users, userAgents, sessions, sessionEvents } from '../schema.js';
+import type { DrizzleDb } from './index.js';
 
 export class DbAgentStore implements AgentStore {
-  private constructor(private readonly prisma: PrismaClient) {}
+  private pool?: pg.Pool;
+
+  private constructor(private readonly db: DrizzleDb) {}
 
   static async open(databaseUrl?: string): Promise<DbAgentStore> {
     const url = databaseUrl ?? process.env.DATABASE_URL;
     if (!url) {
       throw new Error('DATABASE_URL environment variable is required');
     }
-    const prisma = new PrismaClient({ datasourceUrl: url });
-    await prisma.$connect();
-    return new DbAgentStore(prisma);
+    const pool = new pg.Pool({ connectionString: url });
+    await pool.query('SELECT 1');
+    const db = drizzle(pool, { schema });
+    const store = new DbAgentStore(db);
+    store.pool = pool;
+    return store;
   }
 
   async close(): Promise<void> {
-    await this.prisma.$disconnect();
+    await this.pool?.end();
   }
 
   async create(agent: AgentRecord): Promise<AgentRecord> {
-    const row = await this.prisma.agent.create({
-      data: {
-        agentId: agent.agentId,
-        name: agent.name ?? null,
-        configDir: agent.configDir,
-        workspaceDir: agent.workspaceDir,
-        createdAt: agent.createdAt,
-        updatedAt: agent.updatedAt,
-      },
-    });
-    return this.toRecord(row);
+    const [row] = await this.db.insert(agents).values({
+      agentId: agent.agentId,
+      name: agent.name ?? null,
+      configDir: agent.configDir,
+      workspaceDir: agent.workspaceDir,
+      createdAt: agent.createdAt,
+      updatedAt: agent.updatedAt,
+    }).returning();
+    return this.toRecord(row!);
   }
 
   async get(agentId: string): Promise<AgentRecord | undefined> {
-    const row = await this.prisma.agent.findUnique({
-      where: { agentId },
-    });
+    const [row] = await this.db.select().from(agents).where(eq(agents.agentId, agentId));
     return row ? this.toRecord(row) : undefined;
   }
 
   async list(): Promise<AgentRecord[]> {
-    const rows = await this.prisma.agent.findMany({
-      orderBy: { createdAt: 'asc' },
-    });
+    const rows = await this.db.select().from(agents).orderBy(agents.createdAt);
     return rows.map((row) => this.toRecord(row));
   }
 
@@ -51,20 +56,13 @@ export class DbAgentStore implements AgentStore {
     agentId: string,
     patch: Partial<Pick<AgentRecord, 'name' | 'configDir' | 'workspaceDir'>>,
   ): Promise<AgentRecord | undefined> {
-    try {
-      const row = await this.prisma.agent.update({
-        where: { agentId },
-        data: {
-          ...(patch.name !== undefined ? { name: patch.name ?? null } : {}),
-          ...(patch.configDir !== undefined ? { configDir: patch.configDir } : {}),
-          ...(patch.workspaceDir !== undefined ? { workspaceDir: patch.workspaceDir } : {}),
-          updatedAt: new Date().toISOString(),
-        },
-      });
-      return this.toRecord(row);
-    } catch {
-      return undefined;
-    }
+    const data: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+    if (patch.name !== undefined) data.name = patch.name ?? null;
+    if (patch.configDir !== undefined) data.configDir = patch.configDir;
+    if (patch.workspaceDir !== undefined) data.workspaceDir = patch.workspaceDir;
+
+    const rows = await this.db.update(agents).set(data).where(eq(agents.agentId, agentId)).returning();
+    return rows[0] ? this.toRecord(rows[0]) : undefined;
   }
 
   async seedInstructions(
@@ -72,53 +70,38 @@ export class DbAgentStore implements AgentStore {
     entries: Array<{ key: string; content: string }>,
     updatedAt: string,
   ): Promise<void> {
-    await this.prisma.instruction.createMany({
-      data: entries.map((e) => ({
-        agentId,
-        key: e.key,
-        content: e.content,
-        updatedAt,
-      })),
-      skipDuplicates: true,
-    });
+    if (entries.length === 0) return;
+    await this.db.insert(instructions)
+      .values(entries.map((e) => ({ agentId, key: e.key, content: e.content, updatedAt })))
+      .onConflictDoNothing();
   }
 
   async assignOwner(agentId: string, userId: string, now: string): Promise<void> {
-    // Ensure the user exists
-    await this.prisma.user.upsert({
-      where: { userId },
-      create: { userId, createdAt: now, updatedAt: now },
-      update: {},
-    });
-    // Create the user-agent link with owner role
-    await this.prisma.userAgent.upsert({
-      where: { userId_agentId: { userId, agentId } },
-      create: { userId, agentId, role: 'owner', createdAt: now },
-      update: { role: 'owner' },
-    });
+    await this.db.insert(users)
+      .values({ userId, createdAt: now, updatedAt: now })
+      .onConflictDoNothing();
+    await this.db.insert(userAgents)
+      .values({ userId, agentId, role: 'owner', createdAt: now })
+      .onConflictDoUpdate({
+        target: [userAgents.userId, userAgents.agentId],
+        set: { role: 'owner' },
+      });
   }
 
   async counts(): Promise<{ users: number; sessions: number; sessionEvents: number }> {
-    const [users, sessions, sessionEvents] = await Promise.all([
-      this.prisma.user.count(),
-      this.prisma.session.count(),
-      this.prisma.sessionEvent.count(),
+    const [[u], [s], [e]] = await Promise.all([
+      this.db.select({ count: sql<number>`count(*)::int` }).from(users),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(sessions),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(sessionEvents),
     ]);
-    return { users, sessions, sessionEvents };
+    return { users: u!.count, sessions: s!.count, sessionEvents: e!.count };
   }
 
   async delete(agentId: string): Promise<void> {
-    await this.prisma.agent.deleteMany({ where: { agentId } });
+    await this.db.delete(agents).where(eq(agents.agentId, agentId));
   }
 
-  private toRecord(row: {
-    agentId: string;
-    name: string | null;
-    configDir: string;
-    workspaceDir: string;
-    createdAt: string;
-    updatedAt: string;
-  }): AgentRecord {
+  private toRecord(row: typeof agents.$inferSelect): AgentRecord {
     return {
       agentId: row.agentId,
       ...(row.name ? { name: row.name } : {}),

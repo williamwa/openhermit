@@ -25,7 +25,7 @@ export default defineConfig({
   clean: true,
   splitting: true,
   noExternal: internalPackages,
-  external: [/generated\/prisma/],
+  external: [],
   banner: ({ entryPoint }) =>
     entryPoint?.endsWith('cli.ts')
       ? { js: '#!/usr/bin/env node' }
