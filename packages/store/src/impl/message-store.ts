@@ -67,7 +67,7 @@ const mapEventRowToHistoryMessage = (row: {
       ts: row.ts,
       role: 'tool' as const,
       content: (payload?.text as string) ?? '',
-      tool: (payload?.tool as string) ?? '',
+      tool: (payload?.name as string) || (payload?.tool as string) || '',
       toolPhase: phase,
       toolIsError: phase === 'result' ? (payload?.isError as boolean) ?? false : undefined,
       toolArgs: payload?.args,
