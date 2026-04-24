@@ -12,7 +12,7 @@ export function SecretsDialog({ agentId, onClose }: { agentId: string; onClose: 
   useEffect(() => { dialogRef.current?.showModal(); }, []);
 
   useEffect(() => {
-    api<Record<string, string>>(`/api/admin/agents/${encodeURIComponent(agentId)}/secrets`)
+    api<Record<string, string>>(`/api/agents/${encodeURIComponent(agentId)}/secrets`)
       .then((data) => setSecrets(data))
       .catch((err) => setError((err as Error).message))
       .finally(() => setLoading(false));
@@ -50,7 +50,7 @@ export function SecretsDialog({ agentId, onClose }: { agentId: string; onClose: 
       setSecrets(final);
     }
     try {
-      await api(`/api/admin/agents/${encodeURIComponent(agentId)}/secrets`, {
+      await api(`/api/agents/${encodeURIComponent(agentId)}/secrets`, {
         method: 'PUT',
         body: final,
       });

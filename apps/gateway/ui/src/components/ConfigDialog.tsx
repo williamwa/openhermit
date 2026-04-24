@@ -9,7 +9,7 @@ export function ConfigDialog({ agentId, onClose }: { agentId: string; onClose: (
   useEffect(() => { dialogRef.current?.showModal(); }, []);
 
   useEffect(() => {
-    api(`/api/admin/agents/${encodeURIComponent(agentId)}/config`)
+    api(`/api/agents/${encodeURIComponent(agentId)}/config`)
       .then((data) => setText(JSON.stringify(data, null, 2)))
       .catch((err) => {
         setText('');
@@ -27,7 +27,7 @@ export function ConfigDialog({ agentId, onClose }: { agentId: string; onClose: (
       return;
     }
     try {
-      await api(`/api/admin/agents/${encodeURIComponent(agentId)}/config`, {
+      await api(`/api/agents/${encodeURIComponent(agentId)}/config`, {
         method: 'PUT',
         body: parsed,
       });

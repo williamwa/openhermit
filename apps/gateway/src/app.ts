@@ -919,9 +919,9 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     return c.json(entries);
   });
 
-  app.get('/api/admin/agents/:agentId/config', async (c) => {
-    requireAdmin(c.req.header('authorization'));
+  app.get('/api/agents/:agentId/config', async (c) => {
     const agentId = c.req.param('agentId') ?? '';
+    await requireOwnerOrAdmin(c, agentId);
     const runner = instances.getRunner(agentId);
     if (!runner) {
       throw new NotFoundError(`Agent ${agentId} is not running. Start the agent to read its config.`);
@@ -930,9 +930,9 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     return c.json(config);
   });
 
-  app.put('/api/admin/agents/:agentId/config', async (c) => {
-    requireAdmin(c.req.header('authorization'));
+  app.put('/api/agents/:agentId/config', async (c) => {
     const agentId = c.req.param('agentId') ?? '';
+    await requireOwnerOrAdmin(c, agentId);
     const runner = instances.getRunner(agentId);
     if (!runner) {
       throw new NotFoundError(`Agent ${agentId} is not running. Start the agent to update its config.`);
@@ -942,9 +942,9 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     return c.json({ ok: true });
   });
 
-  app.get('/api/admin/agents/:agentId/secrets', async (c) => {
-    requireAdmin(c.req.header('authorization'));
+  app.get('/api/agents/:agentId/secrets', async (c) => {
     const agentId = c.req.param('agentId') ?? '';
+    await requireOwnerOrAdmin(c, agentId);
     const runner = instances.getRunner(agentId);
     if (!runner) {
       throw new NotFoundError(`Agent ${agentId} is not running.`);
@@ -953,9 +953,9 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     return c.json(runner.security.readSecrets());
   });
 
-  app.put('/api/admin/agents/:agentId/secrets', async (c) => {
-    requireAdmin(c.req.header('authorization'));
+  app.put('/api/agents/:agentId/secrets', async (c) => {
     const agentId = c.req.param('agentId') ?? '';
+    await requireOwnerOrAdmin(c, agentId);
     const runner = instances.getRunner(agentId);
     if (!runner) {
       throw new NotFoundError(`Agent ${agentId} is not running.`);
