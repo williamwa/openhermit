@@ -1,6 +1,6 @@
 import type { Agent, StreamFn } from '@mariozechner/pi-agent-core';
 import type { SessionStatus } from '@openhermit/protocol';
-import type { InternalStateStore, SkillStore, UserRole } from '@openhermit/store';
+import type { InternalStateStore, McpServerStore, SkillStore, UserRole } from '@openhermit/store';
 
 import type { LangfuseClientLike, LangfuseTurnContext } from '../langfuse.js';
 import type { SessionDescriptor } from '../runtime.js';
@@ -35,6 +35,7 @@ export interface AgentRunnerOptions {
   security: import('../core/index.js').AgentSecurity;
   store?: InternalStateStore;
   skillStore?: SkillStore;
+  mcpServerStore?: McpServerStore;
   containerManager?: import('../core/index.js').DockerContainerManager;
   streamFn?: StreamFn;
   langfuse?: LangfuseClientLike;

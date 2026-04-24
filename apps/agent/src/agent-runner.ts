@@ -67,6 +67,8 @@ import { createWebProvider, type WebProvider } from './web/index.js';
 import { runIntrospection } from './introspection/index.js';
 import { loadSkillIndex } from './skills.js';
 import { Scheduler, type SchedulerHost } from './core/scheduler.js';
+import { McpClientManager } from './mcp-client.js';
+import { createMcpManagementToolset, createMcpStatusOnlyToolset } from './tools/mcp.js';
 
 const addUserIdToList = (existing: string[], userId: string | undefined): string[] => {
   if (!userId) return existing;
@@ -95,6 +97,7 @@ export class AgentRunner implements SessionRuntime {
 
   private scheduler: Scheduler | undefined;
   private staleSessionTimer: ReturnType<typeof setInterval> | undefined;
+  private mcpClientManager: McpClientManager | undefined;
 
   private static DEBUG = false;
 
@@ -264,6 +267,11 @@ export class AgentRunner implements SessionRuntime {
     if (this.workspaceIdleTimer) {
       clearTimeout(this.workspaceIdleTimer);
       this.workspaceIdleTimer = undefined;
+    }
+
+    if (this.mcpClientManager) {
+      await this.mcpClientManager.disconnectAll();
+      this.mcpClientManager = undefined;
     }
 
     if (this.execBackendManager) {
@@ -1175,6 +1183,24 @@ export class AgentRunner implements SessionRuntime {
         ...(input.approvedCache ? { approvedCache: input.approvedCache } : {}),
         ...(input.onToolCall ? { onToolCall: input.onToolCall } : {}),
       });
+
+      // Connect to enabled MCP servers and add their toolsets
+      if (this.options.mcpServerStore) {
+        if (!this.mcpClientManager) {
+          this.mcpClientManager = new McpClientManager();
+          const mcpServers = await this.options.mcpServerStore.listEnabled(this.scope.agentId);
+          if (mcpServers.length > 0) {
+            await this.mcpClientManager.connectAll(mcpServers);
+          }
+        }
+        toolsets.push(...this.mcpClientManager.getToolsets());
+        if (isOwnerOrUnresolved) {
+          toolsets.push(createMcpManagementToolset(this.mcpClientManager, this.options.mcpServerStore, this.scope.agentId));
+        } else {
+          toolsets.push(createMcpStatusOnlyToolset(this.mcpClientManager));
+        }
+      }
+
       tools = toolsFromToolsets(toolsets);
     }
 
