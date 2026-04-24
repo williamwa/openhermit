@@ -37,7 +37,7 @@ export interface SessionStore {
 }
 
 export interface MessageStore {
-  appendLogEntry(scope: StoreScope, sessionId: string, entry: SessionLogEntry): Promise<void>;
+  appendLogEntry(scope: StoreScope, sessionId: string, entry: SessionLogEntry): Promise<number>;
   writeSessionStarted(scope: StoreScope, spec: SessionSpec, model: { provider: string; model: string }): Promise<void>;
   listHistoryMessages(scope: StoreScope, sessionId: string): Promise<SessionHistoryMessage[]>;
   listMessagesSinceEvent(scope: StoreScope, sessionId: string, afterEventId: number): Promise<MessageRow[]>;

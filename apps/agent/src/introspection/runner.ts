@@ -124,11 +124,13 @@ export async function runIntrospection(input: IntrospectionInput): Promise<Intro
       ...(langfuseTurnContext ? { langfuseTurnContext } : {}),
     });
 
-    // Track tool calls via subscription
+    // Track tool calls via subscription.
+    // We await tool_call inserts so each tool_result can reference its call's event ID.
+    const pendingCallIds = new Map<string, Promise<number>>();
+
     const unsub = agent.subscribe((event: AgentEvent) => {
       if (event.type === 'tool_execution_start') {
-        // Write tool_call event
-        void input.store.messages.appendLogEntry(input.scope, input.sessionId, {
+        const callPromise = input.store.messages.appendLogEntry(input.scope, input.sessionId, {
           ts: ts(),
           role: 'tool_call',
           type: 'tool_call',
@@ -137,31 +139,33 @@ export async function runIntrospection(input: IntrospectionInput): Promise<Intro
           args: event.args,
           introspection: true,
         });
+        pendingCallIds.set(event.toolCallId, callPromise);
       }
 
       if (event.type === 'tool_execution_end') {
         result.toolCallCount++;
 
-        // Track what changed
         if (event.toolName === 'memory_add') result.memoriesAdded++;
         if (event.toolName === 'memory_update') result.memoriesUpdated++;
         if (event.toolName === 'memory_delete') result.memoriesDeleted++;
         if (event.toolName === 'working_memory_update') result.workingMemoryUpdated = true;
         if (event.toolName === 'session_description_update') result.descriptionUpdated = true;
 
-        // Write tool_result event
-        void input.store.messages.appendLogEntry(input.scope, input.sessionId, {
-          ts: ts(),
-          role: 'tool_result',
-          type: 'tool_result',
-          name: event.toolName,
-          toolCallId: event.toolCallId,
-          isError: event.isError,
-          content: serializeDetails(event.result),
-          introspection: true,
+        const callPromise = pendingCallIds.get(event.toolCallId) ?? Promise.resolve(0);
+        void callPromise.then((toolCallEventId) => {
+          return input.store.messages.appendLogEntry(input.scope, input.sessionId, {
+            ts: ts(),
+            role: 'tool_result',
+            type: 'tool_result',
+            name: event.toolName,
+            toolCallId: event.toolCallId,
+            toolCallEventId,
+            isError: event.isError,
+            content: serializeDetails(event.result),
+            introspection: true,
+          });
         });
 
-        // Enforce max tool calls by aborting
         if (result.toolCallCount >= introspectionConfig.max_tool_calls) {
           input.logRuntime(`introspection hit max_tool_calls (${introspectionConfig.max_tool_calls}), aborting`);
           agent.abort();

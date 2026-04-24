@@ -519,6 +519,47 @@ h2 { font-size: 14px; font-weight: 600; }
 .thinking-block__body > :first-child { margin-top: 0; }
 .thinking-block__body > :last-child { margin-bottom: 0; }
 
+/* ─── Introspection block ──────────────────────────────────────── */
+
+.introspection-block {
+  max-width: 780px;
+  margin-bottom: 8px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-muted);
+  overflow: hidden;
+}
+
+.introspection-block__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.introspection-block__header::-webkit-details-marker { display: none; }
+.introspection-block__header::marker { display: none; content: ''; }
+
+.introspection-block__header::before {
+  content: '▶';
+  font-size: 8px;
+  transition: transform 0.15s;
+}
+
+.introspection-block[open] .introspection-block__header::before {
+  transform: rotate(90deg);
+}
+
+.introspection-block__body {
+  padding: 4px 10px 8px;
+  border-top: 1px dashed var(--line);
+}
+
 /* ─── Approval card ─────────────────────────────────────────────── */
 
 .approval-card {

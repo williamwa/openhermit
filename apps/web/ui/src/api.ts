@@ -42,6 +42,8 @@ export interface HistoryMessage {
   toolPhase?: 'call' | 'result';
   toolIsError?: boolean;
   toolArgs?: unknown;
+  introspectionPhase?: 'start' | 'end';
+  introspectionSummary?: string;
 }
 
 export interface OutboundEvent {

@@ -99,17 +99,31 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
     await ws.openSession(sessionId);
     const history: HistoryMessage[] = await ws.getHistory(sessionId);
     const historyItems: ChatItem[] = [];
+    let introspectionTools: Extract<ChatItem, { type: 'tool' }>[] | null = null;
     for (const entry of history) {
+      if (entry.role === 'introspection' && entry.introspectionPhase === 'start') {
+        introspectionTools = [];
+        continue;
+      }
+      if (entry.role === 'introspection' && entry.introspectionPhase === 'end') {
+        historyItems.push({ type: 'introspection', tools: introspectionTools || [], summary: entry.introspectionSummary });
+        introspectionTools = null;
+        continue;
+      }
       if (entry.role === 'tool') {
-        const last = historyItems[historyItems.length - 1];
+        const toolItem = (call: Extract<ChatItem, { type: 'tool' }>) => {
+          if (introspectionTools) introspectionTools.push(call);
+          else historyItems.push(call);
+        };
+        const last = introspectionTools ? introspectionTools[introspectionTools.length - 1] : historyItems[historyItems.length - 1];
         if (last?.type === 'tool' && last.tool === entry.tool && last.phase !== 'done' && entry.toolPhase === 'result') {
           last.phase = 'done';
           last.isError = entry.toolIsError;
           last.result = entry.content || undefined;
         } else if (entry.toolPhase === 'result') {
-          historyItems.push({ type: 'tool', tool: entry.tool || '', args: entry.toolArgs, phase: 'done', isError: entry.toolIsError, result: entry.content || undefined });
+          toolItem({ type: 'tool', tool: entry.tool || '', args: entry.toolArgs, phase: 'done', isError: entry.toolIsError, result: entry.content || undefined });
         } else {
-          historyItems.push({ type: 'tool', tool: entry.tool || '', args: entry.toolArgs, phase: 'running' });
+          toolItem({ type: 'tool', tool: entry.tool || '', args: entry.toolArgs, phase: 'running' });
         }
         continue;
       }
@@ -277,7 +291,7 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
     streamingThinkingRef.current = '';
 
     // Open session and refresh list in parallel; checkpoint old session in background
-    if (prev) ws.checkpoint(prev, 'new_session').catch(() => {});
+    if (prev) ws.checkpoint(prev, 'manual').catch(() => {});
     await ws.openSession(sessionId);
     ws.listSessions().then(setSessions).catch(() => {});
   }, []);

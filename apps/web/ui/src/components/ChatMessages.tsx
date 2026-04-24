@@ -18,7 +18,8 @@ export type ChatItem =
   | { type: 'event'; text: string; isError: boolean }
   | { type: 'tool'; tool: string; args?: unknown; phase: 'running' | 'done'; isError?: boolean; result?: string }
   | { type: 'approval'; toolName: string; toolCallId: string; args?: unknown; resolved: boolean; approved?: boolean }
-  | { type: 'thinking'; text?: string; streaming?: boolean };
+  | { type: 'thinking'; text?: string; streaming?: boolean }
+  | { type: 'introspection'; tools: Extract<ChatItem, { type: 'tool' }>[]; summary?: string };
 
 interface Props {
   items: ChatItem[];
@@ -104,7 +105,8 @@ function ApprovalCard({ item, onApproval }: { item: Extract<ChatItem, { type: 'a
 type Turn =
   | { kind: 'user'; items: Extract<ChatItem, { type: 'user' }>[] }
   | { kind: 'assistant'; items: ChatItem[] }
-  | { kind: 'event'; item: Extract<ChatItem, { type: 'event' }> };
+  | { kind: 'event'; item: Extract<ChatItem, { type: 'event' }> }
+  | { kind: 'introspection'; item: Extract<ChatItem, { type: 'introspection' }> };
 
 const isAssistantItem = (item: ChatItem) =>
   item.type === 'assistant' || item.type === 'tool' || item.type === 'approval' || item.type === 'thinking';
@@ -116,6 +118,8 @@ function groupIntoTurns(items: ChatItem[]): Turn[] {
       turns.push({ kind: 'user', items: [item] });
     } else if (item.type === 'event') {
       turns.push({ kind: 'event', item });
+    } else if (item.type === 'introspection') {
+      turns.push({ kind: 'introspection', item });
     } else if (isAssistantItem(item)) {
       const last = turns[turns.length - 1];
       if (last?.kind === 'assistant') {
@@ -168,6 +172,20 @@ export function ChatMessages({ items, agentName, onApproval }: Props) {
             <div key={ti} className={`event${turn.item.isError ? ' event--error' : ''}`}>
               {turn.item.isError ? `[error] ${turn.item.text}` : turn.item.text}
             </div>
+          );
+        }
+
+        if (turn.kind === 'introspection') {
+          const { tools, summary } = turn.item;
+          return (
+            <details key={ti} className="introspection-block">
+              <summary className="introspection-block__header">
+                Introspection{summary ? ` — ${summary}` : ''}
+              </summary>
+              <div className="introspection-block__body">
+                {tools.map((tool, ii) => <ToolCard key={ii} item={tool} />)}
+              </div>
+            </details>
           );
         }
 

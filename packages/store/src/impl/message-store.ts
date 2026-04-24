@@ -46,6 +46,25 @@ const mapEventRowToHistoryMessage = (row: {
     };
   }
 
+  if (row.eventType === 'introspection_start') {
+    return {
+      ts: row.ts,
+      role: 'introspection' as const,
+      content: '',
+      introspectionPhase: 'start' as const,
+    };
+  }
+
+  if (row.eventType === 'introspection_end') {
+    return {
+      ts: row.ts,
+      role: 'introspection' as const,
+      content: '',
+      introspectionPhase: 'end' as const,
+      introspectionSummary: (payload?.summary as string) ?? '',
+    };
+  }
+
   return { ts: row.ts, role: 'error', content: row.content ?? '' };
 };
 
@@ -76,11 +95,11 @@ const parseStoredSessionLogEntry = (payloadJson: string): SessionLogEntry =>
 export class DbMessageStore implements MessageStore {
   constructor(private readonly db: DrizzleDb) {}
 
-  async appendLogEntry(scope: StoreScope, sessionId: string, entry: SessionLogEntry): Promise<void> {
+  async appendLogEntry(scope: StoreScope, sessionId: string, entry: SessionLogEntry): Promise<number> {
     const content = deriveContent(entry);
     const userId = typeof entry.userId === 'string' ? entry.userId : null;
 
-    await this.db.insert(sessionEvents).values({
+    const [row] = await this.db.insert(sessionEvents).values({
       agentId: scope.agentId,
       sessionId,
       ts: entry.ts,
@@ -88,7 +107,8 @@ export class DbMessageStore implements MessageStore {
       payloadJson: JSON.stringify(entry),
       content,
       userId,
-    });
+    }).returning({ id: sessionEvents.id });
+    return row!.id;
   }
 
   async writeSessionStarted(scope: StoreScope, spec: SessionSpec, model: { provider: string; model: string }): Promise<void> {
@@ -101,7 +121,7 @@ export class DbMessageStore implements MessageStore {
       .where(and(
         eq(sessionEvents.agentId, scope.agentId),
         eq(sessionEvents.sessionId, sessionId),
-        sql`(${sessionEvents.content} IS NOT NULL OR ${sessionEvents.eventType} IN ('tool_call', 'tool_result'))`,
+        sql`(${sessionEvents.content} IS NOT NULL OR ${sessionEvents.eventType} IN ('tool_call', 'tool_result', 'introspection_start', 'introspection_end'))`,
       ))
       .orderBy(asc(sessionEvents.ts), asc(sessionEvents.id));
 
