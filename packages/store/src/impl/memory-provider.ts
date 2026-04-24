@@ -8,11 +8,36 @@ import type { DrizzleDb } from './index.js';
 
 export class DbMemoryProvider implements MemoryProvider {
   readonly name = 'db';
+  private ftsReady = false;
 
   constructor(private readonly db: DrizzleDb) {}
 
-  async initialize(_scope: StoreScope): Promise<void> {}
+  async initialize(_scope: StoreScope): Promise<void> {
+    await this.ensureFts();
+  }
+
   async shutdown(): Promise<void> {}
+
+  private async ensureFts(): Promise<void> {
+    if (this.ftsReady) return;
+    try {
+      await this.db.execute(sql`
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'memories' AND column_name = 'content_tsv'
+          ) THEN
+            ALTER TABLE "memories" ADD COLUMN "content_tsv" tsvector
+              GENERATED ALWAYS AS (to_tsvector('english', content)) STORED;
+            CREATE INDEX IF NOT EXISTS "idx_memories_fts" ON "memories" USING gin("content_tsv");
+          END IF;
+        END $$
+      `);
+      this.ftsReady = true;
+    } catch {
+      // FTS setup failed — search will use fallback.
+    }
+  }
 
   async add(scope: StoreScope, input: MemoryAddInput): Promise<MemoryEntry> {
     const id = input.id?.trim() || `mem-${randomUUID().slice(0, 8)}`;
@@ -39,54 +64,101 @@ export class DbMemoryProvider implements MemoryProvider {
     const trimmed = query.trim();
     if (!trimmed) return [];
 
-    try {
-      const rows = await this.db.execute<{
-        memory_key: string;
-        content: string;
-        metadata_json: string;
-        created_at: string;
-        updated_at: string;
-      }>(sql`
-        SELECT m.memory_key, m.content, m.metadata_json, m.created_at, m.updated_at
-        FROM memories m
-        WHERE m.agent_id = ${scope.agentId}
-          AND m.content_tsv @@ plainto_tsquery('english', ${trimmed})
-        ORDER BY ts_rank(m.content_tsv, plainto_tsquery('english', ${trimmed})) DESC
-        LIMIT ${limit}
-      `);
+    await this.ensureFts();
 
-      return rows.rows.map((row) => ({
-        id: row.memory_key,
-        content: row.content,
-        metadata: JSON.parse(row.metadata_json || '{}') as Record<string, unknown>,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      }));
-    } catch {
-      const term = `%${trimmed}%`;
-      const rows = await this.db.execute<{
-        memory_key: string;
-        content: string;
-        metadata_json: string;
-        created_at: string;
-        updated_at: string;
-      }>(sql`
-        SELECT memory_key, content, metadata_json, created_at, updated_at
-        FROM memories
-        WHERE agent_id = ${scope.agentId}
-          AND (memory_key ILIKE ${term} OR content ILIKE ${term})
-        ORDER BY updated_at DESC
-        LIMIT ${limit}
-      `);
+    type MemRow = {
+      memory_key: string;
+      content: string;
+      metadata_json: string;
+      created_at: string;
+      updated_at: string;
+    };
 
-      return rows.rows.map((row) => ({
-        id: row.memory_key,
-        content: row.content,
-        metadata: JSON.parse(row.metadata_json || '{}') as Record<string, unknown>,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      }));
+    const toEntry = (row: MemRow): MemoryEntry => ({
+      id: row.memory_key,
+      content: row.content,
+      metadata: JSON.parse(row.metadata_json || '{}') as Record<string, unknown>,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    });
+
+    const seen = new Set<string>();
+    const results: MemoryEntry[] = [];
+    const collect = (rows: MemRow[]) => {
+      for (const row of rows) {
+        if (seen.has(row.memory_key)) continue;
+        seen.add(row.memory_key);
+        results.push(toEntry(row));
+      }
+    };
+
+    // 1) FTS with English stemming (handles stemming, ranking)
+    if (this.ftsReady) {
+      try {
+        const fts = await this.db.execute<MemRow>(sql`
+          SELECT m.memory_key, m.content, m.metadata_json, m.created_at, m.updated_at
+          FROM memories m
+          WHERE m.agent_id = ${scope.agentId}
+            AND m.content_tsv @@ plainto_tsquery('english', ${trimmed})
+          ORDER BY ts_rank(m.content_tsv, plainto_tsquery('english', ${trimmed})) DESC
+          LIMIT ${limit}
+        `);
+        collect(fts.rows);
+      } catch { /* FTS column issue — continue to fallback */ }
     }
+
+    // 2) Per-word ILIKE on both key and content (handles CJK, partial matches, key paths)
+    if (results.length < limit) {
+      const words = trimmed
+        .split(/[\s/,;:]+/)
+        .map(w => w.trim())
+        .filter(w => w.length > 0);
+
+      if (words.length > 0) {
+        const conditions = words.map(w => {
+          const pattern = `%${w}%`;
+          return sql`(m.memory_key ILIKE ${pattern} OR m.content ILIKE ${pattern})`;
+        });
+
+        const combined = conditions.reduce((a, b) => sql`${a} OR ${b}`);
+        const remaining = limit - results.length;
+        const excludeKeys = results.map(r => r.id);
+
+        let ilike;
+        if (excludeKeys.length > 0) {
+          const notIn = excludeKeys.map(k => sql`${k}`).reduce((a, b) => sql`${a}, ${b}`);
+          ilike = await this.db.execute<MemRow>(sql`
+            SELECT m.memory_key, m.content, m.metadata_json, m.created_at, m.updated_at,
+              (${words.map(w => {
+                const p = `%${w}%`;
+                return sql`(CASE WHEN m.memory_key ILIKE ${p} OR m.content ILIKE ${p} THEN 1 ELSE 0 END)`;
+              }).reduce((a, b) => sql`${a} + ${b}`)}) as word_hits
+            FROM memories m
+            WHERE m.agent_id = ${scope.agentId}
+              AND m.memory_key NOT IN (${notIn})
+              AND (${combined})
+            ORDER BY word_hits DESC, m.updated_at DESC
+            LIMIT ${remaining}
+          `);
+        } else {
+          ilike = await this.db.execute<MemRow>(sql`
+            SELECT m.memory_key, m.content, m.metadata_json, m.created_at, m.updated_at,
+              (${words.map(w => {
+                const p = `%${w}%`;
+                return sql`(CASE WHEN m.memory_key ILIKE ${p} OR m.content ILIKE ${p} THEN 1 ELSE 0 END)`;
+              }).reduce((a, b) => sql`${a} + ${b}`)}) as word_hits
+            FROM memories m
+            WHERE m.agent_id = ${scope.agentId}
+              AND (${combined})
+            ORDER BY word_hits DESC, m.updated_at DESC
+            LIMIT ${remaining}
+          `);
+        }
+        collect(ilike.rows);
+      }
+    }
+
+    return results.slice(0, limit);
   }
 
   async get(scope: StoreScope, id: string): Promise<MemoryEntry | undefined> {
