@@ -319,7 +319,6 @@ export class AgentRunner implements SessionRuntime {
           ? { metadata: mergedMetadata }
           : {}),
       };
-      existing.updatedAt = now;
       existing.status = 'idle';
 
       // Re-resolve user identity every time the session opens.
@@ -412,7 +411,7 @@ export class AgentRunner implements SessionRuntime {
     session = {
       spec: effectiveSpec,
       createdAt,
-      updatedAt: now,
+      updatedAt: persisted?.lastActivityAt ?? now,
       agent,
       queue: Promise.resolve(),
       sideEffects: Promise.resolve(),
