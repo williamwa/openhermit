@@ -58,6 +58,7 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
   const currentSessionRef = useRef<string | null>(null);
   const streamingTextRef = useRef('');
   const streamingThinkingRef = useRef('');
+  const thinkingAsAssistantRef = useRef(false);
   const skipPushRef = useRef(false);
 
   currentSessionRef.current = currentSessionId;
@@ -96,6 +97,7 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
     setItems([]);
     streamingTextRef.current = '';
     streamingThinkingRef.current = '';
+    thinkingAsAssistantRef.current = false;
     await ws.openSession(sessionId);
     const history: HistoryMessage[] = await ws.getHistory(sessionId);
     const historyItems: ChatItem[] = [];
@@ -155,18 +157,34 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
 
     const dropPlaceholder = (items: ChatItem[]) => items.filter(i => !(i.type === 'thinking' && !i.text));
 
+    // If the last item is thinking displayed as assistant, collapse it to a thinking block.
+    // Called when something else follows (tool_call, text_delta, etc.), proving it wasn't the final answer.
+    const collapseThinking = (items: ChatItem[]): ChatItem[] => {
+      if (!thinkingAsAssistantRef.current) return items;
+      thinkingAsAssistantRef.current = false;
+      const last = items[items.length - 1];
+      if (last?.type === 'assistant') {
+        const updated = [...items];
+        updated[updated.length - 1] = { type: 'thinking', text: last.text, streaming: false };
+        return updated;
+      }
+      return items;
+    };
+
     switch (event.type) {
       case 'thinking_delta':
         streamingThinkingRef.current += event.text as string;
+        thinkingAsAssistantRef.current = true;
         setItems(prev => {
+          const clean = dropPlaceholder(prev);
           const text = streamingThinkingRef.current;
-          const last = prev[prev.length - 1];
-          if (last?.type === 'thinking' && last.streaming) {
-            const updated = [...prev];
-            updated[updated.length - 1] = { type: 'thinking', text, streaming: true };
+          const last = clean[clean.length - 1];
+          if (last?.type === 'assistant' && last.streaming) {
+            const updated = [...clean];
+            updated[updated.length - 1] = { type: 'assistant', text, streaming: true };
             return updated;
           }
-          return [...prev, { type: 'thinking', text, streaming: true }];
+          return [...clean, { type: 'assistant', text, streaming: true }];
         });
         break;
 
@@ -175,18 +193,18 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
         streamingThinkingRef.current = '';
         setItems(prev => {
           const last = prev[prev.length - 1];
-          if (last?.type === 'thinking') {
+          if (last?.type === 'assistant') {
             const updated = [...prev];
-            updated[updated.length - 1] = { type: 'thinking', text: finalText, streaming: false };
+            updated[updated.length - 1] = { type: 'assistant', text: finalText, streaming: false };
             return updated;
           }
-          return [...prev, { type: 'thinking', text: finalText, streaming: false }];
+          return prev;
         });
         break;
       }
 
       case 'tool_call':
-        setItems(prev => [...dropPlaceholder(prev), { type: 'tool', tool: event.tool as string, args: event.args, phase: 'running' }]);
+        setItems(prev => [...collapseThinking(dropPlaceholder(prev)), { type: 'tool', tool: event.tool as string, args: event.args, phase: 'running' }]);
         break;
 
       case 'tool_result':
@@ -207,7 +225,7 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
         break;
 
       case 'tool_approval_required':
-        setItems(prev => [...dropPlaceholder(prev), {
+        setItems(prev => [...collapseThinking(dropPlaceholder(prev)), {
           type: 'approval',
           toolName: event.toolName as string,
           toolCallId: event.toolCallId as string,
@@ -219,7 +237,7 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
       case 'text_delta':
         streamingTextRef.current += event.text as string;
         setItems(prev => {
-          const clean = dropPlaceholder(prev);
+          const clean = collapseThinking(dropPlaceholder(prev));
           const text = streamingTextRef.current;
           const last = clean[clean.length - 1];
           if (last?.type === 'assistant' && last.streaming) {
@@ -235,15 +253,9 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
         const finalText = (event.text as string) || streamingTextRef.current;
         streamingTextRef.current = '';
         streamingThinkingRef.current = '';
+        thinkingAsAssistantRef.current = false;
         setItems(prev => {
           const last = prev[prev.length - 1];
-          // If the last item is a thinking block, this thinking was promoted to
-          // the final response (e.g. DeepSeek R1) — replace it with assistant text.
-          if (last?.type === 'thinking') {
-            const updated = [...prev];
-            updated[updated.length - 1] = { type: 'assistant', text: finalText, streaming: false };
-            return updated;
-          }
           if (last?.type === 'assistant') {
             const updated = [...prev];
             updated[updated.length - 1] = { type: 'assistant', text: finalText, streaming: false };
@@ -255,12 +267,13 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
       }
 
       case 'error':
-        setItems(prev => [...dropPlaceholder(prev), { type: 'event', text: event.message as string, isError: true }]);
+        setItems(prev => [...collapseThinking(dropPlaceholder(prev)), { type: 'event', text: event.message as string, isError: true }]);
         break;
 
       case 'agent_end':
         streamingTextRef.current = '';
         streamingThinkingRef.current = '';
+        thinkingAsAssistantRef.current = false;
         setSending(false);
         setStatus('Connected');
         wsRef.current?.listSessions().then(setSessions).catch(() => {});
@@ -289,10 +302,12 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
     setItems([]);
     streamingTextRef.current = '';
     streamingThinkingRef.current = '';
+    thinkingAsAssistantRef.current = false;
 
-    // Open session and refresh list in parallel; checkpoint old session in background
+    // Open session, subscribe to events, and refresh list; checkpoint old session in background
     if (prev) ws.checkpoint(prev, 'manual').catch(() => {});
     await ws.openSession(sessionId);
+    await ws.subscribe(sessionId, 0);
     ws.listSessions().then(setSessions).catch(() => {});
   }, []);
 
@@ -306,6 +321,7 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
     setStatus('Running');
     streamingTextRef.current = '';
     streamingThinkingRef.current = '';
+    thinkingAsAssistantRef.current = false;
 
     try {
       await ws.sendMessage(sessionId, text);
