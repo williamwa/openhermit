@@ -17,6 +17,7 @@ export interface TokenExchangeResult {
   expiresAt: number;
   isNewDevice: boolean;
   displayName?: string;
+  role?: string;
 }
 
 export interface SessionSummary {
@@ -143,8 +144,13 @@ export const clearConnection = (): void => {
   localStorage.removeItem(JWT_STORAGE);
 };
 
+let gatewayBase = '';
+let currentAgentId = '';
+
 export const setConnection = (conn: Connection): void => {
   const base = conn.gatewayUrl.replace(/\/+$/, '');
+  gatewayBase = base;
+  currentAgentId = conn.agentId;
   apiBase = `${base}/agents/${encodeURIComponent(conn.agentId)}`;
 };
 
@@ -166,6 +172,7 @@ export const setDisplayName = (name: string): void => {
 
 let jwtToken: string | null = null;
 let jwtExpiresAt = 0;
+let userRole: string | null = null;
 
 const loadJwt = (): void => {
   try {
@@ -210,6 +217,7 @@ export const exchangeToken = async (displayName?: string | null): Promise<TokenE
 
   const result = await response.json() as TokenExchangeResult;
   saveJwt(result.token, result.expiresAt);
+  if (result.role) userRole = result.role;
   return result;
 };
 
@@ -353,3 +361,60 @@ export class AgentWsClient {
     this.ws = null;
   }
 }
+
+// ─── User role ────────────────────────────────────────────────────────────
+
+export const getUserRole = (): string | null => userRole;
+
+// ─── REST API helpers for management ──────────────────────────────────────
+
+export async function apiFetch<T>(path: string, options?: { method?: string; body?: unknown }): Promise<T> {
+  const token = await getJwt();
+  const headers: Record<string, string> = { authorization: `Bearer ${token}` };
+  let bodyStr: string | undefined;
+  if (options?.body !== undefined) {
+    headers['content-type'] = 'application/json';
+    bodyStr = JSON.stringify(options.body);
+  }
+  const url = `${gatewayBase}/api/agents/${encodeURIComponent(currentAgentId)}${path}`;
+  const res = await fetch(url, {
+    method: options?.method ?? 'GET',
+    headers,
+    ...(bodyStr ? { body: bodyStr } : {}),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: { message?: string } }).error?.message || `Request failed (${res.status})`);
+  }
+  return res.json() as Promise<T>;
+}
+
+// Skills
+export interface SkillInfo { id: string; name: string; description: string; path: string; source: string }
+export const fetchSkills = () => apiFetch<SkillInfo[]>('/skills');
+export const enableSkill = (id: string) => apiFetch<{ ok: boolean }>(`/skills/${encodeURIComponent(id)}/enable`, { method: 'POST' });
+export const disableSkill = (id: string) => apiFetch<{ ok: boolean }>(`/skills/${encodeURIComponent(id)}/disable`, { method: 'POST' });
+
+// MCP Servers
+export interface McpServerInfo { id: string; name: string; description: string; url: string }
+export const fetchMcpServers = () => apiFetch<McpServerInfo[]>('/mcp-servers');
+export const enableMcpServer = (id: string) => apiFetch<{ ok: boolean }>(`/mcp-servers/${encodeURIComponent(id)}/enable`, { method: 'POST' });
+export const disableMcpServer = (id: string) => apiFetch<{ ok: boolean }>(`/mcp-servers/${encodeURIComponent(id)}/disable`, { method: 'POST' });
+
+// Schedules
+export interface ScheduleInfo {
+  scheduleId: string; type: string; status: string; prompt: string;
+  cronExpression?: string; runAt?: string; delivery?: unknown;
+  runCount: number; nextRunAt?: string; lastRunAt?: string;
+  consecutiveErrors: number; createdAt: string; updatedAt: string;
+}
+export interface ScheduleRunInfo {
+  runId: string; status: string; startedAt: string; finishedAt?: string;
+  durationMs?: number; sessionId?: string; error?: string;
+}
+export const fetchSchedules = () => apiFetch<ScheduleInfo[]>('/schedules');
+export const createSchedule = (data: Record<string, unknown>) => apiFetch<ScheduleInfo>('/schedules', { method: 'POST', body: data });
+export const updateSchedule = (id: string, data: Record<string, unknown>) => apiFetch<ScheduleInfo>(`/schedules/${encodeURIComponent(id)}`, { method: 'PUT', body: data });
+export const deleteSchedule = (id: string) => apiFetch<{ ok: boolean }>(`/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' });
+export const triggerSchedule = (id: string) => apiFetch<{ ok: boolean }>(`/schedules/${encodeURIComponent(id)}/trigger`, { method: 'POST' });
+export const fetchScheduleRuns = (id: string) => apiFetch<ScheduleRunInfo[]>(`/schedules/${encodeURIComponent(id)}/runs`);

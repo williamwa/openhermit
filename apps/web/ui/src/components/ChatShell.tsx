@@ -3,16 +3,22 @@ import { AgentWsClient, getDisplayName, type Connection, type SessionSummary, ty
 import { SessionList } from './SessionList';
 import { ChatMessages, type ChatItem } from './ChatMessages';
 import { Composer } from './Composer';
+import { ManagePanel } from './ManagePanel';
 
 const createSessionId = () =>
   `web:${new Date().toISOString().slice(0, 10)}-${crypto.randomUUID().slice(0, 8)}`;
 
+type View = 'chat' | 'manage';
+
 interface Props {
   connection: Connection;
+  role: string | null;
   onDisconnect: () => void;
 }
 
-export function ChatShell({ connection, onDisconnect }: Props) {
+export function ChatShell({ connection, role, onDisconnect }: Props) {
+  const [view, setView] = useState<View>('chat');
+  const isOwner = role === 'owner';
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [items, setItems] = useState<ChatItem[]>([]);
@@ -254,7 +260,14 @@ export function ChatShell({ connection, onDisconnect }: Props) {
           <h1>Web Chat</h1>
           <p className="sidebar__meta">Agent: {connection.agentId}</p>
           <div className="sidebar__buttons">
-            <button className="btn btn--primary" onClick={() => void createNewSession()}>New Session</button>
+            {view === 'manage' ? (
+              <button className="btn btn--primary" onClick={() => setView('chat')}>Back to Chat</button>
+            ) : (
+              <button className="btn btn--primary" onClick={() => void createNewSession()}>New Session</button>
+            )}
+            {isOwner && view === 'chat' && (
+              <button className="btn btn--ghost" onClick={() => setView('manage')}>Manage</button>
+            )}
             <button className="btn btn--ghost" onClick={onDisconnect}>Disconnect</button>
           </div>
         </div>
@@ -272,22 +285,38 @@ export function ChatShell({ connection, onDisconnect }: Props) {
       </aside>
 
       <main className="chat">
-        <header className="chat__header">
-          <div>
-            <p className="eyebrow">Current Session</p>
-            <h2>{sessionTitle}</h2>
-          </div>
-          <p className="chat__status">{status}</p>
-        </header>
-
-        <ChatMessages items={items} onApproval={handleApproval} />
-
-        {readOnly ? (
-          <div className="composer composer--readonly">
-            <span>Read-only — this session was created via {currentSession.source?.platform || currentSession.source?.kind || 'another channel'}</span>
-          </div>
+        {view === 'manage' ? (
+          <>
+            <header className="chat__header">
+              <div>
+                <p className="eyebrow">Agent Management</p>
+                <h2>{connection.agentId}</h2>
+              </div>
+            </header>
+            <div className="chat__manage-area">
+              <ManagePanel />
+            </div>
+          </>
         ) : (
-          <Composer onSend={sendMessage} disabled={sending || !currentSessionId} />
+          <>
+            <header className="chat__header">
+              <div>
+                <p className="eyebrow">Current Session</p>
+                <h2>{sessionTitle}</h2>
+              </div>
+              <p className="chat__status">{status}</p>
+            </header>
+
+            <ChatMessages items={items} onApproval={handleApproval} />
+
+            {readOnly ? (
+              <div className="composer composer--readonly">
+                <span>Read-only — this session was created via {currentSession.source?.platform || currentSession.source?.kind || 'another channel'}</span>
+              </div>
+            ) : (
+              <Composer onSend={sendMessage} disabled={sending || !currentSessionId} />
+            )}
+          </>
         )}
       </main>
     </div>

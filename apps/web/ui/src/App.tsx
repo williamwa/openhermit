@@ -7,6 +7,7 @@ import {
   initJwt,
   exchangeToken,
   getDisplayName,
+  getUserRole,
   type Connection,
 } from './api';
 import { ConnectScreen } from './components/ConnectScreen';
@@ -19,6 +20,7 @@ export function App() {
   const [screen, setScreen] = useState<Screen>('loading');
   const [connection, setConn] = useState<Connection | null>(null);
   const [error, setError] = useState('');
+  const [role, setRole] = useState<string | null>(null);
 
   useEffect(() => {
     const displayName = getDisplayName();
@@ -36,6 +38,7 @@ export function App() {
       (async () => {
         try {
           await exchangeToken(displayName);
+          setRole(getUserRole());
           setScreen('chat');
         } catch {
           setScreen('connect');
@@ -56,6 +59,7 @@ export function App() {
       (async () => {
         try {
           await exchangeToken(getDisplayName());
+          setRole(getUserRole());
           setScreen('chat');
         } catch {
           setScreen('connect');
@@ -70,6 +74,7 @@ export function App() {
     setConnection(conn);
     initJwt();
     await exchangeToken(getDisplayName());
+    setRole(getUserRole());
     saveConnection(conn);
     setConn(conn);
     setScreen('chat');
@@ -110,6 +115,7 @@ export function App() {
   return (
     <ChatShell
       connection={connection!}
+      role={role}
       onDisconnect={handleDisconnect}
     />
   );
