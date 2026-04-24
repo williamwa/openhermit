@@ -237,6 +237,7 @@ type WsMethod =
   | 'session.message'
   | 'session.approve'
   | 'session.checkpoint'
+  | 'session.delete'
   | 'session.list'
   | 'session.history'
   | 'session.subscribe'
@@ -256,12 +257,18 @@ export class AgentWsClient {
   private pending = new Map<string, PendingRequest>();
   private onEvent: WsEventHandler;
   private onStatus: WsStatusHandler;
+  private onReconnect: (() => void) | null = null;
   private disposed = false;
+  private reconnectAttempt = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private subscriptions = new Map<string, number>(); // sessionId → lastEventId
 
   constructor(onEvent: WsEventHandler, onStatus: WsStatusHandler) {
     this.onEvent = onEvent;
     this.onStatus = onStatus;
   }
+
+  setOnReconnect(cb: () => void): void { this.onReconnect = cb; }
 
   async connect(): Promise<void> {
     const token = await getJwt();
@@ -276,6 +283,7 @@ export class AgentWsClient {
       this.ws = ws;
 
       ws.onopen = () => {
+        this.reconnectAttempt = 0;
         this.onStatus('connected');
         resolve();
       };
@@ -285,10 +293,13 @@ export class AgentWsClient {
       };
 
       ws.onclose = () => {
-        this.onStatus('disconnected');
         for (const p of this.pending.values()) p.reject(new Error('Connection closed'));
         this.pending.clear();
         this.ws = null;
+        if (!this.disposed) {
+          this.onStatus('disconnected');
+          this.scheduleReconnect();
+        }
       };
 
       ws.onmessage = (e) => {
@@ -307,6 +318,27 @@ export class AgentWsClient {
         } catch { /* ignore malformed messages */ }
       };
     });
+  }
+
+  private scheduleReconnect(): void {
+    if (this.disposed || this.reconnectTimer) return;
+    const delay = Math.min(1000 * 2 ** this.reconnectAttempt, 30_000);
+    this.reconnectAttempt++;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.disposed) return;
+      this.onStatus('connecting');
+      this.connect()
+        .then(() => this.resubscribe())
+        .then(() => this.onReconnect?.())
+        .catch(() => {});
+    }, delay);
+  }
+
+  private async resubscribe(): Promise<void> {
+    for (const [sessionId, lastEventId] of this.subscriptions) {
+      await this.send('session.subscribe', { sessionId, lastEventId }).catch(() => {});
+    }
   }
 
   private send<T = unknown>(method: WsMethod, params?: Record<string, unknown>): Promise<T> {
@@ -337,10 +369,12 @@ export class AgentWsClient {
   }
 
   async subscribe(sessionId: string, lastEventId?: number): Promise<void> {
+    this.subscriptions.set(sessionId, lastEventId ?? 0);
     await this.send('session.subscribe', { sessionId, lastEventId });
   }
 
   async unsubscribe(sessionId: string): Promise<void> {
+    this.subscriptions.delete(sessionId);
     await this.send('session.unsubscribe', { sessionId }).catch(() => {});
   }
 
@@ -356,10 +390,31 @@ export class AgentWsClient {
     await this.send('session.checkpoint', { sessionId, reason });
   }
 
+  async deleteSession(sessionId: string): Promise<void> {
+    await this.send('session.delete', { sessionId });
+  }
+
+  checkConnection(): void {
+    if (this.disposed) return;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      this.scheduleReconnect();
+    }
+  }
+
   close(): void {
     this.disposed = true;
+    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+    document.removeEventListener('visibilitychange', this.handleVisibility);
     this.ws?.close();
     this.ws = null;
+  }
+
+  private handleVisibility = (): void => {
+    if (document.visibilityState === 'visible') this.checkConnection();
+  };
+
+  startVisibilityCheck(): void {
+    document.addEventListener('visibilitychange', this.handleVisibility);
   }
 }
 

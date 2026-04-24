@@ -59,6 +59,26 @@ body {
 }
 
 .sidebar__top { padding: 16px; border-bottom: 1px solid var(--line); }
+
+.sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.sidebar__logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.sidebar__brand-name {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+}
 .chat__header { padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
 
 /* ─── Typography ────────────────────────────────────────────────── */
@@ -201,6 +221,9 @@ h2 { font-size: 14px; font-weight: 600; }
 .sidebar__list { padding: 8px; overflow-y: auto; min-height: 0; flex: 1; }
 
 .sidebar__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 10px 16px;
   border-top: 1px solid var(--line);
   font-size: 12px;
@@ -232,15 +255,13 @@ h2 { font-size: 14px; font-weight: 600; }
 }
 
 .session-card {
+  position: relative;
   width: 100%;
   color: inherit;
   text-align: left;
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  padding: 8px 10px;
-  font: inherit;
-  cursor: pointer;
   transition: background 80ms ease;
 }
 
@@ -254,6 +275,39 @@ h2 { font-size: 14px; font-weight: 600; }
 }
 
 .session-card.is-inactive { opacity: 0.4; }
+
+.session-card__body {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.session-card__delete {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 20px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 80ms ease, color 80ms ease;
+}
+
+.session-card:hover .session-card__delete { opacity: 1; }
+.session-card__delete:hover { color: var(--error, #ef4444); background: rgba(239, 68, 68, 0.08); }
 
 .session-card__title-row {
   display: flex;

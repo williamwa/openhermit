@@ -509,6 +509,22 @@ export class AgentRunner implements SessionRuntime {
     }
   }
 
+  async deleteSession(sessionId: string, callerUserId?: string): Promise<void> {
+    if (callerUserId) {
+      await this.verifySessionAccess(sessionId, callerUserId);
+    }
+    const persisted = await this.store.sessions.get(this.scope, sessionId);
+    if (!persisted) throw new NotFoundError(`Session not found: ${sessionId}`);
+    if (persisted.type === 'group') {
+      throw new Error('Cannot delete group sessions.');
+    }
+    if (persisted.status === 'running') {
+      throw new Error('Cannot delete a running session.');
+    }
+    this.sessions.delete(sessionId);
+    await this.store.sessions.delete(this.scope, sessionId);
+  }
+
   async listSessionMessages(sessionId: string, callerUserId?: string): Promise<SessionHistoryMessage[]> {
     // Access control: if callerUserId is set, verify participation
     if (callerUserId) {

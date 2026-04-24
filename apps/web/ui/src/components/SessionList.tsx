@@ -15,9 +15,10 @@ interface Props {
   sessions: SessionSummary[];
   currentSessionId: string | null;
   onSelect: (sessionId: string) => void;
+  onDelete?: (sessionId: string) => void;
 }
 
-export function SessionList({ sessions, currentSessionId, onSelect }: Props) {
+export function SessionList({ sessions, currentSessionId, onSelect, onDelete }: Props) {
   if (sessions.length === 0) {
     return (
       <div className="sidebar__list">
@@ -33,35 +34,48 @@ export function SessionList({ sessions, currentSessionId, onSelect }: Props) {
         const isInactive = session.status === 'inactive';
         const sourceKind = session.source?.kind || 'api';
 
+        const canDelete = onDelete && session.status !== 'running';
+
         return (
-          <button
-            key={session.sessionId}
-            type="button"
-            className={`session-card${isActive ? ' is-active' : ''}${isInactive ? ' is-inactive' : ''}`}
-            onClick={() => onSelect(session.sessionId)}
-          >
-            <div className="session-card__title-row">
-              <div className="session-card__title">
-                {session.description || session.lastMessagePreview || session.sessionId}
-              </div>
-              <div className="session-card__badges">
-                <span className={`session-badge session-badge--${sourceKind}`}>
-                  {session.source?.platform || sourceKind}
-                </span>
-                {(session.status === 'running' || session.status === 'awaiting_approval') && (
-                  <span className={`session-badge session-badge--${session.status}`}>
-                    {session.status === 'awaiting_approval' ? 'approval' : session.status}
+          <div key={session.sessionId} className={`session-card${isActive ? ' is-active' : ''}${isInactive ? ' is-inactive' : ''}`}>
+            <button
+              type="button"
+              className="session-card__body"
+              onClick={() => onSelect(session.sessionId)}
+            >
+              <div className="session-card__title-row">
+                <div className="session-card__title">
+                  {session.description || session.lastMessagePreview || session.sessionId}
+                </div>
+                <div className="session-card__badges">
+                  <span className={`session-badge session-badge--${sourceKind}`}>
+                    {session.source?.platform || sourceKind}
                   </span>
-                )}
+                  {(session.status === 'running' || session.status === 'awaiting_approval') && (
+                    <span className={`session-badge session-badge--${session.status}`}>
+                      {session.status === 'awaiting_approval' ? 'approval' : session.status}
+                    </span>
+                  )}
+                </div>
               </div>
-            </div>
-            <div className="session-card__meta">
-              {relativeTime(session.lastActivityAt)} · {session.messageCount} msgs
-            </div>
-            <p className="session-card__preview">
-              {session.lastMessagePreview || 'No preview yet'}
-            </p>
-          </button>
+              <div className="session-card__meta">
+                {relativeTime(session.lastActivityAt)} · {session.messageCount} msgs
+              </div>
+              <p className="session-card__preview">
+                {session.lastMessagePreview || 'No preview yet'}
+              </p>
+            </button>
+            {canDelete && (
+              <button
+                type="button"
+                className="session-card__delete"
+                title="Delete session"
+                onClick={(e) => { e.stopPropagation(); onDelete(session.sessionId); }}
+              >
+                ×
+              </button>
+            )}
+          </div>
         );
       })}
     </div>

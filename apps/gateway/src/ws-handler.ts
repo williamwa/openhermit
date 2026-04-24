@@ -201,6 +201,20 @@ const handleRequest = async (
         return;
       }
 
+      case 'session.delete': {
+        const sessionId = p.sessionId;
+        if (typeof sessionId !== 'string') {
+          sendError(ws, id, 'INVALID_PARAMS', 'Missing sessionId.');
+          return;
+        }
+        if (callerUserId) {
+          await runtime.verifySessionAccess(sessionId, callerUserId);
+        }
+        await runtime.deleteSession(sessionId, callerUserId);
+        sendResult(ws, id, { deleted: true });
+        return;
+      }
+
       case 'session.subscribe': {
         const sessionId = p.sessionId;
         if (typeof sessionId !== 'string') {

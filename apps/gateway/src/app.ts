@@ -846,6 +846,19 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     return c.json({ checkpointed });
   });
 
+  // --- delete session ---
+
+  app.delete('/agents/:agentId/sessions/:sessionId', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    const sessionId = c.req.param('sessionId') ?? '';
+    const auth = requireAuth(c, agentId);
+    enforceSessionNamespace(auth, sessionId);
+    const runtime = resolveRunner(instances, agentId);
+    const callerUserId = await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId });
+    await runtime.deleteSession(sessionId, callerUserId ?? undefined);
+    return c.json({ deleted: true });
+  });
+
   // --- SSE events ---
 
   app.get(gatewayRoutes.agentSessionEventsPattern, async (c) => {

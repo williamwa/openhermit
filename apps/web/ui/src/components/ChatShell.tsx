@@ -3,12 +3,37 @@ import { AgentWsClient, fetchAgentInfo, getDisplayName, type Connection, type Se
 import { SessionList } from './SessionList';
 import { ChatMessages, type ChatItem } from './ChatMessages';
 import { Composer } from './Composer';
-import { ManagePanel } from './ManagePanel';
+import { ManagePanel, type ManageTab } from './ManagePanel';
 
 const createSessionId = () =>
   `web:${new Date().toISOString().slice(0, 10)}-${crypto.randomUUID().slice(0, 8)}`;
 
 type View = 'chat' | 'manage';
+type ManageTab = 'skills' | 'mcp' | 'schedules';
+
+const MANAGE_TABS: ManageTab[] = ['skills', 'mcp', 'schedules'];
+
+type Route =
+  | { view: 'chat'; sessionId: string | null }
+  | { view: 'manage'; tab: ManageTab };
+
+const parseRoute = (pathname: string): Route => {
+  if (pathname.startsWith('/manage')) {
+    const tab = pathname.split('/')[2] as ManageTab | undefined;
+    return { view: 'manage', tab: MANAGE_TABS.includes(tab!) ? tab! : 'skills' };
+  }
+  if (pathname.startsWith('/chat/')) {
+    const sessionId = decodeURIComponent(pathname.slice(6));
+    return sessionId ? { view: 'chat', sessionId } : { view: 'chat', sessionId: null };
+  }
+  return { view: 'chat', sessionId: null };
+};
+
+const routeToPath = (route: Route): string => {
+  if (route.view === 'manage') return `/manage/${route.tab}`;
+  if (route.sessionId) return `/chat/${encodeURIComponent(route.sessionId)}`;
+  return '/';
+};
 
 interface Props {
   connection: Connection;
@@ -17,10 +42,13 @@ interface Props {
 }
 
 export function ChatShell({ connection, role, onDisconnect }: Props) {
-  const [view, setView] = useState<View>('chat');
+  const initialRoute = parseRoute(window.location.pathname);
+  const [view, setView] = useState<View>(initialRoute.view);
+  const [manageTab, setManageTab] = useState<ManageTab>(initialRoute.view === 'manage' ? initialRoute.tab : 'skills');
   const isOwner = role === 'owner';
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const initialSessionId = initialRoute.view === 'chat' ? initialRoute.sessionId : null;
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(initialSessionId);
   const [items, setItems] = useState<ChatItem[]>([]);
   const [agentName, setAgentName] = useState<string | null>(null);
   const [status, setStatus] = useState('Connecting');
@@ -29,8 +57,74 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
   const wsRef = useRef<AgentWsClient | null>(null);
   const currentSessionRef = useRef<string | null>(null);
   const streamingTextRef = useRef('');
+  const skipPushRef = useRef(false);
 
   currentSessionRef.current = currentSessionId;
+
+  // Sync URL when view/session/tab changes
+  useEffect(() => {
+    if (skipPushRef.current) { skipPushRef.current = false; return; }
+    const route: Route = view === 'manage'
+      ? { view: 'manage', tab: manageTab }
+      : { view: 'chat', sessionId: currentSessionId };
+    const path = routeToPath(route);
+    if (window.location.pathname !== path) {
+      history.pushState(null, '', path);
+    }
+  }, [view, currentSessionId, manageTab]);
+
+  // Listen to back/forward navigation
+  useEffect(() => {
+    const onPopState = () => {
+      skipPushRef.current = true;
+      const route = parseRoute(window.location.pathname);
+      setView(route.view);
+      if (route.view === 'manage') {
+        setManageTab(route.tab);
+      } else if (route.sessionId && route.sessionId !== currentSessionRef.current) {
+        void selectSessionById(route.sessionId);
+      }
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  const selectSessionById = useCallback(async (sessionId: string) => {
+    const ws = wsRef.current;
+    if (!ws || sessionId === currentSessionRef.current) return;
+    if (currentSessionRef.current) {
+      await ws.unsubscribe(currentSessionRef.current);
+    }
+    setCurrentSessionId(sessionId);
+    setView('chat');
+    setItems([]);
+    streamingTextRef.current = '';
+    await ws.openSession(sessionId);
+    const history: HistoryMessage[] = await ws.getHistory(sessionId);
+    const historyItems: ChatItem[] = [];
+    for (const entry of history) {
+      if (entry.role === 'tool') {
+        const last = historyItems[historyItems.length - 1];
+        if (last?.type === 'tool' && last.tool === entry.tool && last.phase !== 'done' && entry.toolPhase === 'result') {
+          last.phase = 'done';
+          last.isError = entry.toolIsError;
+          last.result = entry.content || undefined;
+        } else if (entry.toolPhase === 'result') {
+          historyItems.push({ type: 'tool', tool: entry.tool || '', args: entry.toolArgs, phase: 'done', isError: entry.toolIsError, result: entry.content || undefined });
+        } else {
+          historyItems.push({ type: 'tool', tool: entry.tool || '', args: entry.toolArgs, phase: 'running' });
+        }
+        continue;
+      }
+      if (entry.role === 'error') { historyItems.push({ type: 'event', text: entry.content, isError: true }); continue; }
+      historyItems.push({ type: entry.role as 'user' | 'assistant', text: entry.content, streaming: false, name: entry.name });
+      if (entry.role === 'assistant' && entry.name) setAgentName(entry.name);
+    }
+    setItems(historyItems);
+    const allSessions = await ws.listSessions();
+    const sess = allSessions.find(s => s.sessionId === sessionId);
+    await ws.subscribe(sessionId, sess?.lastEventId ?? 0);
+  }, []);
 
   const handleEvent = useCallback((_eventId: number, sessionId: string, event: OutboundEvent) => {
     if (sessionId !== currentSessionRef.current) return;
@@ -118,55 +212,7 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
     setSessions(list);
   }, []);
 
-  const selectSession = useCallback(async (sessionId: string) => {
-    const ws = wsRef.current;
-    if (!ws || sessionId === currentSessionRef.current) return;
-
-    if (currentSessionRef.current) {
-      await ws.unsubscribe(currentSessionRef.current);
-    }
-
-    setCurrentSessionId(sessionId);
-    setItems([]);
-    streamingTextRef.current = '';
-
-    await ws.openSession(sessionId);
-
-    const session = sessions.find(s => s.sessionId === sessionId);
-    const lastEventId = session?.lastEventId ?? 0;
-
-    const history: HistoryMessage[] = await ws.getHistory(sessionId);
-    const historyItems: ChatItem[] = [];
-    for (const entry of history) {
-      if (entry.role === 'tool') {
-        const last = historyItems[historyItems.length - 1];
-        if (last?.type === 'tool' && last.tool === entry.tool && last.phase !== 'done' && entry.toolPhase === 'result') {
-          last.phase = 'done';
-          last.isError = entry.toolIsError;
-          last.result = entry.content || undefined;
-        } else if (entry.toolPhase === 'result') {
-          historyItems.push({
-            type: 'tool', tool: entry.tool || '', args: entry.toolArgs,
-            phase: 'done', isError: entry.toolIsError, result: entry.content || undefined,
-          });
-        } else {
-          historyItems.push({
-            type: 'tool', tool: entry.tool || '', args: entry.toolArgs,
-            phase: 'running',
-          });
-        }
-        continue;
-      }
-      if (entry.role === 'error') { historyItems.push({ type: 'event', text: entry.content, isError: true }); continue; }
-      historyItems.push({ type: entry.role as 'user' | 'assistant', text: entry.content, streaming: false, name: entry.name });
-      if (entry.role === 'assistant' && entry.name && !agentName) {
-        setAgentName(entry.name);
-      }
-    }
-    setItems(historyItems);
-
-    await ws.subscribe(sessionId, lastEventId);
-  }, [sessions]);
+  const selectSession = selectSessionById;
 
   const createNewSession = useCallback(async () => {
     const ws = wsRef.current;
@@ -201,6 +247,23 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
     }
   }, []);
 
+  const deleteSession = useCallback(async (sessionId: string) => {
+    const ws = wsRef.current;
+    if (!ws) return;
+    if (!confirm('Delete this session? This cannot be undone.')) return;
+    try {
+      await ws.deleteSession(sessionId);
+      if (currentSessionRef.current === sessionId) {
+        setCurrentSessionId(null);
+        setItems([]);
+        history.replaceState(null, '', '/');
+      }
+      await refreshSessions();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : String(error));
+    }
+  }, [refreshSessions]);
+
   const handleApproval = useCallback(async (toolCallId: string, approved: boolean) => {
     const ws = wsRef.current;
     const sessionId = currentSessionRef.current;
@@ -227,6 +290,11 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
     });
     wsRef.current = client;
 
+    client.setOnReconnect(() => {
+      client.listSessions().then(setSessions).catch(() => {});
+    });
+    client.startVisibilityCheck();
+
     client.connect()
       .then(() => Promise.all([
         client.listSessions().then(setSessions),
@@ -240,17 +308,23 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
     };
   }, [handleEvent]);
 
-  // Auto-select first session after sessions load
+  // Auto-select session after sessions load (from URL or first available)
   const initialLoadDone = useRef(false);
   useEffect(() => {
-    if (initialLoadDone.current) return;
-    if (sessions.length > 0 && !currentSessionId) {
+    if (initialLoadDone.current || view === 'manage') return;
+    if (sessions.length > 0 && !currentSessionRef.current) {
       initialLoadDone.current = true;
-      void selectSession(sessions[0].sessionId);
+      if (initialSessionId && sessions.some(s => s.sessionId === initialSessionId)) {
+        void selectSession(initialSessionId);
+      } else {
+        void selectSession(sessions[0].sessionId);
+      }
+    } else if (sessions.length > 0 && currentSessionRef.current) {
+      initialLoadDone.current = true;
     } else if (sessions.length === 0) {
       initialLoadDone.current = true;
     }
-  }, [sessions, currentSessionId, selectSession]);
+  }, [sessions, selectSession, view, initialSessionId]);
 
   const currentSession = sessions.find(s => s.sessionId === currentSessionId);
   const sessionTitle = currentSession?.description || currentSession?.lastMessagePreview || currentSessionId || 'No session';
@@ -261,31 +335,36 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
     <div className="shell">
       <aside className="sidebar">
         <div className="sidebar__top">
-          <p className="eyebrow">{agentName || connection.agentId}</p>
-          <h1>Web Chat</h1>
-          {agentName && <p className="sidebar__meta">Agent: {connection.agentId}</p>}
+          <div className="sidebar__brand">
+            <img src="/logo.png" alt="" className="sidebar__logo" />
+            <div>
+              <h1 className="sidebar__brand-name">OpenHermit</h1>
+              <p className="sidebar__meta">Agent: {agentName || connection.agentId}</p>
+            </div>
+          </div>
           <div className="sidebar__buttons">
             {view === 'manage' ? (
-              <button className="btn btn--primary" onClick={() => setView('chat')}>Back to Chat</button>
+              <button className="btn btn--primary" onClick={() => { setView('chat'); }}>Back to Chat</button>
             ) : (
               <button className="btn btn--primary" onClick={() => void createNewSession()}>New Session</button>
             )}
             {isOwner && view === 'chat' && (
-              <button className="btn btn--ghost" onClick={() => setView('manage')}>Manage</button>
+              <button className="btn btn--ghost" onClick={() => { setView('manage'); setManageTab('skills'); }}>Manage</button>
             )}
-            <button className="btn btn--ghost" onClick={onDisconnect}>Disconnect</button>
           </div>
         </div>
         <SessionList
           sessions={sessions}
           currentSessionId={currentSessionId}
           onSelect={sessionId => void selectSession(sessionId)}
+          onDelete={sessionId => void deleteSession(sessionId)}
         />
         <div className="sidebar__footer">
           <div>
             <div className="sidebar__footer-name"><span className="sidebar__footer-dot" />{getDisplayName() || 'Anonymous'}</div>
             <div className="sidebar__footer-auth">Auth: device key · WS</div>
           </div>
+          <button className="btn btn--ghost btn--sm" onClick={onDisconnect}>Disconnect</button>
         </div>
       </aside>
 
@@ -299,7 +378,7 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
               </div>
             </header>
             <div className="chat__manage-area">
-              <ManagePanel />
+              <ManagePanel tab={manageTab} onTabChange={setManageTab} />
             </div>
           </>
         ) : (

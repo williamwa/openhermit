@@ -3,7 +3,7 @@ import type { MetadataValue, SessionStatus, SessionType } from '@openhermit/prot
 
 import type { SessionStore } from '../interfaces.js';
 import type { PersistedSessionIndexEntry, StoreScope } from '../types.js';
-import { sessions } from '../schema.js';
+import { sessionEvents, sessions } from '../schema.js';
 import type { DrizzleDb } from './index.js';
 
 export class DbSessionStore implements SessionStore {
@@ -70,6 +70,13 @@ export class DbSessionStore implements SessionStore {
   async updateStatus(scope: StoreScope, sessionId: string, status: string): Promise<void> {
     await this.db.update(sessions).set({ status })
       .where(and(eq(sessions.agentId, scope.agentId), eq(sessions.sessionId, sessionId)));
+  }
+
+  async delete(scope: StoreScope, sessionId: string): Promise<void> {
+    const where = and(eq(sessions.agentId, scope.agentId), eq(sessions.sessionId, sessionId));
+    await this.db.delete(sessionEvents)
+      .where(and(eq(sessionEvents.agentId, scope.agentId), eq(sessionEvents.sessionId, sessionId)));
+    await this.db.delete(sessions).where(where);
   }
 
   async markStaleInactive(scope: StoreScope, olderThanIso: string): Promise<number> {

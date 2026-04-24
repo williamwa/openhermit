@@ -401,6 +401,7 @@ export type WsMethod =
   | 'session.message'
   | 'session.approve'
   | 'session.checkpoint'
+  | 'session.delete'
   | 'session.list'
   | 'session.history'
   | 'session.subscribe'
