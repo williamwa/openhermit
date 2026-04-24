@@ -17,18 +17,17 @@ export const extractAssistantText = (message: AssistantMessage): string => {
     .map((content) => content.text.trim())
     .filter((text) => text.length > 0);
 
-  if (textParts.length > 0) {
-    return textParts.join('\n\n');
-  }
+  return textParts.join('\n\n');
+};
 
-  // Fallback: some models return only thinking blocks with no text content.
-  const thinkingParts = message.content
+export const extractThinkingText = (message: AssistantMessage): string => {
+  const parts = message.content
     .filter((content): content is Extract<typeof content, { type: 'thinking' }> =>
       content.type === 'thinking' && 'thinking' in content && typeof (content as any).thinking === 'string')
     .map((content) => (content as any).thinking.trim())
     .filter((text: string) => text.length > 0);
 
-  return thinkingParts.join('\n\n');
+  return parts.join('\n\n');
 };
 
 export const hasMeaningfulAssistantText = (text: string): boolean =>

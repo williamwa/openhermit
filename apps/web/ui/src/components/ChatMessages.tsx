@@ -18,7 +18,7 @@ export type ChatItem =
   | { type: 'event'; text: string; isError: boolean }
   | { type: 'tool'; tool: string; args?: unknown; phase: 'running' | 'done'; isError?: boolean; result?: string }
   | { type: 'approval'; toolName: string; toolCallId: string; args?: unknown; resolved: boolean; approved?: boolean }
-  | { type: 'thinking'; name?: string };
+  | { type: 'thinking'; text?: string; streaming?: boolean };
 
 interface Props {
   items: ChatItem[];
@@ -188,7 +188,14 @@ export function ChatMessages({ items, agentName, onApproval }: Props) {
                 case 'approval':
                   return <ApprovalCard key={ii} item={item} onApproval={onApproval} />;
                 case 'thinking':
-                  return (
+                  return item.text ? (
+                    <details key={ii} className="thinking-block" open={item.streaming}>
+                      <summary className="thinking-block__header">
+                        {item.streaming ? <>Thinking<span className="thinking-dots" /></> : 'Thinking'}
+                      </summary>
+                      <div className="thinking-block__body" dangerouslySetInnerHTML={{ __html: renderMarkdown(item.text, item.streaming) }} />
+                    </details>
+                  ) : (
                     <div key={ii} className="message__body thinking-indicator">Thinking<span className="thinking-dots" /></div>
                   );
               }

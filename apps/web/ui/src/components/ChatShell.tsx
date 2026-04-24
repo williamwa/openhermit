@@ -57,6 +57,7 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
   const wsRef = useRef<AgentWsClient | null>(null);
   const currentSessionRef = useRef<string | null>(null);
   const streamingTextRef = useRef('');
+  const streamingThinkingRef = useRef('');
   const skipPushRef = useRef(false);
 
   currentSessionRef.current = currentSessionId;
@@ -94,6 +95,7 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
     setView('chat');
     setItems([]);
     streamingTextRef.current = '';
+    streamingThinkingRef.current = '';
     await ws.openSession(sessionId);
     const history: HistoryMessage[] = await ws.getHistory(sessionId);
     const historyItems: ChatItem[] = [];
@@ -112,6 +114,10 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
         continue;
       }
       if (entry.role === 'error') { historyItems.push({ type: 'event', text: entry.content, isError: true }); continue; }
+      if (entry.role === 'assistant' && entry.thinking) {
+        historyItems.push({ type: 'thinking', text: entry.thinking, streaming: false });
+      }
+      if (entry.role === 'assistant' && !entry.content) { if (entry.name) setAgentName(entry.name); continue; }
       historyItems.push({ type: entry.role as 'user' | 'assistant', text: entry.content, streaming: false, name: entry.name });
       if (entry.role === 'assistant' && entry.name) setAgentName(entry.name);
     }
@@ -133,11 +139,40 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
   const handleEvent = useCallback((_eventId: number, sessionId: string, event: OutboundEvent) => {
     if (sessionId !== currentSessionRef.current) return;
 
-    const dropThinking = (items: ChatItem[]) => items.filter(i => i.type !== 'thinking');
+    const dropPlaceholder = (items: ChatItem[]) => items.filter(i => !(i.type === 'thinking' && !i.text));
 
     switch (event.type) {
+      case 'thinking_delta':
+        streamingThinkingRef.current += event.text as string;
+        setItems(prev => {
+          const text = streamingThinkingRef.current;
+          const last = prev[prev.length - 1];
+          if (last?.type === 'thinking' && last.streaming) {
+            const updated = [...prev];
+            updated[updated.length - 1] = { type: 'thinking', text, streaming: true };
+            return updated;
+          }
+          return [...prev, { type: 'thinking', text, streaming: true }];
+        });
+        break;
+
+      case 'thinking_final': {
+        const finalText = (event.text as string) || streamingThinkingRef.current;
+        streamingThinkingRef.current = '';
+        setItems(prev => {
+          const last = prev[prev.length - 1];
+          if (last?.type === 'thinking') {
+            const updated = [...prev];
+            updated[updated.length - 1] = { type: 'thinking', text: finalText, streaming: false };
+            return updated;
+          }
+          return [...prev, { type: 'thinking', text: finalText, streaming: false }];
+        });
+        break;
+      }
+
       case 'tool_call':
-        setItems(prev => [...dropThinking(prev), { type: 'tool', tool: event.tool as string, args: event.args, phase: 'running' }]);
+        setItems(prev => [...dropPlaceholder(prev), { type: 'tool', tool: event.tool as string, args: event.args, phase: 'running' }]);
         break;
 
       case 'tool_result':
@@ -158,7 +193,7 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
         break;
 
       case 'tool_approval_required':
-        setItems(prev => [...dropThinking(prev), {
+        setItems(prev => [...dropPlaceholder(prev), {
           type: 'approval',
           toolName: event.toolName as string,
           toolCallId: event.toolCallId as string,
@@ -170,7 +205,7 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
       case 'text_delta':
         streamingTextRef.current += event.text as string;
         setItems(prev => {
-          const clean = dropThinking(prev);
+          const clean = dropPlaceholder(prev);
           const text = streamingTextRef.current;
           const last = clean[clean.length - 1];
           if (last?.type === 'assistant' && last.streaming) {
@@ -198,11 +233,12 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
       }
 
       case 'error':
-        setItems(prev => [...dropThinking(prev), { type: 'event', text: event.message as string, isError: true }]);
+        setItems(prev => [...dropPlaceholder(prev), { type: 'event', text: event.message as string, isError: true }]);
         break;
 
       case 'agent_end':
         streamingTextRef.current = '';
+        streamingThinkingRef.current = '';
         setSending(false);
         setStatus('Connected');
         wsRef.current?.listSessions().then(setSessions).catch(() => {});
@@ -241,6 +277,7 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
     setSending(true);
     setStatus('Running');
     streamingTextRef.current = '';
+    streamingThinkingRef.current = '';
 
     try {
       await ws.sendMessage(sessionId, text);

@@ -21,6 +21,7 @@ export interface AgentModelConfig {
    * that is not in the pi-ai registry. Common values: 'openai-completions', 'anthropic-messages'.
    */
   api?: string;
+  thinking?: ThinkingLevel;
 }
 
 export interface ContainerDefaultsConfig {
@@ -106,6 +107,8 @@ export type WebProviderName = 'defuddle' | 'exa' | 'tavily';
 export interface WebConfig {
   provider: WebProviderName;
 }
+
+export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high';
 
 export interface AgentRuntimeConfig {
   workspace_root: string;

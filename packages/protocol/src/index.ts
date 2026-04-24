@@ -52,6 +52,7 @@ export interface SessionHistoryMessage {
   provider?: string;
   model?: string;
   stopReason?: string;
+  thinking?: string;
   tool?: string;
   toolPhase?: 'call' | 'result';
   toolIsError?: boolean;
@@ -103,6 +104,8 @@ export const isCallerIdentity = (value: unknown): value is CallerIdentity =>
   typeof value.channelUserId === 'string';
 
 export type OutboundEvent =
+  | { type: 'thinking_delta'; sessionId: string; text: string }
+  | { type: 'thinking_final'; sessionId: string; text: string }
   | { type: 'text_delta'; sessionId: string; text: string }
   | { type: 'text_final'; sessionId: string; text: string }
   | { type: 'tool_call'; sessionId: string; tool: string; args?: unknown }

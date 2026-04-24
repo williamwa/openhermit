@@ -29,6 +29,7 @@ const mapEventRowToHistoryMessage = (row: {
     if (typeof payload?.provider === 'string') message.provider = payload.provider;
     if (typeof payload?.model === 'string') message.model = payload.model;
     if (typeof payload?.stopReason === 'string') message.stopReason = payload.stopReason;
+    if (typeof payload?.thinking === 'string') message.thinking = payload.thinking;
     return message;
   }
 

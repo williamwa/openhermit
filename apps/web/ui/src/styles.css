@@ -457,7 +457,7 @@ h2 { font-size: 14px; font-weight: 600; }
   color: var(--muted);
 }
 
-/* ─── Thinking indicator ───────────────────────────────────────── */
+/* ─── Thinking ─────────────────────────────────────────────────── */
 
 .thinking-indicator { color: var(--text-secondary); }
 .thinking-dots::after {
@@ -470,6 +470,54 @@ h2 { font-size: 14px; font-weight: 600; }
   50%  { content: '..'; }
   75%  { content: '...'; }
 }
+
+.thinking-block {
+  margin: 8px 0 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-muted);
+  overflow: hidden;
+}
+
+.thinking-block__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.thinking-block__header::-webkit-details-marker { display: none; }
+.thinking-block__header::marker { display: none; content: ''; }
+
+.thinking-block__header::before {
+  content: '▶';
+  font-size: 8px;
+  transition: transform 0.15s;
+}
+
+.thinking-block[open] .thinking-block__header::before {
+  transform: rotate(90deg);
+}
+
+.thinking-block__body {
+  padding: 6px 10px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.thinking-block__body p { margin: 0.3em 0; }
+.thinking-block__body > :first-child { margin-top: 0; }
+.thinking-block__body > :last-child { margin-bottom: 0; }
 
 /* ─── Approval card ─────────────────────────────────────────────── */
 

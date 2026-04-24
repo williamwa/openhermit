@@ -64,6 +64,7 @@ const ModelConfigSchema = z.object({
   max_tokens: z.number(),
   base_url: z.string().optional(),
   api: z.string().optional(),
+  thinking: z.enum(['off', 'minimal', 'low', 'medium', 'high']).optional(),
 });
 
 const HttpApiConfigSchema = z.object({

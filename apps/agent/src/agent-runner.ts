@@ -30,6 +30,7 @@ import {
 import {
   createUserMessage,
   extractAssistantText,
+  extractThinkingText,
   hasMeaningfulAssistantText,
   extractToolResultDetails,
   extractToolResultText,
@@ -1273,7 +1274,7 @@ export class AgentRunner implements SessionRuntime {
         systemPrompt,
         model: resolveModel(input.config),
         tools: filteredTools,
-        thinkingLevel: 'off',
+        thinkingLevel: input.config.model.thinking ?? 'off',
       },
       sessionId: input.agentSessionId,
       ...(streamFn ? { streamFn } : {}),
@@ -1601,6 +1602,22 @@ export class AgentRunner implements SessionRuntime {
       }
 
       case 'message_update': {
+        if (event.assistantMessageEvent.type === 'thinking_delta') {
+          void this.events.publish({
+            type: 'thinking_delta',
+            sessionId: session.spec.sessionId,
+            text: event.assistantMessageEvent.delta,
+          });
+        }
+
+        if (event.assistantMessageEvent.type === 'thinking_end') {
+          void this.events.publish({
+            type: 'thinking_final',
+            sessionId: session.spec.sessionId,
+            text: event.assistantMessageEvent.content,
+          });
+        }
+
         if (event.assistantMessageEvent.type === 'text_delta') {
           void this.events.publish({
             type: 'text_delta',
@@ -1625,6 +1642,7 @@ export class AgentRunner implements SessionRuntime {
         }
 
         const assistantText = extractAssistantText(event.message);
+        const thinkingText = extractThinkingText(event.message);
         const assistantMessage = event.message;
 
         // Handle error responses from the model provider.
@@ -1647,6 +1665,7 @@ export class AgentRunner implements SessionRuntime {
               ts,
               role: 'assistant',
               content: assistantText ?? '',
+              ...(thinkingText ? { thinking: thinkingText } : {}),
               provider: assistantMessage.provider,
               model: assistantMessage.model,
               usage: assistantMessage.usage,
@@ -1657,22 +1676,28 @@ export class AgentRunner implements SessionRuntime {
           break;
         }
 
-        if (!assistantText || !hasMeaningfulAssistantText(assistantText)) {
+        const hasText = assistantText && hasMeaningfulAssistantText(assistantText);
+        const hasThinking = thinkingText && thinkingText.length > 0;
+
+        if (!hasText && !hasThinking) {
           break;
         }
 
-        session.latestAssistantText = assistantText;
+        if (hasText) {
+          session.latestAssistantText = assistantText;
+          session.messageCount += 1;
+          session.lastMessagePreview = assistantText;
+        }
         const ts = new Date().toISOString();
         session.updatedAt = ts;
-        session.messageCount += 1;
-        session.lastMessagePreview = assistantText;
         void this.persistSessionIndex(session);
 
         void this.queueSideEffect(session, async () => {
-          await this.store.messages.appendLogEntry(this.scope,session.spec.sessionId, {
+          await this.store.messages.appendLogEntry(this.scope, session.spec.sessionId, {
             ts,
             role: 'assistant',
-            content: assistantText,
+            content: assistantText || '',
+            ...(hasThinking ? { thinking: thinkingText } : {}),
             provider: assistantMessage.provider,
             model: assistantMessage.model,
             usage: assistantMessage.usage,
