@@ -152,6 +152,7 @@ class LocalExecBackend implements ExecBackend {
       const child = spawn(this.shell, ['-lc', command], {
         cwd: this.cwd,
         env: { ...process.env, ...(this.env ?? {}) },
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
 
       let stdout = '';

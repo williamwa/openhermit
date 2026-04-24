@@ -54,7 +54,7 @@ export interface DockerCommandResult {
 }
 
 export interface DockerRunner {
-  run(args: string[]): Promise<DockerCommandResult>;
+  run(args: string[], timeoutMs?: number): Promise<DockerCommandResult>;
 }
 
 class DockerCliRunner implements DockerRunner {
@@ -64,16 +64,25 @@ class DockerCliRunner implements DockerRunner {
       'docker',
   ) {}
 
-  async run(args: string[]): Promise<DockerCommandResult> {
+  async run(args: string[], timeoutMs?: number): Promise<DockerCommandResult> {
     const startedAt = Date.now();
 
     return new Promise<DockerCommandResult>((resolve, reject) => {
       const child = spawn(this.binary, args, {
         env: process.env,
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
 
       let stdout = '';
       let stderr = '';
+      let timedOut = false;
+
+      const timer = timeoutMs
+        ? setTimeout(() => {
+            timedOut = true;
+            child.kill('SIGKILL');
+          }, timeoutMs)
+        : undefined;
 
       child.stdout.on('data', (chunk) => {
         stdout += chunk.toString();
@@ -84,6 +93,7 @@ class DockerCliRunner implements DockerRunner {
       });
 
       child.on('error', (error) => {
+        if (timer) clearTimeout(timer);
         reject(
           new OpenHermitError(
             `Failed to execute docker command: ${error.message}`,
@@ -94,10 +104,14 @@ class DockerCliRunner implements DockerRunner {
       });
 
       child.on('close', (code) => {
+        if (timer) clearTimeout(timer);
+        if (timedOut) {
+          stderr = stderr.trimEnd() + `\n[killed: command timed out after ${timeoutMs}ms]`;
+        }
         resolve({
           stdout,
           stderr,
-          exitCode: code ?? 1,
+          exitCode: timedOut ? 137 : (code ?? 1),
           durationMs: Date.now() - startedAt,
         });
       });
@@ -287,7 +301,7 @@ export class DockerContainerManager {
       }
     }
 
-    const result = await this.docker.run(['exec', name, 'sh', '-lc', command]);
+    const result = await this.docker.run(['exec', name, 'sh', '-lc', command], 300_000);
     const parsedOutput = parseStructuredOutput(result.stdout);
 
     return {

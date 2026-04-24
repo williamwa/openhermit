@@ -84,7 +84,9 @@ const EXEC_DESCRIPTION = `\
 
 Use \`exec\` to run any shell command. This is how you do everything: read files, write files, search, build, test, install packages, run scripts.
 
-The execution environment is persistent. Installed packages and state survive between calls.`;
+The execution environment is persistent. Installed packages and state survive between calls.
+
+**Important**: stdin is closed — interactive commands that prompt for user input will fail. Use non-interactive alternatives instead (e.g. \`--yes\`, \`--non-interactive\`, \`--with-token\`, environment variables). For authentication, use tokens from agent secrets rather than interactive login flows.`;
 
 export const createExecToolset = (context: ToolContext): Toolset => ({
   id: 'exec',
