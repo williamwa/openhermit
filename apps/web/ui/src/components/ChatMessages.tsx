@@ -89,14 +89,43 @@ function ApprovalCard({ item, onApproval }: { item: Extract<ChatItem, { type: 'a
 
   return (
     <div className="approval-card">
-      <div className="message__title">Approval required · {item.toolName}</div>
-      <div className="message__body">{formatArgs(item.args)}</div>
+      <div className="approval-card__title">Approval required · {item.toolName}</div>
+      <div className="approval-card__body">{formatArgs(item.args)}</div>
       <div className="approval-card__actions">
         <button className="btn btn--primary" onClick={() => void onApproval(item.toolCallId, true)}>Approve</button>
         <button className="btn btn--ghost" onClick={() => void onApproval(item.toolCallId, false)}>Deny</button>
       </div>
     </div>
   );
+}
+
+// ─── Turn grouping ────────────────────────────────────────────────────────
+
+type Turn =
+  | { kind: 'user'; items: Extract<ChatItem, { type: 'user' }>[] }
+  | { kind: 'assistant'; items: ChatItem[] }
+  | { kind: 'event'; item: Extract<ChatItem, { type: 'event' }> };
+
+const isAssistantItem = (item: ChatItem) =>
+  item.type === 'assistant' || item.type === 'tool' || item.type === 'approval' || item.type === 'thinking';
+
+function groupIntoTurns(items: ChatItem[]): Turn[] {
+  const turns: Turn[] = [];
+  for (const item of items) {
+    if (item.type === 'user') {
+      turns.push({ kind: 'user', items: [item] });
+    } else if (item.type === 'event') {
+      turns.push({ kind: 'event', item });
+    } else if (isAssistantItem(item)) {
+      const last = turns[turns.length - 1];
+      if (last?.kind === 'assistant') {
+        last.items.push(item);
+      } else {
+        turns.push({ kind: 'assistant', items: [item] });
+      }
+    }
+  }
+  return turns;
 }
 
 // ─── Main ──────────────────────────────────────────────────────────────────
@@ -119,64 +148,53 @@ export function ChatMessages({ items, agentName, onApproval }: Props) {
     );
   }
 
-  // Determine which tool/approval/thinking items need an agent name header
-  // (first in a consecutive group not preceded by an assistant message)
-  const needsHeader = new Set<number>();
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i];
-    if (item.type !== 'tool' && item.type !== 'approval' && item.type !== 'thinking') continue;
-    const prev = items[i - 1];
-    if (!prev || prev.type === 'user' || prev.type === 'event') {
-      needsHeader.add(i);
-    }
-  }
+  const turns = groupIntoTurns(items);
 
   return (
     <section className="chat__messages" ref={containerRef}>
-      {items.map((item, i) => {
-        switch (item.type) {
-          case 'user':
-            return (
-              <article key={i} className="message message--user">
-                <div className="message__title">{item.name || 'You'}</div>
-                <div className="message__body">{item.text}</div>
-              </article>
-            );
-          case 'assistant':
-            return (
-              <article key={i} className="message message--assistant">
-                <div className="message__title">{item.name || displayAgentName}</div>
-                <div className="message__body" dangerouslySetInnerHTML={{ __html: renderMarkdown(item.text, item.streaming) }} />
-              </article>
-            );
-          case 'event':
-            return (
-              <div key={i} className={`event${item.isError ? ' event--error' : ''}`}>
-                {item.isError ? `[error] ${item.text}` : item.text}
-              </div>
-            );
-          case 'tool':
-            return (
-              <div key={i}>
-                {needsHeader.has(i) && <div className="message__title message__title--tool">{displayAgentName}</div>}
-                <ToolCard item={item} />
-              </div>
-            );
-          case 'approval':
-            return (
-              <div key={i}>
-                {needsHeader.has(i) && <div className="message__title message__title--tool">{displayAgentName}</div>}
-                <ApprovalCard item={item} onApproval={onApproval} />
-              </div>
-            );
-          case 'thinking':
-            return (
-              <article key={i} className="message message--assistant">
-                <div className="message__title">{displayAgentName}</div>
-                <div className="message__body thinking-indicator">Thinking<span className="thinking-dots" /></div>
-              </article>
-            );
+      {turns.map((turn, ti) => {
+        if (turn.kind === 'user') {
+          const item = turn.items[0];
+          return (
+            <article key={ti} className="message message--user">
+              <div className="message__title">{item.name || 'You'}</div>
+              <div className="message__body">{item.text}</div>
+            </article>
+          );
         }
+
+        if (turn.kind === 'event') {
+          return (
+            <div key={ti} className={`event${turn.item.isError ? ' event--error' : ''}`}>
+              {turn.item.isError ? `[error] ${turn.item.text}` : turn.item.text}
+            </div>
+          );
+        }
+
+        const nameItem = turn.items.find(i => i.type === 'assistant' && i.name);
+        const turnName = (nameItem as any)?.name || displayAgentName;
+
+        return (
+          <article key={ti} className="message message--assistant">
+            <div className="message__title">{turnName}</div>
+            {turn.items.map((item, ii) => {
+              switch (item.type) {
+                case 'assistant':
+                  return (
+                    <div key={ii} className="message__body" dangerouslySetInnerHTML={{ __html: renderMarkdown(item.text, item.streaming) }} />
+                  );
+                case 'tool':
+                  return <ToolCard key={ii} item={item} />;
+                case 'approval':
+                  return <ApprovalCard key={ii} item={item} onApproval={onApproval} />;
+                case 'thinking':
+                  return (
+                    <div key={ii} className="message__body thinking-indicator">Thinking<span className="thinking-dots" /></div>
+                  );
+              }
+            })}
+          </article>
+        );
       })}
     </section>
   );

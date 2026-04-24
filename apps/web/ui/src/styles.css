@@ -394,7 +394,7 @@ h2 { font-size: 14px; font-weight: 600; }
 
 /* ─── Messages ──────────────────────────────────────────────────── */
 
-.message, .event, .approval-card, .empty-state {
+.message, .event, .empty-state {
   margin-bottom: 8px;
   border-radius: var(--radius);
 }
@@ -423,10 +423,10 @@ h2 { font-size: 14px; font-weight: 600; }
   text-transform: uppercase;
 }
 
-.message__title--tool {
-  margin-bottom: 4px;
-  margin-top: 12px;
-}
+.message--assistant .tool-card { margin-top: 8px; }
+.message--assistant .approval-card { margin-top: 8px; }
+.message--assistant .tool-card + .message__body { margin-top: 12px; }
+.message--assistant .message__body + .message__body { margin-top: 8px; }
 
 .message__body {
   line-height: 1.45;
@@ -474,19 +474,19 @@ h2 { font-size: 14px; font-weight: 600; }
 /* ─── Approval card ─────────────────────────────────────────────── */
 
 .approval-card {
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: 1px solid rgba(217, 119, 6, 0.12);
+  border-radius: var(--radius-sm);
   background: rgba(217, 119, 6, 0.04);
 }
 
-.approval-card .message__title { color: var(--warning); }
-.approval-card .message__body { font-size: 12px; color: var(--text-secondary); }
+.approval-card__title { color: var(--warning); font-size: 11px; font-weight: 600; margin-bottom: 4px; }
+.approval-card__body { font-size: 12px; color: var(--text-secondary); }
 .approval-card__actions { display: flex; gap: 8px; margin-top: 8px; }
 
 /* ─── Tool cards ────────────────────────────────────────────────── */
 
 .tool-card {
-  max-width: 780px;
   margin-bottom: 4px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
