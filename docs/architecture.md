@@ -100,7 +100,7 @@ Internal state lives under:
 └── runtime.json   # only while the agent is running
 ```
 
-Structured runtime state (sessions, messages, memories, container registry, users) is stored in a shared PostgreSQL database, scoped by `agent_id`. Schema is managed by Prisma migrations (`packages/store/prisma/`).
+Structured runtime state (sessions, messages, memories, container registry, users, skills, MCP servers) is stored in a shared PostgreSQL database, scoped by `agent_id`. Schema is managed by Drizzle migrations (`packages/store/drizzle/`).
 
 Current responsibilities:
 
@@ -108,7 +108,7 @@ Current responsibilities:
 - `security.json`: autonomy and approval policy
 - `secrets.json`: provider and integration secrets
 - `runtime.json`: live local discovery metadata for the agent-local API
-- PostgreSQL (`DATABASE_URL`): sessions, messages, memories, container runtime inventory, instructions, users — all scoped by `agent_id`
+- PostgreSQL (`DATABASE_URL`): sessions, messages, memories, container runtime inventory, instructions, users, skills, MCP servers — all scoped by `agent_id`
 
 ## Runtime Discovery
 
@@ -333,7 +333,8 @@ The gateway (`apps/gateway/`) is a control plane that sits above per-agent runti
 - proxy routing: `/agents/{id}/...` → agent-local API
 - unified agent listing API
 - schedule management admin API (`/api/admin/agents/:id/schedules`)
-- admin UI with agent, skills, and schedule management panels
+- MCP server management (external tool providers via Model Context Protocol)
+- admin UI with agent, skills, MCP server, and schedule management panels
 
 Planned additions:
 

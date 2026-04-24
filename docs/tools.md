@@ -75,6 +75,18 @@ Requires: `scheduleStore`
 | `schedule_trigger` | Trigger a scheduled job immediately | `id` (string, required) | ✓ | ✓ |
 | `schedule_runs` | View execution history for a schedule | `id` (string, required), `limit` (number, optional, default 10) | | |
 
+## MCP Server Management
+
+Requires: `mcpClientManager` (automatically available when MCP servers are configured)
+
+| Tool | Description | Parameters | 🔐 | ✏️ |
+|------|-------------|------------|:--:|:--:|
+| `mcp_status` | List all MCP server connection states (id, name, status, tool count, last error) | _(none)_ | | |
+| `mcp_enable` | Enable an MCP server for this agent. Connects immediately | `serverId` (string, required) | ✓ | ✓ |
+| `mcp_disable` | Disable an MCP server for this agent. Disconnects immediately | `serverId` (string, required) | ✓ | ✓ |
+
+In addition to management tools, each connected MCP server's tools are exposed as `mcp__<serverId>__<toolName>` and behave like any other agent tool (subject to approval gating).
+
 ## Introspection-only Tools
 
 These tools are **not** available to the main agent. They are registered exclusively for the introspection agent during background session checkpoints.
@@ -100,8 +112,8 @@ Tool availability is filtered by user role in `createBuiltInToolsets()`:
 
 | Role | Available Tools |
 |------|----------------|
-| **owner** | All tools (memory, instruction, web, exec, user, session, session_send, schedule) |
-| **user** | memory, web, exec, session, session_send |
+| **owner** | All tools (memory, instruction, web, exec, user, session, session_send, schedule, mcp_status/enable/disable) |
+| **user** | memory, web, exec, session, session_send, mcp_status |
 | **guest** | web, session (read-only: list/read/summary), schedule_list, schedule_runs |
 
 Owner-only stores (`instructionStore`, `userStore`, `scheduleStore`) are only injected for the owner role. Guest-blocked tools (`exec`, `schedule_create/update/delete/trigger`) are filtered at the runner level. `session_send` requires `channelOutbound` adapters to be available.

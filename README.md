@@ -151,6 +151,8 @@ All internal state is stored in PostgreSQL, scoped by `agent_id`:
 | Instructions | Agent identity and behavior instructions |
 | Users | User identities, roles, and cross-identity linking |
 | Containers | Workspace container runtime inventory |
+| Skills | Skill definitions and per-agent assignments |
+| MCP Servers | External MCP tool server definitions and per-agent assignments |
 
 Per-agent local files (`~/.openhermit/{agent-id}/`) hold only runtime config, secrets, and security policy.
 
@@ -194,6 +196,8 @@ The CLI auto-loads `.env` from the current directory. Key variables:
 - [User Model](docs/user-model.md)
 - [Sandbox Model](docs/sandbox-model.md)
 - [Plan](docs/plan.md)
+- [Skills](docs/skills.md)
+- [MCP Servers](docs/mcp-servers.md)
 - [Decisions](docs/decisions.md)
 
 ## License
