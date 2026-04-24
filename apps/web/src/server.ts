@@ -14,6 +14,14 @@ const mimeTypes: Record<string, string> = {
   '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
 };
 
 export interface WebServerOptions {
@@ -32,25 +40,33 @@ export const createWebServer = (options: WebServerOptions): http.Server =>
       return;
     }
 
-    try {
-      const stat = await fs.stat(resolved);
-
-      if (!stat.isFile()) {
-        res.writeHead(404, { 'content-type': 'text/plain' });
-        res.end('Not found');
-        return;
-      }
-
-      const contentType =
-        mimeTypes[path.extname(resolved)] ?? 'application/octet-stream';
+    const serveFile = async (filePath: string, cacheControl: string) => {
+      const stat = await fs.stat(filePath);
+      if (!stat.isFile()) throw new Error('not a file');
+      const contentType = mimeTypes[path.extname(filePath)] ?? 'application/octet-stream';
       res.writeHead(200, {
         'content-type': contentType,
         'content-length': stat.size,
-        'cache-control': pathname === '/index.html' ? 'no-cache' : 'public, max-age=60',
+        'cache-control': cacheControl,
       });
-      createReadStream(resolved).pipe(res);
+      createReadStream(filePath).pipe(res);
+    };
+
+    try {
+      await serveFile(resolved, pathname === '/index.html' ? 'no-cache' : 'public, max-age=60');
     } catch {
-      res.writeHead(404, { 'content-type': 'text/plain' });
-      res.end('Not found');
+      // SPA fallback: serve index.html for paths without file extensions
+      if (!path.extname(pathname)) {
+        const indexPath = path.resolve(publicRoot, 'index.html');
+        try {
+          await serveFile(indexPath, 'no-cache');
+        } catch {
+          res.writeHead(404, { 'content-type': 'text/plain' });
+          res.end('Not found');
+        }
+      } else {
+        res.writeHead(404, { 'content-type': 'text/plain' });
+        res.end('Not found');
+      }
     }
   });

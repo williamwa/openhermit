@@ -1,9 +1,8 @@
-import { useState } from 'react';
 import { SkillsPanel } from './SkillsPanel';
 import { McpPanel } from './McpPanel';
 import { SchedulesPanel } from './SchedulesPanel';
 
-type ManageTab = 'skills' | 'mcp' | 'schedules';
+export type ManageTab = 'skills' | 'mcp' | 'schedules';
 
 const tabs: { id: ManageTab; label: string }[] = [
   { id: 'skills', label: 'Skills' },
@@ -11,9 +10,12 @@ const tabs: { id: ManageTab; label: string }[] = [
   { id: 'schedules', label: 'Schedules' },
 ];
 
-export function ManagePanel() {
-  const [tab, setTab] = useState<ManageTab>('skills');
+interface Props {
+  tab: ManageTab;
+  onTabChange: (tab: ManageTab) => void;
+}
 
+export function ManagePanel({ tab, onTabChange }: Props) {
   return (
     <div className="manage">
       <div className="manage__tabs">
@@ -21,7 +23,7 @@ export function ManagePanel() {
           <button
             key={t.id}
             className={`manage__tab${tab === t.id ? ' active' : ''}`}
-            onClick={() => setTab(t.id)}
+            onClick={() => onTabChange(t.id)}
           >
             {t.label}
           </button>
