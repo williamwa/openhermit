@@ -1,8 +1,9 @@
-type Tab = 'agents' | 'skills' | 'schedules' | 'stats' | 'logs';
+type Tab = 'agents' | 'skills' | 'mcp-servers' | 'schedules' | 'stats' | 'logs';
 
 const tabs: { id: Tab; label: string }[] = [
   { id: 'agents', label: 'Agents' },
   { id: 'skills', label: 'Skills' },
+  { id: 'mcp-servers', label: 'MCP' },
   { id: 'schedules', label: 'Schedules' },
   { id: 'stats', label: 'Stats' },
   { id: 'logs', label: 'Logs' },

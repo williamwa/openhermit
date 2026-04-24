@@ -4,11 +4,12 @@ import { AuthScreen } from './components/AuthScreen';
 import { Topbar } from './components/Topbar';
 import { AgentsPanel } from './components/AgentsPanel';
 import { SkillsPanel } from './components/SkillsPanel';
+import { McpServersPanel } from './components/McpServersPanel';
 import { SchedulesPanel } from './components/SchedulesPanel';
 import { StatsPanel } from './components/StatsPanel';
 import { LogsPanel } from './components/LogsPanel';
 
-type Tab = 'agents' | 'skills' | 'schedules' | 'stats' | 'logs';
+type Tab = 'agents' | 'skills' | 'mcp-servers' | 'schedules' | 'stats' | 'logs';
 
 export function App() {
   const [authed, setAuthed] = useState(false);
@@ -48,6 +49,7 @@ export function App() {
       <Topbar tab={tab} onTabChange={setTab} onSignOut={handleSignOut} />
       {tab === 'agents' && <AgentsPanel />}
       {tab === 'skills' && <SkillsPanel />}
+      {tab === 'mcp-servers' && <McpServersPanel />}
       {tab === 'schedules' && <SchedulesPanel />}
       {tab === 'stats' && <StatsPanel />}
       {tab === 'logs' && <LogsPanel />}
