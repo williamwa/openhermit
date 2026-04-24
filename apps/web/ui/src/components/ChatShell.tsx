@@ -258,15 +258,21 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
     const ws = wsRef.current;
     if (!ws) return;
 
-    if (currentSessionRef.current) {
-      await ws.checkpoint(currentSessionRef.current, 'new_session').catch(() => {});
-    }
-
+    const prev = currentSessionRef.current;
     const sessionId = createSessionId();
+
+    // Immediately switch UI to the new empty session
+    if (prev) await ws.unsubscribe(prev).catch(() => {});
+    setCurrentSessionId(sessionId);
+    setItems([]);
+    streamingTextRef.current = '';
+    streamingThinkingRef.current = '';
+
+    // Open session and refresh list in parallel; checkpoint old session in background
+    if (prev) ws.checkpoint(prev, 'new_session').catch(() => {});
     await ws.openSession(sessionId);
-    await refreshSessions();
-    await selectSession(sessionId);
-  }, [refreshSessions, selectSession]);
+    ws.listSessions().then(setSessions).catch(() => {});
+  }, []);
 
   const sendMessage = useCallback(async (text: string) => {
     const ws = wsRef.current;
