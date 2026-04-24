@@ -54,6 +54,7 @@ import {
   type ToolCallCallback,
   createBuiltInToolsets,
   toolsFromToolsets,
+  withApproval,
 } from './tools.js';
 import {
   compactContextIfNeeded,
@@ -1193,11 +1194,19 @@ export class AgentRunner implements SessionRuntime {
             await this.mcpClientManager.connectAll(mcpServers);
           }
         }
-        toolsets.push(...this.mcpClientManager.getToolsets());
+        const wrapToolset = (ts: Toolset): Toolset => ({
+          ...ts,
+          tools: ts.tools.map((tool) =>
+            withApproval(tool, this.options.security, input.approvalCallback, input.onToolCall, input.approvedCache),
+          ),
+        });
+        for (const ts of this.mcpClientManager.getToolsets()) {
+          toolsets.push(wrapToolset(ts));
+        }
         if (isOwnerOrUnresolved) {
-          toolsets.push(createMcpManagementToolset(this.mcpClientManager, this.options.mcpServerStore, this.scope.agentId));
+          toolsets.push(wrapToolset(createMcpManagementToolset(this.mcpClientManager, this.options.mcpServerStore, this.scope.agentId)));
         } else {
-          toolsets.push(createMcpStatusOnlyToolset(this.mcpClientManager));
+          toolsets.push(wrapToolset(createMcpStatusOnlyToolset(this.mcpClientManager)));
         }
       }
 
