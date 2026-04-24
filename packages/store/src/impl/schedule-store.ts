@@ -80,6 +80,16 @@ export class DbScheduleStore implements ScheduleStore {
     return rows.map((r) => this.rowToRecord(r));
   }
 
+  async listAll(options?: { status?: string }): Promise<ScheduleRecord[]> {
+    const conditions = [];
+    if (options?.status) conditions.push(eq(schedules.status, options.status));
+
+    const rows = await this.db.select().from(schedules)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(schedules.createdAt));
+    return rows.map((r) => this.rowToRecord(r));
+  }
+
   async listDue(scope: StoreScope, now: string): Promise<ScheduleRecord[]> {
     const rows = await this.db.select().from(schedules)
       .where(and(

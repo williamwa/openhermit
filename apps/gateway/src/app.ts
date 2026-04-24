@@ -1307,7 +1307,16 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     return options.scheduleStore;
   };
 
-  // List schedules for an agent (or all agents)
+  // List all schedules across all agents
+  app.get('/api/admin/schedules', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const store = requireScheduleStore();
+    const status = c.req.query('status') ?? undefined;
+    const all = await store.listAll(status ? { status } : undefined);
+    return c.json(all);
+  });
+
+  // List schedules for an agent
   app.get('/api/admin/agents/:agentId/schedules', async (c) => {
     requireAdmin(c.req.header('authorization'));
     const store = requireScheduleStore();
