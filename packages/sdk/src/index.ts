@@ -1,3 +1,5 @@
+export { parseSseFrames, type SseFrame } from './sse.js';
+
 import {
   agentLocalRoutes,
   gatewayRoutes,

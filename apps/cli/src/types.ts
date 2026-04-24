@@ -4,12 +4,6 @@ export interface ChatCliOptions {
   resume?: boolean;
 }
 
-export interface SseFrame {
-  id?: number;
-  event: string;
-  data: string;
-}
-
 export type CliCommand =
   | { type: 'exit' }
   | { type: 'help' }

@@ -3,12 +3,12 @@ import { test } from 'node:test';
 
 import type { SessionSummary } from '@openhermit/protocol';
 import type { AgentLocalClient } from '@openhermit/sdk';
+import { parseSseFrames } from '@openhermit/sdk';
 
 import {
   formatSessionList,
   parseChatCliArgs,
   parseSlashCommand,
-  parseSseFrames,
   selectStartupSession,
   waitForAssistantTurn,
 } from '../src/index.js';
