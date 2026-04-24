@@ -6,7 +6,7 @@ import { LogBuffer } from './log-buffer.js';
 
 import { createAdaptorServer } from '@hono/node-server';
 
-import { DbAgentStore, DbScheduleStore, DbSkillStore } from '@openhermit/store';
+import { DbAgentStore, DbMcpServerStore, DbScheduleStore, DbSkillStore } from '@openhermit/store';
 import { scanSkillDirectory } from '@openhermit/agent/skills';
 
 import { loadEnv, resolveOpenHermitHome } from '@openhermit/shared';
@@ -86,11 +86,13 @@ export const main = async (): Promise<void> => {
   let agentStore: DbAgentStore | undefined;
   let skillStore: DbSkillStore | undefined;
   let scheduleStore: DbScheduleStore | undefined;
+  let mcpServerStore: DbMcpServerStore | undefined;
   if (process.env.DATABASE_URL) {
     try {
       agentStore = await DbAgentStore.open();
       skillStore = await DbSkillStore.open();
       scheduleStore = await DbScheduleStore.open();
+      mcpServerStore = await DbMcpServerStore.open();
       logStartup('agent store connected');
     } catch (error) {
       logStartup(`agent store unavailable: ${error instanceof Error ? error.message : String(error)}`);
@@ -119,6 +121,10 @@ export const main = async (): Promise<void> => {
   const publicDir = config.ui ? path.resolve(gatewayDir, '../ui/dist') : undefined;
 
   // Pass skill store to instances so agent runners can access DB skills.
+  if (mcpServerStore) {
+    instances.setMcpServerStore(mcpServerStore);
+  }
+
   if (skillStore) {
     instances.setSkillStore(skillStore);
 
@@ -146,6 +152,7 @@ export const main = async (): Promise<void> => {
     ...(agentStore ? { agentStore } : {}),
     ...(skillStore ? { skillStore } : {}),
     ...(scheduleStore ? { scheduleStore } : {}),
+    ...(mcpServerStore ? { mcpServerStore } : {}),
     auth,
     adminToken,
     logger: logStartup,
@@ -208,6 +215,7 @@ export const main = async (): Promise<void> => {
     await agentStore?.close();
     await skillStore?.close();
     await scheduleStore?.close();
+    await mcpServerStore?.close();
 
     server.close(() => {
       logStartup('server closed');

@@ -18,7 +18,7 @@ import {
   type SyncResponse,
   type SyncToolCall,
 } from '@openhermit/protocol';
-import type { DbAgentStore, DbScheduleStore, DbSkillStore } from '@openhermit/store';
+import type { DbAgentStore, DbMcpServerStore, DbScheduleStore, DbSkillStore } from '@openhermit/store';
 import {
   NotFoundError,
   OpenHermitError,
@@ -157,6 +157,7 @@ export interface GatewayAppOptions {
   agentStore?: DbAgentStore | undefined;
   skillStore?: DbSkillStore | undefined;
   scheduleStore?: DbScheduleStore | undefined;
+  mcpServerStore?: DbMcpServerStore | undefined;
   auth?: AuthResolverOptions | undefined;
   adminToken?: string | undefined;
   logger?: ((message: string) => void) | undefined;
@@ -1056,6 +1057,82 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const { loadSkillIndex } = await import('@openhermit/agent/skills');
     const skills = await loadSkillIndex(agentId, runner.workspace.root, store);
     return c.json(skills);
+  });
+
+  // --- admin: MCP servers management ---
+
+  const requireMcpServerStore = (): DbMcpServerStore => {
+    if (!options.mcpServerStore) {
+      throw new OpenHermitError('MCP server store is not configured.', 'not_configured', 500);
+    }
+    return options.mcpServerStore;
+  };
+
+  app.get('/api/admin/mcp-servers', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const store = requireMcpServerStore();
+    return c.json(await store.list());
+  });
+
+  app.get('/api/admin/mcp-servers/assignments', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const store = requireMcpServerStore();
+    return c.json(await store.listAssignments());
+  });
+
+  app.get('/api/admin/mcp-servers/:id', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const store = requireMcpServerStore();
+    const server = await store.get(c.req.param('id'));
+    if (!server) throw new NotFoundError(`MCP server not found: ${c.req.param('id')}`);
+    return c.json(server);
+  });
+
+  app.post('/api/admin/mcp-servers', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const store = requireMcpServerStore();
+    const body = await c.req.json() as Record<string, unknown>;
+    if (!body.id || typeof body.id !== 'string') throw new ValidationError('id is required');
+    if (!body.name || typeof body.name !== 'string') throw new ValidationError('name is required');
+    if (!body.description || typeof body.description !== 'string') throw new ValidationError('description is required');
+    if (!body.url || typeof body.url !== 'string') throw new ValidationError('url is required');
+    const now = new Date().toISOString();
+    await store.upsert({
+      id: body.id,
+      name: body.name,
+      description: body.description,
+      url: body.url,
+      ...(body.headers && typeof body.headers === 'object' ? { headers: body.headers as Record<string, string> } : {}),
+      ...(body.metadata && typeof body.metadata === 'object' ? { metadata: body.metadata as Record<string, unknown> } : {}),
+      createdAt: now,
+      updatedAt: now,
+    });
+    return c.json({ ok: true }, 201);
+  });
+
+  app.delete('/api/admin/mcp-servers/:id', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const store = requireMcpServerStore();
+    await store.delete(c.req.param('id'));
+    return c.json({ ok: true });
+  });
+
+  app.post('/api/admin/mcp-servers/:id/enable', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const store = requireMcpServerStore();
+    const body = await c.req.json() as Record<string, unknown>;
+    const agentId = typeof body.agentId === 'string' ? body.agentId : '*';
+    await store.enable(agentId, c.req.param('id'));
+    return c.json({ ok: true });
+  });
+
+  app.post('/api/admin/mcp-servers/:id/disable', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    const store = requireMcpServerStore();
+    const body = await c.req.json() as Record<string, unknown>;
+    const agentId = typeof body.agentId === 'string' ? body.agentId : '*';
+    await store.disable(agentId, c.req.param('id'));
+    return c.json({ ok: true });
   });
 
   // --- admin: schedule management ---

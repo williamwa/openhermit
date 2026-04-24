@@ -9,7 +9,7 @@ import {
   type LangfuseClientLike,
 } from '@openhermit/agent/langfuse';
 import { startChannels, stopChannels } from '@openhermit/agent/channels';
-import type { SkillStore } from '@openhermit/store';
+import type { McpServerStore, SkillStore } from '@openhermit/store';
 
 import type { ChannelRegistry } from './auth.js';
 
@@ -35,6 +35,8 @@ export class AgentInstanceManager {
   private channelRegistry: ChannelRegistry | undefined;
   /** Shared skill store for DB-managed skills. */
   private skillStore: SkillStore | undefined;
+  /** Shared MCP server store for DB-managed MCP servers. */
+  private mcpServerStore: McpServerStore | undefined;
 
   setGatewayBaseUrl(url: string): void {
     this.gatewayBaseUrl = url;
@@ -50,6 +52,10 @@ export class AgentInstanceManager {
 
   setSkillStore(store: SkillStore): void {
     this.skillStore = store;
+  }
+
+  setMcpServerStore(store: McpServerStore): void {
+    this.mcpServerStore = store;
   }
 
 
@@ -103,6 +109,7 @@ export class AgentInstanceManager {
       security,
       ...(langfuse ? { langfuse } : {}),
       ...(this.skillStore ? { skillStore: this.skillStore } : {}),
+      ...(this.mcpServerStore ? { mcpServerStore: this.mcpServerStore } : {}),
     });
 
     this.runners.set(agentId, runner);
