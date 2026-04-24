@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AgentWsClient, getDisplayName, type Connection, type SessionSummary, type HistoryMessage, type OutboundEvent } from '../api';
+import { AgentWsClient, fetchAgentInfo, getDisplayName, type Connection, type SessionSummary, type HistoryMessage, type OutboundEvent } from '../api';
 import { SessionList } from './SessionList';
 import { ChatMessages, type ChatItem } from './ChatMessages';
 import { Composer } from './Composer';
@@ -22,6 +22,7 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [items, setItems] = useState<ChatItem[]>([]);
+  const [agentName, setAgentName] = useState<string | null>(null);
   const [status, setStatus] = useState('Connecting');
   const [sending, setSending] = useState(false);
 
@@ -138,7 +139,6 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
     const historyItems: ChatItem[] = [];
     for (const entry of history) {
       if (entry.role === 'tool') {
-        // Merge into existing tool card if it's for the same tool invocation
         const last = historyItems[historyItems.length - 1];
         if (last?.type === 'tool' && last.tool === entry.tool && last.phase !== 'done' && entry.toolPhase === 'result') {
           last.phase = 'done';
@@ -158,7 +158,10 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
         continue;
       }
       if (entry.role === 'error') { historyItems.push({ type: 'event', text: entry.content, isError: true }); continue; }
-      historyItems.push({ type: entry.role as 'user' | 'assistant', text: entry.content, streaming: false });
+      historyItems.push({ type: entry.role as 'user' | 'assistant', text: entry.content, streaming: false, name: entry.name });
+      if (entry.role === 'assistant' && entry.name && !agentName) {
+        setAgentName(entry.name);
+      }
     }
     setItems(historyItems);
 
@@ -225,8 +228,10 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
     wsRef.current = client;
 
     client.connect()
-      .then(() => client.listSessions())
-      .then(setSessions)
+      .then(() => Promise.all([
+        client.listSessions().then(setSessions),
+        fetchAgentInfo().then(info => setAgentName(info.name)).catch(() => {}),
+      ]))
       .catch(() => setStatus('Disconnected'));
 
     return () => {
@@ -256,9 +261,9 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
     <div className="shell">
       <aside className="sidebar">
         <div className="sidebar__top">
-          <p className="eyebrow">OpenHermit</p>
+          <p className="eyebrow">{agentName || connection.agentId}</p>
           <h1>Web Chat</h1>
-          <p className="sidebar__meta">Agent: {connection.agentId}</p>
+          {agentName && <p className="sidebar__meta">Agent: {connection.agentId}</p>}
           <div className="sidebar__buttons">
             {view === 'manage' ? (
               <button className="btn btn--primary" onClick={() => setView('chat')}>Back to Chat</button>
@@ -307,7 +312,7 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
               <p className="chat__status">{status}</p>
             </header>
 
-            <ChatMessages items={items} onApproval={handleApproval} />
+            <ChatMessages items={items} agentName={agentName ?? undefined} onApproval={handleApproval} />
 
             {readOnly ? (
               <div className="composer composer--readonly">

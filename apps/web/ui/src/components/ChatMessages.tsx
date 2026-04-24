@@ -13,15 +13,16 @@ const renderMarkdown = (text: string, streaming = false): string => {
 // ─── Types ─────────────────────────────────────────────────────────────────
 
 export type ChatItem =
-  | { type: 'user'; text: string; streaming: false }
-  | { type: 'assistant'; text: string; streaming: boolean }
+  | { type: 'user'; text: string; streaming: false; name?: string }
+  | { type: 'assistant'; text: string; streaming: boolean; name?: string }
   | { type: 'event'; text: string; isError: boolean }
   | { type: 'tool'; tool: string; args?: unknown; phase: 'running' | 'done'; isError?: boolean; result?: string }
   | { type: 'approval'; toolName: string; toolCallId: string; args?: unknown; resolved: boolean; approved?: boolean }
-  | { type: 'thinking' };
+  | { type: 'thinking'; name?: string };
 
 interface Props {
   items: ChatItem[];
+  agentName?: string;
   onApproval: (toolCallId: string, approved: boolean) => Promise<void>;
 }
 
@@ -100,8 +101,9 @@ function ApprovalCard({ item, onApproval }: { item: Extract<ChatItem, { type: 'a
 
 // ─── Main ──────────────────────────────────────────────────────────────────
 
-export function ChatMessages({ items, onApproval }: Props) {
+export function ChatMessages({ items, agentName, onApproval }: Props) {
   const containerRef = useRef<HTMLElement>(null);
+  const displayAgentName = agentName || 'Assistant';
 
   useEffect(() => {
     if (containerRef.current) {
@@ -117,6 +119,18 @@ export function ChatMessages({ items, onApproval }: Props) {
     );
   }
 
+  // Determine which tool/approval/thinking items need an agent name header
+  // (first in a consecutive group not preceded by an assistant message)
+  const needsHeader = new Set<number>();
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (item.type !== 'tool' && item.type !== 'approval' && item.type !== 'thinking') continue;
+    const prev = items[i - 1];
+    if (!prev || prev.type === 'user' || prev.type === 'event') {
+      needsHeader.add(i);
+    }
+  }
+
   return (
     <section className="chat__messages" ref={containerRef}>
       {items.map((item, i) => {
@@ -124,14 +138,14 @@ export function ChatMessages({ items, onApproval }: Props) {
           case 'user':
             return (
               <article key={i} className="message message--user">
-                <div className="message__title">You</div>
+                <div className="message__title">{item.name || 'You'}</div>
                 <div className="message__body">{item.text}</div>
               </article>
             );
           case 'assistant':
             return (
               <article key={i} className="message message--assistant">
-                <div className="message__title">OpenHermit</div>
+                <div className="message__title">{item.name || displayAgentName}</div>
                 <div className="message__body" dangerouslySetInnerHTML={{ __html: renderMarkdown(item.text, item.streaming) }} />
               </article>
             );
@@ -142,13 +156,23 @@ export function ChatMessages({ items, onApproval }: Props) {
               </div>
             );
           case 'tool':
-            return <ToolCard key={i} item={item} />;
+            return (
+              <div key={i}>
+                {needsHeader.has(i) && <div className="message__title message__title--tool">{displayAgentName}</div>}
+                <ToolCard item={item} />
+              </div>
+            );
           case 'approval':
-            return <ApprovalCard key={i} item={item} onApproval={onApproval} />;
+            return (
+              <div key={i}>
+                {needsHeader.has(i) && <div className="message__title message__title--tool">{displayAgentName}</div>}
+                <ApprovalCard item={item} onApproval={onApproval} />
+              </div>
+            );
           case 'thinking':
             return (
               <article key={i} className="message message--assistant">
-                <div className="message__title">OpenHermit</div>
+                <div className="message__title">{displayAgentName}</div>
                 <div className="message__body thinking-indicator">Thinking<span className="thinking-dots" /></div>
               </article>
             );

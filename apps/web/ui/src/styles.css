@@ -369,6 +369,11 @@ h2 { font-size: 14px; font-weight: 600; }
   text-transform: uppercase;
 }
 
+.message__title--tool {
+  margin-bottom: 4px;
+  margin-top: 12px;
+}
+
 .message__body {
   line-height: 1.45;
 }

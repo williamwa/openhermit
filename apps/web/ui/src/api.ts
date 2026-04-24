@@ -36,6 +36,7 @@ export interface SessionSummary {
 export interface HistoryMessage {
   role: string;
   content: string;
+  name?: string;
   tool?: string;
   toolPhase?: 'call' | 'result';
   toolIsError?: boolean;
@@ -388,6 +389,10 @@ export async function apiFetch<T>(path: string, options?: { method?: string; bod
   }
   return res.json() as Promise<T>;
 }
+
+// Agent info
+export interface AgentInfo { agentId: string; name: string; status: string }
+export const fetchAgentInfo = () => apiFetch<AgentInfo>('/info');
 
 // Skills
 export interface SkillInfo { id: string; name: string; description: string; path: string; source: string }

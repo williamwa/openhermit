@@ -3,7 +3,7 @@ import type { SessionAttachment, SessionHistoryMessage, SessionSpec } from '@ope
 
 import type { MessageStore } from '../interfaces.js';
 import type { MessageRow, SessionLogEntry, StoreScope } from '../types.js';
-import { sessionEvents, sessions } from '../schema.js';
+import { agents, sessionEvents, sessions, users } from '../schema.js';
 import type { DrizzleDb } from './index.js';
 
 const asRecord = (value: unknown): Record<string, unknown> | undefined =>
@@ -104,7 +104,39 @@ export class DbMessageStore implements MessageStore {
       ))
       .orderBy(asc(sessionEvents.ts), asc(sessionEvents.id));
 
-    return rows.map(mapEventRowToHistoryMessage);
+    const messages = rows.map(mapEventRowToHistoryMessage);
+
+    // Resolve names: user names from users table, agent name from agents table
+    const userIds = new Set<string>();
+    for (const row of rows) {
+      if (row.userId && row.eventType === 'user') userIds.add(row.userId);
+    }
+
+    const nameMap = new Map<string, string>();
+    if (userIds.size > 0) {
+      const userRows = await this.db.select({ userId: users.userId, name: users.name }).from(users)
+        .where(inArray(users.userId, [...userIds]));
+      for (const u of userRows) {
+        if (u.name) nameMap.set(u.userId, u.name);
+      }
+    }
+
+    const [agentRow] = await this.db.select({ name: agents.name }).from(agents)
+      .where(eq(agents.agentId, scope.agentId));
+    const agentName = agentRow?.name ?? undefined;
+
+    let rowIdx = 0;
+    for (const msg of messages) {
+      if (msg.role === 'user') {
+        const userId = rows[rowIdx]?.userId;
+        if (userId && nameMap.has(userId)) msg.name = nameMap.get(userId)!;
+      } else if (msg.role === 'assistant' && agentName) {
+        msg.name = agentName;
+      }
+      rowIdx++;
+    }
+
+    return messages;
   }
 
   async listMessagesSinceEvent(scope: StoreScope, sessionId: string, afterEventId: number): Promise<MessageRow[]> {

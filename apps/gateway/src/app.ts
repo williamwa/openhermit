@@ -919,6 +919,17 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     return c.json(entries);
   });
 
+  app.get('/api/agents/:agentId/info', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    requireAuth(c, agentId);
+    const record = await agentStore?.get(agentId);
+    return c.json({
+      agentId,
+      name: record?.name ?? agentId,
+      status: instances.getRunner(agentId) ? 'running' : 'stopped',
+    });
+  });
+
   app.get('/api/agents/:agentId/config', async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     await requireOwnerOrAdmin(c, agentId);

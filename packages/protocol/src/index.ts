@@ -46,6 +46,7 @@ export interface SessionHistoryMessage {
   ts: string;
   role: SessionHistoryRole;
   content: string;
+  name?: string;
   messageId?: string;
   attachments?: SessionAttachment[];
   provider?: string;
