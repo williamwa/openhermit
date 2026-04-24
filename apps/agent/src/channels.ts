@@ -32,6 +32,11 @@ export const startChannels = async (
     if (handle) handles.push(handle);
   }
 
+  if (channels.slack?.enabled) {
+    const handle = await startSlack(channels.slack, context);
+    if (handle) handles.push(handle);
+  }
+
   return handles;
 };
 
@@ -45,6 +50,44 @@ export const stopChannels = async (handles: ChannelHandle[]): Promise<void> => {
     }
   }
 };
+
+async function startSlack(
+  config: NonNullable<ChannelsConfig['slack']>,
+  context: ChannelContext,
+): Promise<ChannelHandle | undefined> {
+  const { logger } = context;
+
+  try {
+    const { SlackApi, SlackBridge, SlackBot } = await import(
+      '@openhermit/channel-slack'
+    );
+
+    const api = new SlackApi(config.bot_token);
+    const bridge = new SlackBridge(api, {
+      baseUrl: context.agentBaseUrl,
+      token: context.agentToken,
+    }, logger);
+
+    const bot = new SlackBot({
+      appToken: config.app_token,
+      slack: api,
+      bridge,
+      logger,
+    });
+
+    await bot.start();
+
+    return {
+      name: 'slack',
+      outbound: bridge,
+      stop: () => bot.stop(),
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger(`failed to start slack channel: ${message}`);
+    return undefined;
+  }
+}
 
 async function startTelegram(
   config: NonNullable<ChannelsConfig['telegram']>,

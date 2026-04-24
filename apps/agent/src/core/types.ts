@@ -64,8 +64,16 @@ export interface TelegramChannelConfig {
   allowed_chat_ids?: string[];
 }
 
+export interface SlackChannelConfig {
+  enabled: boolean;
+  bot_token: string;
+  app_token: string;
+  allowed_channel_ids?: string[];
+}
+
 export interface ChannelsConfig {
   telegram?: TelegramChannelConfig;
+  slack?: SlackChannelConfig;
 }
 
 /**
@@ -75,6 +83,7 @@ export interface ChannelsConfig {
  */
 export const BUILTIN_CHANNELS: readonly BuiltinChannelDef[] = [
   { key: 'telegram', namespace: 'telegram' },
+  { key: 'slack', namespace: 'slack' },
 ] satisfies readonly { key: keyof ChannelsConfig; namespace: string }[];
 
 export interface BuiltinChannelDef {
