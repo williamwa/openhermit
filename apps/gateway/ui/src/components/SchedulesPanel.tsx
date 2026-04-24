@@ -60,7 +60,7 @@ export function SchedulesPanel() {
   const loadSchedules = useCallback(async () => {
     if (!agentId) return;
     try {
-      setSchedules(await api<ScheduleRecord[]>(`/api/admin/agents/${encodeURIComponent(agentId)}/schedules`));
+      setSchedules(await api<ScheduleRecord[]>(`/api/agents/${encodeURIComponent(agentId)}/schedules`));
       setError('');
     } catch (err) {
       setError((err as Error).message);
@@ -73,7 +73,7 @@ export function SchedulesPanel() {
   const handleToggle = async (s: ScheduleRecord) => {
     const newStatus = s.status === 'active' ? 'paused' : 'active';
     try {
-      await api(`/api/admin/agents/${encodeURIComponent(agentId)}/schedules/${encodeURIComponent(s.scheduleId)}`, {
+      await api(`/api/agents/${encodeURIComponent(agentId)}/schedules/${encodeURIComponent(s.scheduleId)}`, {
         method: 'PUT',
         body: { status: newStatus },
       });
@@ -86,7 +86,7 @@ export function SchedulesPanel() {
   const handleDelete = async (s: ScheduleRecord) => {
     if (!confirm(`Delete schedule "${s.scheduleId}"?`)) return;
     try {
-      await api(`/api/admin/agents/${encodeURIComponent(agentId)}/schedules/${encodeURIComponent(s.scheduleId)}`, {
+      await api(`/api/agents/${encodeURIComponent(agentId)}/schedules/${encodeURIComponent(s.scheduleId)}`, {
         method: 'DELETE',
       });
     } catch (err) {
@@ -221,7 +221,7 @@ function CreateScheduleDialog({
     if (type === 'cron') body.cron_expression = cronExpression.trim();
     if (type === 'once') body.run_at = runAt;
     try {
-      await api(`/api/admin/agents/${encodeURIComponent(agentId)}/schedules`, {
+      await api(`/api/agents/${encodeURIComponent(agentId)}/schedules`, {
         method: 'POST',
         body,
       });
@@ -303,7 +303,7 @@ function RunsDialog({
   const load = useCallback(async () => {
     try {
       setRuns(await api<ScheduleRunRecord[]>(
-        `/api/admin/agents/${encodeURIComponent(agentId)}/schedules/${encodeURIComponent(schedule.scheduleId)}/runs`
+        `/api/agents/${encodeURIComponent(agentId)}/schedules/${encodeURIComponent(schedule.scheduleId)}/runs`
       ));
       setError('');
     } catch (err) {
