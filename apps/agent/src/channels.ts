@@ -37,6 +37,11 @@ export const startChannels = async (
     if (handle) handles.push(handle);
   }
 
+  if (channels.discord?.enabled) {
+    const handle = await startDiscord(channels.discord, context);
+    if (handle) handles.push(handle);
+  }
+
   return handles;
 };
 
@@ -50,6 +55,44 @@ export const stopChannels = async (handles: ChannelHandle[]): Promise<void> => {
     }
   }
 };
+
+async function startDiscord(
+  config: NonNullable<ChannelsConfig['discord']>,
+  context: ChannelContext,
+): Promise<ChannelHandle | undefined> {
+  const { logger } = context;
+
+  try {
+    const { DiscordApi, DiscordBridge, DiscordBot } = await import(
+      '@openhermit/channel-discord'
+    );
+
+    const api = new DiscordApi(config.bot_token);
+    const bridge = new DiscordBridge(api, {
+      baseUrl: context.agentBaseUrl,
+      token: context.agentToken,
+    }, logger);
+
+    const bot = new DiscordBot({
+      botToken: config.bot_token,
+      discord: api,
+      bridge,
+      logger,
+    });
+
+    await bot.start();
+
+    return {
+      name: 'discord',
+      outbound: bridge,
+      stop: () => bot.stop(),
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger(`failed to start discord channel: ${message}`);
+    return undefined;
+  }
+}
 
 async function startSlack(
   config: NonNullable<ChannelsConfig['slack']>,

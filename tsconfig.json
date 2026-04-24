@@ -9,6 +9,7 @@
     { "path": "./apps/web" },
     { "path": "./apps/gateway" },
     { "path": "./apps/channels/telegram" },
-    { "path": "./apps/channels/slack" }
+    { "path": "./apps/channels/slack" },
+    { "path": "./apps/channels/discord" }
   ]
 }

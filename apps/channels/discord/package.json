@@ -1,0 +1,17 @@
+{
+  "name": "@openhermit/channel-discord",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -p tsconfig.typecheck.json --pretty false",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@openhermit/sdk": "0.2.0",
+    "@openhermit/shared": "0.2.0",
+    "discord.js": "^14.16.3"
+  }
+}

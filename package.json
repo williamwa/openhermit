@@ -26,8 +26,10 @@
     "start:web": "node apps/web/dist/index.js",
     "start:cli": "node apps/cli/dist/cli.js",
     "dev:slack": "node -C development --import tsx apps/channels/slack/src/index.ts",
+    "dev:discord": "node -C development --import tsx apps/channels/discord/src/index.ts",
     "start:telegram": "node apps/channels/telegram/dist/index.js",
-    "start:slack": "node apps/channels/slack/dist/index.js"
+    "start:slack": "node apps/channels/slack/dist/index.js",
+    "start:discord": "node apps/channels/discord/dist/index.js"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",

@@ -140,9 +140,16 @@ const SlackChannelSchema = z.object({
   allowed_channel_ids: z.array(z.string()).optional(),
 });
 
+const DiscordChannelSchema = z.object({
+  enabled: z.boolean(),
+  bot_token: z.string().min(1),
+  allowed_channel_ids: z.array(z.string()).optional(),
+});
+
 const ChannelsConfigSchema = z.object({
   telegram: TelegramChannelSchema.optional(),
   slack: SlackChannelSchema.optional(),
+  discord: DiscordChannelSchema.optional(),
 });
 
 const AgentRuntimeConfigSchema = z.object({
