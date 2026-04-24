@@ -222,6 +222,16 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     }
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const requireOwner = async (c: any, agentId: string): Promise<AuthContext> => {
+    const auth = requireAuth(c, agentId);
+    const runtime = instances.getRunner(agentId);
+    if (!runtime) throw new NotFoundError(`Agent ${agentId} is not running.`);
+    const role = await runtime.resolveCallerRole({ channel: auth.channel, channelUserId: auth.channelUserId });
+    if (role !== 'owner') throw new UnauthorizedError('Owner role required.');
+    return auth;
+  };
+
   // --- JWT/channel auth middleware for agent routes ---
 
   if (options.auth) {
@@ -279,11 +289,17 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
         channelUserId: authResult.channelUserId,
       });
 
+      const role = await instance.resolveCallerRole({
+        channel: authResult.channel,
+        channelUserId: authResult.channelUserId,
+      });
+
       return c.json({
         token,
         expiresAt,
         isNewDevice,
         ...(authResult.displayName ? { displayName: authResult.displayName } : {}),
+        ...(role ? { role } : {}),
       });
     });
 
@@ -1067,6 +1083,141 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const store = requireMcpServerStore();
     const servers = await store.listEnabled(agentId);
     return c.json(servers);
+  });
+
+  // --- agent-level: owner management endpoints ---
+
+  app.post('/api/agents/:agentId/skills/:skillId/enable', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    await requireOwner(c, agentId);
+    const store = requireSkillStore();
+    await store.enable(agentId, c.req.param('skillId'));
+    await syncAffectedAgentSkillMounts(agentId, store);
+    return c.json({ ok: true });
+  });
+
+  app.post('/api/agents/:agentId/skills/:skillId/disable', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    await requireOwner(c, agentId);
+    const store = requireSkillStore();
+    await store.disable(agentId, c.req.param('skillId'));
+    await syncAffectedAgentSkillMounts(agentId, store);
+    return c.json({ ok: true });
+  });
+
+  app.post('/api/agents/:agentId/mcp-servers/:serverId/enable', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    await requireOwner(c, agentId);
+    const store = requireMcpServerStore();
+    await store.enable(agentId, c.req.param('serverId'));
+    return c.json({ ok: true });
+  });
+
+  app.post('/api/agents/:agentId/mcp-servers/:serverId/disable', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    await requireOwner(c, agentId);
+    const store = requireMcpServerStore();
+    await store.disable(agentId, c.req.param('serverId'));
+    return c.json({ ok: true });
+  });
+
+  app.get('/api/agents/:agentId/schedules', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    await requireOwner(c, agentId);
+    const store = requireScheduleStore();
+    const status = c.req.query('status') ?? undefined;
+    const schedules = await store.list({ agentId }, status ? { status } : undefined);
+    return c.json(schedules);
+  });
+
+  app.post('/api/agents/:agentId/schedules', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    await requireOwner(c, agentId);
+    const store = requireScheduleStore();
+    const body = await c.req.json() as Record<string, unknown>;
+    if (!body.type || (body.type !== 'cron' && body.type !== 'once')) {
+      throw new ValidationError('type must be "cron" or "once"');
+    }
+    if (!body.prompt || typeof body.prompt !== 'string') {
+      throw new ValidationError('prompt is required');
+    }
+    if (body.type === 'cron' && (!body.cronExpression || typeof body.cronExpression !== 'string')) {
+      throw new ValidationError('cronExpression is required for cron schedules');
+    }
+    if (body.type === 'once' && (!body.runAt || typeof body.runAt !== 'string')) {
+      throw new ValidationError('runAt is required for once schedules');
+    }
+    const schedule = await store.create({ agentId }, {
+      ...(typeof body.id === 'string' ? { scheduleId: body.id } : {}),
+      type: body.type as 'cron' | 'once',
+      ...(typeof body.cronExpression === 'string' ? { cronExpression: body.cronExpression } : {}),
+      ...(typeof body.runAt === 'string' ? { runAt: body.runAt } : {}),
+      prompt: body.prompt,
+      ...(body.delivery ? { delivery: body.delivery as any } : {}),
+      ...(body.policy ? { policy: body.policy as any } : {}),
+      createdBy: 'owner',
+    });
+    const runner = instances.getRunner(agentId);
+    if (runner) await runner.reloadScheduler();
+    return c.json(schedule, 201);
+  });
+
+  app.put('/api/agents/:agentId/schedules/:scheduleId', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    await requireOwner(c, agentId);
+    const store = requireScheduleStore();
+    const scheduleId = c.req.param('scheduleId');
+    const existing = await store.get({ agentId }, scheduleId);
+    if (!existing) throw new NotFoundError(`Schedule not found: ${scheduleId}`);
+    const body = await c.req.json() as Record<string, unknown>;
+    const patch: Record<string, unknown> = {};
+    if (typeof body.status === 'string') patch.status = body.status;
+    if (typeof body.prompt === 'string') patch.prompt = body.prompt;
+    if (typeof body.cronExpression === 'string') patch.cronExpression = body.cronExpression;
+    if (typeof body.runAt === 'string') patch.runAt = body.runAt;
+    if (body.delivery !== undefined) patch.delivery = body.delivery;
+    const updated = await store.update({ agentId }, scheduleId, patch as any);
+    const runner = instances.getRunner(agentId);
+    if (runner) await runner.reloadScheduler();
+    return c.json(updated);
+  });
+
+  app.delete('/api/agents/:agentId/schedules/:scheduleId', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    await requireOwner(c, agentId);
+    const store = requireScheduleStore();
+    const scheduleId = c.req.param('scheduleId');
+    const existing = await store.get({ agentId }, scheduleId);
+    if (!existing) throw new NotFoundError(`Schedule not found: ${scheduleId}`);
+    await store.delete({ agentId }, scheduleId);
+    const runner = instances.getRunner(agentId);
+    if (runner) await runner.reloadScheduler();
+    return c.json({ ok: true });
+  });
+
+  app.post('/api/agents/:agentId/schedules/:scheduleId/trigger', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    await requireOwner(c, agentId);
+    const store = requireScheduleStore();
+    const scheduleId = c.req.param('scheduleId');
+    const existing = await store.get({ agentId }, scheduleId);
+    if (!existing) throw new NotFoundError(`Schedule not found: ${scheduleId}`);
+    await store.update({ agentId }, scheduleId, { status: 'active' } as any);
+    const runner = instances.getRunner(agentId);
+    if (runner) await runner.reloadScheduler();
+    return c.json({ ok: true, triggered: scheduleId });
+  });
+
+  app.get('/api/agents/:agentId/schedules/:scheduleId/runs', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    await requireOwner(c, agentId);
+    const store = requireScheduleStore();
+    const scheduleId = c.req.param('scheduleId');
+    const existing = await store.get({ agentId }, scheduleId);
+    if (!existing) throw new NotFoundError(`Schedule not found: ${scheduleId}`);
+    const limit = Number(c.req.query('limit')) || 20;
+    const runs = await store.listRuns({ agentId }, scheduleId, limit);
+    return c.json(runs);
   });
 
   // --- admin: MCP servers management ---
