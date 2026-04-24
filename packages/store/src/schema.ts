@@ -145,6 +145,27 @@ export const agentSkills = pgTable('agent_skills', {
   index('idx_agent_skills_agent').on(table.agentId),
 ]);
 
+export const mcpServers = pgTable('mcp_servers', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description').notNull(),
+  url: text('url').notNull(),
+  headersJson: text('headers_json').default('{}').notNull(),
+  metadataJson: text('metadata_json').default('{}').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+export const agentMcpServers = pgTable('agent_mcp_servers', {
+  agentId: text('agent_id').notNull(),
+  mcpServerId: text('mcp_server_id').notNull(),
+  enabled: boolean('enabled').default(true).notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.agentId, table.mcpServerId] }),
+  index('idx_agent_mcp_servers_agent').on(table.agentId),
+]);
+
 export const schedules = pgTable('schedules', {
   agentId: text('agent_id').notNull(),
   scheduleId: text('schedule_id').notNull(),

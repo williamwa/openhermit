@@ -1,8 +1,10 @@
 import type { SessionHistoryMessage, SessionSpec } from '@openhermit/protocol';
 
 import type {
+  AgentMcpServerRecord,
   AgentRecord,
   AgentSkillRecord,
+  McpServerRecord,
   MessageRow,
   InstructionEntry,
   MemoryAddInput,
@@ -123,6 +125,17 @@ export interface SkillStore {
   listEnabled(agentId: string): Promise<SkillRecord[]>;
   /** List all agent-skill assignments. */
   listAssignments(skillId?: string): Promise<AgentSkillRecord[]>;
+}
+
+export interface McpServerStore {
+  upsert(server: McpServerRecord): Promise<void>;
+  get(id: string): Promise<McpServerRecord | undefined>;
+  list(): Promise<McpServerRecord[]>;
+  delete(id: string): Promise<void>;
+  enable(agentId: string, mcpServerId: string): Promise<void>;
+  disable(agentId: string, mcpServerId: string): Promise<void>;
+  listEnabled(agentId: string): Promise<McpServerRecord[]>;
+  listAssignments(mcpServerId?: string): Promise<AgentMcpServerRecord[]>;
 }
 
 export interface AgentStore {

@@ -62,3 +62,4 @@ export { DbUserStore } from './user-store.js';
 export { DbAgentStore } from './agent-store.js';
 export { DbSkillStore } from './skill-store.js';
 export { DbScheduleStore } from './schedule-store.js';
+export { DbMcpServerStore } from './mcp-server-store.js';

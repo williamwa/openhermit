@@ -5,6 +5,7 @@ export type {
   MemoryProvider,
   InstructionStore,
   ScheduleStore,
+  McpServerStore,
   SkillStore,
   UserStore,
   InternalStateStore,
@@ -12,7 +13,9 @@ export type {
 
 export type {
   AgentRecord,
+  AgentMcpServerRecord,
   AgentSkillRecord,
+  McpServerRecord,
   StoreScope,
   PersistedSessionIndexEntry,
   SessionLogEntry,
@@ -49,4 +52,5 @@ export {
   DbAgentStore,
   DbSkillStore,
   DbScheduleStore,
+  DbMcpServerStore,
 } from './impl/index.js';

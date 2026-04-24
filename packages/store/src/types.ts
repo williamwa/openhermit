@@ -125,6 +125,26 @@ export interface AgentSkillRecord {
   createdAt: string;
 }
 
+// ── MCP Servers ─────────────────────────────────────────────────────
+
+export interface McpServerRecord {
+  id: string;
+  name: string;
+  description: string;
+  url: string;
+  headers?: Record<string, string>;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgentMcpServerRecord {
+  agentId: string;
+  mcpServerId: string;
+  enabled: boolean;
+  createdAt: string;
+}
+
 // ── Schedules ────────────────────────────────────────────────────────
 
 export type ScheduleType = 'cron' | 'once';
