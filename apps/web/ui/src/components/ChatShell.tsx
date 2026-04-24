@@ -89,12 +89,7 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
-  const selectSessionById = useCallback(async (sessionId: string) => {
-    const ws = wsRef.current;
-    if (!ws || sessionId === currentSessionRef.current) return;
-    if (currentSessionRef.current) {
-      await ws.unsubscribe(currentSessionRef.current);
-    }
+  const loadSession = useCallback(async (ws: AgentWsClient, sessionId: string) => {
     setCurrentSessionId(sessionId);
     setView('chat');
     setItems([]);
@@ -125,6 +120,15 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
     const sess = allSessions.find(s => s.sessionId === sessionId);
     await ws.subscribe(sessionId, sess?.lastEventId ?? 0);
   }, []);
+
+  const selectSessionById = useCallback(async (sessionId: string) => {
+    const ws = wsRef.current;
+    if (!ws || sessionId === currentSessionRef.current) return;
+    if (currentSessionRef.current) {
+      await ws.unsubscribe(currentSessionRef.current);
+    }
+    await loadSession(ws, sessionId);
+  }, [loadSession]);
 
   const handleEvent = useCallback((_eventId: number, sessionId: string, event: OutboundEvent) => {
     if (sessionId !== currentSessionRef.current) return;
@@ -296,35 +300,26 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
     client.startVisibilityCheck();
 
     client.connect()
-      .then(() => Promise.all([
-        client.listSessions().then(setSessions),
-        fetchAgentInfo().then(info => setAgentName(info.name)).catch(() => {}),
-      ]))
+      .then(async () => {
+        const [list] = await Promise.all([
+          client.listSessions(),
+          fetchAgentInfo().then(info => setAgentName(info.name)).catch(() => {}),
+        ]);
+        setSessions(list);
+        // Load session from URL directly, or fall back to first session
+        if (initialSessionId && list.some((s: SessionSummary) => s.sessionId === initialSessionId)) {
+          await loadSession(client, initialSessionId);
+        } else if (list.length > 0 && !currentSessionRef.current) {
+          await loadSession(client, list[0].sessionId);
+        }
+      })
       .catch(() => setStatus('Disconnected'));
 
     return () => {
       client.close();
       wsRef.current = null;
     };
-  }, [handleEvent]);
-
-  // Auto-select session after sessions load (from URL or first available)
-  const initialLoadDone = useRef(false);
-  useEffect(() => {
-    if (initialLoadDone.current || view === 'manage') return;
-    if (sessions.length > 0 && !currentSessionRef.current) {
-      initialLoadDone.current = true;
-      if (initialSessionId && sessions.some(s => s.sessionId === initialSessionId)) {
-        void selectSession(initialSessionId);
-      } else {
-        void selectSession(sessions[0].sessionId);
-      }
-    } else if (sessions.length > 0 && currentSessionRef.current) {
-      initialLoadDone.current = true;
-    } else if (sessions.length === 0) {
-      initialLoadDone.current = true;
-    }
-  }, [sessions, selectSession, view, initialSessionId]);
+  }, [handleEvent, loadSession]);
 
   const currentSession = sessions.find(s => s.sessionId === currentSessionId);
   const sessionTitle = currentSession?.description || currentSession?.lastMessagePreview || currentSessionId || 'No session';
