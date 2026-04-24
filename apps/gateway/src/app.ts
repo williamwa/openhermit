@@ -1059,6 +1059,16 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     return c.json(skills);
   });
 
+  app.get('/api/agents/:agentId/mcp-servers', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    if (!instances.getRunner(agentId)) {
+      throw new NotFoundError(`Agent ${agentId} is not running.`);
+    }
+    const store = requireMcpServerStore();
+    const servers = await store.listEnabled(agentId);
+    return c.json(servers);
+  });
+
   // --- admin: MCP servers management ---
 
   const requireMcpServerStore = (): DbMcpServerStore => {

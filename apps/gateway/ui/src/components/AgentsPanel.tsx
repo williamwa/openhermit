@@ -17,6 +17,7 @@ export function AgentsPanel() {
   const [secretsAgent, setSecretsAgent] = useState<string | null>(null);
   const [configAgent, setConfigAgent] = useState<string | null>(null);
   const [skillsAgent, setSkillsAgent] = useState<string | null>(null);
+  const [mcpAgent, setMcpAgent] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -81,6 +82,9 @@ export function AgentsPanel() {
                   <button className="btn btn--sm" onClick={() => setSkillsAgent(a.agentId)}>
                     Skills
                   </button>
+                  <button className="btn btn--sm" onClick={() => setMcpAgent(a.agentId)}>
+                    MCP
+                  </button>
                   <button className="btn btn--sm" onClick={() => setSecretsAgent(a.agentId)}>
                     Secrets
                   </button>
@@ -95,6 +99,7 @@ export function AgentsPanel() {
       {secretsAgent && <SecretsDialog agentId={secretsAgent} onClose={() => setSecretsAgent(null)} />}
       {configAgent && <ConfigDialog agentId={configAgent} onClose={() => setConfigAgent(null)} />}
       {skillsAgent && <AgentSkillsDialog agentId={skillsAgent} onClose={() => setSkillsAgent(null)} />}
+      {mcpAgent && <AgentMcpDialog agentId={mcpAgent} onClose={() => setMcpAgent(null)} />}
     </div>
   );
 }
@@ -194,6 +199,58 @@ function AgentSkillsDialog({ agentId, onClose }: { agentId: string; onClose: () 
                 {s.source}
               </span>
               <div className="skill-card__desc">{s.description}</div>
+            </div>
+          </div>
+        ))}
+
+        <div className="dialog__actions">
+          <button className="btn btn--ghost" type="button" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </dialog>
+  );
+}
+
+interface McpServerInfo {
+  id: string;
+  name: string;
+  description: string;
+  url: string;
+}
+
+function AgentMcpDialog({ agentId, onClose }: { agentId: string; onClose: () => void }) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [servers, setServers] = useState<McpServerInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => { dialogRef.current?.showModal(); }, []);
+
+  useEffect(() => {
+    api<McpServerInfo[]>(`/api/agents/${encodeURIComponent(agentId)}/mcp-servers`)
+      .then((data) => { setServers(data); setLoading(false); })
+      .catch((err) => { setError((err as Error).message); setLoading(false); });
+  }, [agentId]);
+
+  return (
+    <dialog ref={dialogRef} className="dialog dialog--wide" onClose={onClose}>
+      <div className="dialog__form">
+        <h3>MCP Servers — {agentId}</h3>
+
+        {loading && <p className="secrets-empty">Loading…</p>}
+        {error && <p className="config-error">{error}</p>}
+
+        {!loading && !error && servers.length === 0 && (
+          <p className="secrets-empty">No MCP servers enabled for this agent.</p>
+        )}
+
+        {servers.map((s) => (
+          <div className="skill-card" key={s.id}>
+            <div className="skill-card__info">
+              <span className="skill-card__name">{s.name}</span>
+              <span className="skill-card__id">{s.id}</span>
+              <div className="skill-card__desc">{s.description}</div>
+              <div className="skill-card__path">{s.url}</div>
             </div>
           </div>
         ))}
