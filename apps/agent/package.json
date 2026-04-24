@@ -33,6 +33,7 @@
   "dependencies": {
     "@mariozechner/pi-agent-core": "^0.57.1",
     "@mariozechner/pi-ai": "^0.57.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@openhermit/protocol": "0.2.0",
     "@openhermit/shared": "0.2.0",
     "@openhermit/store": "0.2.0",
