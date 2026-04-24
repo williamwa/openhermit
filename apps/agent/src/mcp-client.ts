@@ -1,5 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { Type } from '@mariozechner/pi-ai';
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 import type { McpServerRecord } from '@openhermit/store';
@@ -16,7 +17,7 @@ export interface McpConnectionStatus {
 
 interface McpToolInfo {
   name: string;
-  description?: string;
+  description: string | undefined;
   inputSchema: Record<string, unknown>;
 }
 
@@ -58,7 +59,7 @@ export class McpClientManager {
         { requestInit: { headers } },
       );
       const client = new Client({ name: 'openhermit', version: '0.2.0' });
-      await client.connect(transport);
+      await client.connect(transport as Transport);
 
       const { tools } = await client.listTools();
 
