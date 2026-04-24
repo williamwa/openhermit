@@ -183,6 +183,22 @@ export const waitForAssistantTurn = async (
           continue;
         }
 
+        if (frame.event === 'thinking_delta') {
+          const text = String(payload.text ?? '');
+          if (out?.onThinkingDelta) {
+            out.onThinkingDelta(text);
+          }
+          continue;
+        }
+
+        if (frame.event === 'thinking_final') {
+          const text = String(payload.text ?? '');
+          if (out?.onThinkingFinal) {
+            out.onThinkingFinal(text);
+          }
+          continue;
+        }
+
         if (frame.event === 'tool_call') {
           if (out?.onToolCall) {
             out.onToolCall(String(payload.tool ?? 'unknown'), payload.args);
@@ -288,6 +304,7 @@ export const streamAssistantTurn = async (
   const out = options?.output;
   const abortSignal = options?.signal;
   let sawDelta = false;
+  let sawThinkingDelta = false;
   let sawAgentEnd = false;
   let lastActivityTs = Date.now();
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
@@ -315,6 +332,24 @@ export const streamAssistantTurn = async (
 
     for await (const event of eventStream) {
       lastActivityTs = Date.now();
+
+      if (event.type === 'thinking_delta') {
+        const text = String(event.text ?? '');
+        if (out?.onThinkingDelta) {
+          out.onThinkingDelta(text);
+        }
+        sawThinkingDelta = true;
+        continue;
+      }
+
+      if (event.type === 'thinking_final') {
+        const text = String(event.text ?? '');
+        if (out?.onThinkingFinal) {
+          out.onThinkingFinal(text);
+        }
+        sawThinkingDelta = false;
+        continue;
+      }
 
       if (event.type === 'tool_approval_required') {
         const toolName = String(event.toolName ?? 'unknown');

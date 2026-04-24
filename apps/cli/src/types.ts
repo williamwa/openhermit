@@ -22,6 +22,8 @@ export type CliCommand =
  * When provided, used instead of writing directly to stdout/stderr.
  */
 export interface AssistantOutput {
+  onThinkingDelta?: (text: string) => void;
+  onThinkingFinal?: (text: string) => void;
   onTextDelta?: (text: string) => void;
   onTextFinal?: (text: string, sawDelta: boolean) => void;
   onToolCall?: (tool: string, args: unknown) => void;

@@ -251,6 +251,17 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
       agentLabelShown = true;
     };
     let streamedAssistantText = '';
+    let streamedThinkingText = '';
+    let thinkingDisplayedAsMessage = false;
+
+    const collapseThinkingToBlock = () => {
+      if (!thinkingDisplayedAsMessage || !streamedThinkingText) return;
+      thinkingDisplayedAsMessage = false;
+      // The thinking was displayed as a streamed assistant message.
+      // We can't un-render it in the TUI, but we add a label to indicate
+      // it was reasoning, then the real output follows.
+      addText(dim(gray('  ↑ [reasoning]')));
+    };
 
     try {
       await streamAssistantTurn(
@@ -266,11 +277,42 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
             return approved;
           },
           output: {
+            onThinkingDelta: (delta) => {
+              clearThinking();
+              ensureAgentLabel();
+              streamedThinkingText += delta;
+              thinkingDisplayedAsMessage = true;
+            },
+            onThinkingFinal: (_fullText) => {
+              // Keep displayed as message — will be collapsed if something follows.
+            },
             onTextDelta: (delta) => {
+              collapseThinkingToBlock();
               clearThinking();
               streamedAssistantText += delta;
             },
             onTextFinal: (fullText, sawDelta) => {
+              // If thinking was the final answer (promoted), it's already displayed.
+              if (thinkingDisplayedAsMessage && !sawDelta && !fullText.trim()) {
+                thinkingDisplayedAsMessage = false;
+                streamedThinkingText = '';
+                return;
+              }
+
+              if (thinkingDisplayedAsMessage && !sawDelta) {
+                // text_final with promoted thinking — already shown as message,
+                // just render the final markdown version.
+                thinkingDisplayedAsMessage = false;
+                const text = fullText.trim();
+                if (text) {
+                  addAssistantMessage(text, false);
+                }
+                streamedThinkingText = '';
+                streamedAssistantText = '';
+                return;
+              }
+
+              collapseThinkingToBlock();
               clearThinking();
               const text = (sawDelta ? streamedAssistantText : fullText).trim();
 
@@ -281,8 +323,10 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
               }
 
               streamedAssistantText = '';
+              streamedThinkingText = '';
             },
             onToolCall: (tool, args) => {
+              collapseThinkingToBlock();
               ensureAgentLabel();
               const formatted = formatDebugValue(args);
               const suffix = formatted
@@ -292,19 +336,28 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
                 : '';
               addText(`${gray('[tool]')} ${yellow(tool)}${suffix}`);
             },
-            onToolResult: (_tool, isError) => {
+            onToolResult: (_tool, isError, text) => {
               if (isError) {
                 ensureAgentLabel();
                 addText(`${red('[tool error]')} ${yellow(_tool)}`);
+              } else {
+                const preview = typeof text === 'string' && text.length > 0
+                  ? (text.length > 120 ? text.slice(0, 120) + '...' : text)
+                  : undefined;
+                if (preview) {
+                  addText(`${gray('[tool done]')} ${yellow(_tool)} ${dim(preview)}`);
+                }
               }
             },
             onApprovalPrompt: (toolName, args) => {
+              collapseThinkingToBlock();
               ensureAgentLabel();
               const formatted = formatDebugValue(args);
               const suffix = formatted ? ` ${gray(formatted)}` : '';
               addText(`${yellow('[approval required]')} ${bold(toolName)}${suffix}`);
             },
             onError: (message) => {
+              collapseThinkingToBlock();
               ensureAgentLabel();
               addText(`${red('[error]')} ${message}`);
             },
