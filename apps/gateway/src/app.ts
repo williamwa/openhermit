@@ -304,7 +304,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     });
 
     // General auth middleware for all agent routes (except auth/token)
-    app.use('/agents/*', async (c, next) => {
+    const agentAuthMiddleware = async (c: any, next: any) => {
       // Skip auth for the token exchange endpoint (already handled above)
       if (c.req.path.endsWith('/auth/token') && c.req.method === 'POST') {
         await next();
@@ -316,7 +316,9 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
         c.set('auth' as never, authContext as never);
       }
       await next();
-    });
+    };
+    app.use('/agents/*', agentAuthMiddleware);
+    app.use('/api/agents/*', agentAuthMiddleware);
   }
 
   // --- gateway health ---
