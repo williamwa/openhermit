@@ -425,7 +425,9 @@ h2 { font-size: 14px; font-weight: 600; }
 
 .message--assistant .tool-card { margin-top: 8px; }
 .message--assistant .approval-card { margin-top: 8px; }
+.message--assistant .thinking-block { margin-top: 8px; }
 .message--assistant .tool-card + .message__body { margin-top: 12px; }
+.message--assistant .thinking-block + .message__body { margin-top: 12px; }
 .message--assistant .message__body + .message__body { margin-top: 8px; }
 
 .message__body {
