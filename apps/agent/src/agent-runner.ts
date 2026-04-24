@@ -1679,15 +1679,27 @@ export class AgentRunner implements SessionRuntime {
         const hasText = assistantText && hasMeaningfulAssistantText(assistantText);
         const hasThinking = thinkingText && thinkingText.length > 0;
 
+        // When model outputs only thinking with no text (e.g. DeepSeek R1 final answer),
+        // promote thinking to assistant text if this is the final message (not a tool call).
+        const isFinalThinkingOnly = !hasText && hasThinking && assistantMessage.stopReason !== 'toolUse';
+        const effectiveText = isFinalThinkingOnly ? thinkingText : (assistantText || '');
+        const effectiveThinking = isFinalThinkingOnly ? undefined : (hasThinking ? thinkingText : undefined);
+
         if (!hasText && !hasThinking) {
           break;
         }
 
-        if (hasText) {
-          session.latestAssistantText = assistantText;
-          session.messageCount += 1;
-          session.lastMessagePreview = assistantText;
+        if (isFinalThinkingOnly) {
+          void this.events.publish({
+            type: 'text_final',
+            sessionId: session.spec.sessionId,
+            text: thinkingText,
+          });
         }
+
+        session.latestAssistantText = effectiveText;
+        session.messageCount += 1;
+        session.lastMessagePreview = effectiveText;
         const ts = new Date().toISOString();
         session.updatedAt = ts;
         void this.persistSessionIndex(session);
@@ -1696,8 +1708,8 @@ export class AgentRunner implements SessionRuntime {
           await this.store.messages.appendLogEntry(this.scope, session.spec.sessionId, {
             ts,
             role: 'assistant',
-            content: assistantText || '',
-            ...(hasThinking ? { thinking: thinkingText } : {}),
+            content: effectiveText,
+            ...(effectiveThinking ? { thinking: effectiveThinking } : {}),
             provider: assistantMessage.provider,
             model: assistantMessage.model,
             usage: assistantMessage.usage,

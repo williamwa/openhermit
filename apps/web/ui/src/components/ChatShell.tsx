@@ -220,8 +220,16 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
       case 'text_final': {
         const finalText = (event.text as string) || streamingTextRef.current;
         streamingTextRef.current = '';
+        streamingThinkingRef.current = '';
         setItems(prev => {
           const last = prev[prev.length - 1];
+          // If the last item is a thinking block, this thinking was promoted to
+          // the final response (e.g. DeepSeek R1) — replace it with assistant text.
+          if (last?.type === 'thinking') {
+            const updated = [...prev];
+            updated[updated.length - 1] = { type: 'assistant', text: finalText, streaming: false };
+            return updated;
+          }
           if (last?.type === 'assistant') {
             const updated = [...prev];
             updated[updated.length - 1] = { type: 'assistant', text: finalText, streaming: false };
