@@ -43,20 +43,7 @@ export class DiscordBot {
 
     const isDm = message.channel.type === ChannelType.DM;
     const isMentioned = isDm || this.isMentioned(message);
-
-    if (!isDm && !isMentioned) return;
-
     const text = this.stripMention(message.content);
-
-    if (text === 'new' || text === '/new') {
-      try {
-        await this.bridge.handleNewSession(message.channelId);
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        this.log(`error handling /new: ${msg}`);
-      }
-      return;
-    }
 
     const event: DiscordMessageEvent = {
       channelId: message.channelId,
@@ -68,6 +55,27 @@ export class DiscordBot {
       isDm,
       ...(message.guildId ? { guildId: message.guildId } : {}),
     };
+
+    // Non-mentioned group messages: inject as context without triggering a response
+    if (!isDm && !isMentioned) {
+      try {
+        await this.bridge.injectMessage(event);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        this.log(`error injecting message in ${message.channelId}: ${msg}`);
+      }
+      return;
+    }
+
+    if (text === 'new' || text === '/new') {
+      try {
+        await this.bridge.handleNewSession(message.channelId);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        this.log(`error handling /new: ${msg}`);
+      }
+      return;
+    }
 
     try {
       await this.bridge.handleMessage(event);

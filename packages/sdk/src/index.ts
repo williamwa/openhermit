@@ -91,6 +91,14 @@ export class AgentLocalClient {
     return this.postJson(agentLocalRoutes.sessionMessages(sessionId), message);
   }
 
+  async injectMessage(
+    sessionId: string,
+    message: SessionMessage,
+  ): Promise<{ sessionId: string; injected: boolean }> {
+    const path = `${agentLocalRoutes.sessionMessages(sessionId)}?inject=true`;
+    return this.postJson(path, message);
+  }
+
   async submitApproval(
     sessionId: string,
     request: ToolApprovalRequest,

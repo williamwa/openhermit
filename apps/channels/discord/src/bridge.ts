@@ -86,6 +86,22 @@ export class DiscordBridge implements ChannelOutbound {
     await this.sendToAgent(event, sessionId, text);
   }
 
+  async injectMessage(event: DiscordMessageEvent): Promise<void> {
+    const text = event.text.trim();
+    if (!text) return;
+
+    const sessionId = await this.getSessionId(event.channelId);
+    await this.ensureSession(sessionId, event);
+    await this.client.injectMessage(sessionId, {
+      text,
+      sender: {
+        channel: 'discord',
+        channelUserId: event.userId,
+        displayName: event.displayName,
+      },
+    });
+  }
+
   async handleNewSession(channelId: string): Promise<void> {
     const oldSessionId = this.channelSessions.get(channelId);
 

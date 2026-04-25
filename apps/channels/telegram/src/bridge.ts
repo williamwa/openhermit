@@ -220,42 +220,34 @@ export class TelegramBridge implements ChannelOutbound {
     message: TelegramMessage,
     isGroup: boolean,
   ): Promise<void> {
-    // For group chats, check if the bot is mentioned/replied-to.
     const mentioned = isGroup ? await this.isMentioned(message) : true;
-
-    // Show typing indicator (skip for non-mentioned group messages).
-    if (mentioned) {
-      void this.telegram.sendChatAction(chatId).catch(() => undefined);
-    }
 
     // Ensure session exists.
     await this.ensureSession(sessionId, message, isGroup);
 
-    // For group messages, annotate mention status so the agent can decide
-    // whether to reply (the system prompt instructs it to use <NO_REPLY>).
-    const agentText = isGroup && !mentioned
-      ? `[not directed at you] ${text}`
-      : text;
-
-    // Post message to agent with per-message sender info.
     const displayName = message.from?.first_name || message.from?.username;
-    await this.client.postMessage(sessionId, {
-      text: agentText,
-      ...(message.from
-        ? {
-            sender: {
-              channel: 'telegram',
-              channelUserId: String(message.from.id),
-              ...(displayName ? { displayName } : {}),
-            },
-          }
-        : {}),
-    });
+    const senderPayload = message.from
+      ? {
+          sender: {
+            channel: 'telegram' as const,
+            channelUserId: String(message.from.id),
+            ...(displayName ? { displayName } : {}),
+          },
+        }
+      : {};
 
-    // Consume SSE stream for the agent's response.
+    // Non-mentioned group messages: inject as context without triggering a response
+    if (isGroup && !mentioned) {
+      await this.client.injectMessage(sessionId, { text, ...senderPayload });
+      return;
+    }
+
+    void this.telegram.sendChatAction(chatId).catch(() => undefined);
+
+    await this.client.postMessage(sessionId, { text, ...senderPayload });
+
     const result = await this.waitForAgentResponse(sessionId, chatId);
 
-    // Send response back to Telegram via unified send (records event).
     if (result.error && !result.text) {
       await this.telegram.sendMessage(chatId, `Error: ${result.error}`);
     } else if (result.text) {

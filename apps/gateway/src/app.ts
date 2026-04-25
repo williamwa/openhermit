@@ -645,6 +645,13 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     }
 
     const url = new URL(c.req.url);
+    const injectMode = url.searchParams.get('inject') === 'true';
+
+    if (injectMode) {
+      await runtime.injectMessage(sessionId, payload);
+      return c.json({ sessionId, injected: true });
+    }
+
     const waitMode = url.searchParams.get('wait') === 'true';
     const streamMode = url.searchParams.get('stream') === 'true';
 

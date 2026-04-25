@@ -805,6 +805,38 @@ export class AgentRunner implements SessionRuntime {
     return { sessionId };
   }
 
+  async injectMessage(
+    sessionId: string,
+    message: SessionMessage,
+  ): Promise<void> {
+    const session = this.getRequiredSession(sessionId);
+    session.updatedAt = new Date().toISOString();
+
+    let messageUserId = session.resolvedUserId;
+    if (message.sender) {
+      const now = new Date().toISOString();
+      const resolved = await this.resolveMessageSender(message.sender, now);
+      if (resolved.userId) {
+        messageUserId = resolved.userId;
+        session.userIds = addUserIdToList(session.userIds, resolved.userId);
+      }
+    }
+
+    const receivedAt = new Date().toISOString();
+    await this.queueSideEffect(session, async () => {
+      await this.store.messages.appendLogEntry(this.scope, session.spec.sessionId, {
+        ts: receivedAt,
+        role: 'user',
+        messageId: message.messageId,
+        content: message.text,
+        ...(message.attachments ? { attachments: message.attachments } : {}),
+        ...(messageUserId ? { userId: messageUserId } : {}),
+        ...(message.sender?.displayName ? { userName: message.sender.displayName } : {}),
+        ...(message.metadata ? { metadata: message.metadata } : {}),
+      });
+    });
+  }
+
   private makeApprovalCallback(
     sessionId: string,
     gate: ApprovalGate,
