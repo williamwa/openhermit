@@ -32,27 +32,48 @@ The skill assignment table already supports `agent_id = '*'`: a single row in
 wildcard assignments at startup. This is the right model — no fan-out at
 write time, no partial-failure semantics, no batch concept.
 
-Generalize it across the platform:
+**Current state (verified):**
 
-- **Skills** — already done.
-- **MCP servers** — verify `mcp_servers` / assignments follow the same
-  pattern; if not, port them. UI accepts `*` in the assign-to field exactly
-  like skills.
-- **Schedules** — wildcard `agent_id` for "run this cron on every agent"
-  (e.g. nightly digest, hourly health check). Assignment + scheduler resolve
-  agents at trigger time.
-- **Skills / MCP runtime sync** — when a wildcard assignment is added or
-  removed, refresh every running agent's mounts (already done for skills via
-  `syncAffectedAgentSkillMounts`); ensure the same hook exists for MCP.
-- **Storage doc** — `docs/storage-model.md` should formally document
-  `agent_id = '*'` as the wildcard convention so future tables follow it.
+| Resource | Store wildcard | API accepts `*` | UI accepts `*` | Runtime sync on change |
+| --- | --- | --- | --- | --- |
+| Skills | ✅ | ✅ | ✅ | ✅ `syncAffectedAgentSkillMounts` |
+| MCP servers | ✅ | ✅ | ✅ | ❌ **bug** |
+| Schedules | ❌ per-agent only | n/a | n/a | n/a |
+| Channels | n/a (each adapter holds its own token/identity — wildcard not meaningful) | — | — | — |
 
-Channels deliberately stay per-agent (each adapter holds its own bot token /
-identity). A wildcard channel does not make sense.
+**Concrete work for M1.1:**
 
-**Acceptance:** Adding `standup-digest` with target `*` shows up under every
-agent's enabled skills, including agents created afterward, without any extra
-operator action. Same for an MCP server. Same for a cron schedule.
+- **Fix MCP runtime sync.** `apps/agent/src/agent-runner.ts:1282` only calls
+  `mcpClientManager.connectAll` when the manager is `undefined`. After a
+  wildcard enable, running agents do not pick up the new server until
+  restart. Mirror the skills hook: when an MCP assignment is added/removed,
+  disconnect the manager and reconnect against the fresh `listEnabled`
+  result. Wire it into the gateway endpoints
+  (`/api/admin/mcp-servers/:id/enable` and `/disable`).
+- **Document the convention.** Add a section to `docs/storage-model.md`
+  formalizing `agent_id = '*'` as the wildcard idiom and listing which
+  resources support it.
+
+**Out of M1.1 (intentionally):**
+
+- **Wildcard schedules.** Schedules are owned per agent and the schedule
+  definition includes prompt content the agent must execute. A wildcard
+  schedule would require the scheduler to enumerate agents at trigger time
+  and spawn one run per agent — a real feature, not just a query-shape
+  change. The same outcome is reachable today by templating identical
+  schedules in `agents.yaml` (M3.1) and reconciling, which keeps the
+  scheduler simple. Revisit only if a real use case demands centralized
+  fleet-wide schedules.
+- **Wildcard channels.** Each adapter binds a bot identity / token, so
+  "channel for all agents" is not a meaningful operation.
+
+**Acceptance:**
+
+1. Enabling an MCP server with target `*` makes the new server's tools
+   available in every running agent's next turn, without restarting any
+   agent.
+2. `docs/storage-model.md` documents the `agent_id = '*'` convention with a
+   table of which resources honor it.
 
 ### M1.2 — Fleet overview UI
 
