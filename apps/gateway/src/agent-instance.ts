@@ -8,7 +8,7 @@ import {
   createLangfuseShutdownHandler,
   type LangfuseClientLike,
 } from '@openhermit/agent/langfuse';
-import { startChannels, stopChannels } from '@openhermit/agent/channels';
+import { startChannels, startSingleChannel, stopChannels, type ChannelStatus } from '@openhermit/agent/channels';
 import type { McpServerStore, SkillStore } from '@openhermit/store';
 
 import type { ChannelRegistry } from './auth.js';
@@ -26,6 +26,7 @@ export class AgentInstanceManager {
   private runners = new Map<string, AgentRunner>();
   private langfuseClients = new Map<string, LangfuseClientLike>();
   private channelHandles = new Map<string, ChannelHandle[]>();
+  private channelStatuses = new Map<string, ChannelStatus[]>();
 
   /** Gateway base URL used for channel adapters to connect back. */
   private gatewayBaseUrl: string | undefined;
@@ -157,14 +158,16 @@ export class AgentInstanceManager {
             }
           }
 
-          const handles = await startChannels(config.channels, {
+          const { handles, statuses } = await startChannels(config.channels, {
             agentBaseUrl,
             agentTokens,
             logger: (channel, msg) => log(`[${agentId}] [${channel}] ${msg}`),
           });
+          if (statuses.length > 0) {
+            this.channelStatuses.set(agentId, statuses);
+          }
           if (handles.length > 0) {
             this.channelHandles.set(agentId, handles);
-            // Register outbound adapters on the runner so tools can send messages.
             for (const handle of handles) {
               if (handle.outbound) {
                 runner.registerChannelOutbound(handle.outbound);
@@ -193,6 +196,90 @@ export class AgentInstanceManager {
     return this.runners.get(agentId);
   }
 
+  getChannelStatuses(agentId: string): ChannelStatus[] {
+    return this.channelStatuses.get(agentId) ?? [];
+  }
+
+  async stopSingleChannel(agentId: string, channelName: string, log: (msg: string) => void): Promise<void> {
+    const handles = this.channelHandles.get(agentId) ?? [];
+    const idx = handles.findIndex((h) => h.name === channelName);
+    if (idx !== -1) {
+      const handle = handles[idx]!;
+      try {
+        await handle.stop();
+      } catch (err) {
+        log(`[${agentId}] error stopping ${channelName}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      handles.splice(idx, 1);
+      if (handles.length === 0) this.channelHandles.delete(agentId);
+
+      const runner = this.runners.get(agentId);
+      if (runner) {
+        runner.getChannelOutbound().delete(channelName);
+      }
+    }
+
+    if (this.channelRegistry) {
+      this.channelRegistry.unregister(`${agentId}:${channelName}:builtin`);
+    }
+
+    const statuses = this.channelStatuses.get(agentId) ?? [];
+    const sIdx = statuses.findIndex((s) => s.name === channelName);
+    if (sIdx !== -1) statuses.splice(sIdx, 1);
+
+    log(`[${agentId}] stopped channel: ${channelName}`);
+  }
+
+  async startSingleChannel(agentId: string, channelName: string, log: (msg: string) => void): Promise<ChannelStatus> {
+    const runner = this.runners.get(agentId);
+    if (!runner || !this.gatewayBaseUrl) {
+      return { name: channelName, status: 'error', error: 'Agent not running' };
+    }
+
+    const config = await runner.security.readConfig();
+    if (!config.channels) {
+      return { name: channelName, status: 'error', error: 'No channels configured' };
+    }
+
+    const agentBaseUrl = `${this.gatewayBaseUrl}/agents/${encodeURIComponent(agentId)}`;
+    const token = randomBytes(24).toString('hex');
+    if (this.channelRegistry) {
+      this.channelRegistry.register({
+        channelId: `${agentId}:${channelName}:builtin`,
+        apiKey: token,
+        namespace: channelName,
+        agentId,
+      });
+    }
+
+    const { handle, status } = await startSingleChannel(channelName, config.channels, {
+      agentBaseUrl,
+      agentTokens: { [channelName]: token },
+      logger: (channel, msg) => log(`[${agentId}] [${channel}] ${msg}`),
+    });
+
+    if (handle) {
+      const handles = this.channelHandles.get(agentId) ?? [];
+      handles.push(handle);
+      this.channelHandles.set(agentId, handles);
+      if (handle.outbound) {
+        runner.registerChannelOutbound(handle.outbound);
+      }
+      log(`[${agentId}] started channel: ${channelName}`);
+    }
+
+    const statuses = this.channelStatuses.get(agentId) ?? [];
+    const existingIdx = statuses.findIndex((s) => s.name === channelName);
+    if (existingIdx !== -1) {
+      statuses[existingIdx] = status;
+    } else {
+      statuses.push(status);
+    }
+    this.channelStatuses.set(agentId, statuses);
+
+    return status;
+  }
+
   /** Get all running agent IDs. */
   getRunningAgentIds(): string[] {
     return [...this.runners.keys()];
@@ -219,6 +306,7 @@ export class AgentInstanceManager {
       await stopChannels(handles);
       this.channelHandles.delete(agentId);
     }
+    this.channelStatuses.delete(agentId);
 
     await runner.shutdown();
 

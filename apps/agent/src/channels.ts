@@ -19,30 +19,55 @@ export interface ChannelHandle {
   stop: () => Promise<void>;
 }
 
+export interface ChannelStatus {
+  name: string;
+  status: 'connected' | 'error';
+  error?: string;
+}
+
+export interface StartChannelsResult {
+  handles: ChannelHandle[];
+  statuses: ChannelStatus[];
+}
+
 export const startChannels = async (
   channels: ChannelsConfig | undefined,
   context: ChannelContext,
-): Promise<ChannelHandle[]> => {
-  if (!channels) return [];
+): Promise<StartChannelsResult> => {
+  if (!channels) return { handles: [], statuses: [] };
 
   const handles: ChannelHandle[] = [];
+  const statuses: ChannelStatus[] = [];
+
+  const tryStart = async (name: string, fn: () => Promise<ChannelHandle | undefined>) => {
+    try {
+      const handle = await fn();
+      if (handle) {
+        handles.push(handle);
+        statuses.push({ name, status: 'connected' });
+      } else {
+        statuses.push({ name, status: 'error', error: 'Failed to start' });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      context.logger(name, `failed to start ${name} channel: ${msg}`);
+      statuses.push({ name, status: 'error', error: msg });
+    }
+  };
 
   if (channels.telegram?.enabled) {
-    const handle = await startTelegram(channels.telegram, context);
-    if (handle) handles.push(handle);
+    await tryStart('telegram', () => startTelegram(channels.telegram!, context));
   }
 
   if (channels.slack?.enabled) {
-    const handle = await startSlack(channels.slack, context);
-    if (handle) handles.push(handle);
+    await tryStart('slack', () => startSlack(channels.slack!, context));
   }
 
   if (channels.discord?.enabled) {
-    const handle = await startDiscord(channels.discord, context);
-    if (handle) handles.push(handle);
+    await tryStart('discord', () => startDiscord(channels.discord!, context));
   }
 
-  return handles;
+  return { handles, statuses };
 };
 
 export const stopChannels = async (handles: ChannelHandle[]): Promise<void> => {
@@ -53,6 +78,39 @@ export const stopChannels = async (handles: ChannelHandle[]): Promise<void> => {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`[channels] error stopping ${handle.name}: ${message}`);
     }
+  }
+};
+
+export interface SingleChannelResult {
+  handle?: ChannelHandle;
+  status: ChannelStatus;
+}
+
+const starters: Record<string, (config: ChannelsConfig, context: ChannelContext) => Promise<ChannelHandle | undefined>> = {
+  telegram: (cfg, ctx) => startTelegram(cfg.telegram!, ctx),
+  slack: (cfg, ctx) => startSlack(cfg.slack!, ctx),
+  discord: (cfg, ctx) => startDiscord(cfg.discord!, ctx),
+};
+
+export const startSingleChannel = async (
+  name: string,
+  channels: ChannelsConfig,
+  context: ChannelContext,
+): Promise<SingleChannelResult> => {
+  const starter = starters[name];
+  if (!starter) {
+    return { status: { name, status: 'error', error: `Unknown channel: ${name}` } };
+  }
+  try {
+    const handle = await starter(channels, context);
+    if (handle) {
+      return { handle, status: { name, status: 'connected' } };
+    }
+    return { status: { name, status: 'error', error: 'Failed to start' } };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    context.logger(name, `failed to start ${name} channel: ${msg}`);
+    return { status: { name, status: 'error', error: msg } };
   }
 };
 

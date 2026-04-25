@@ -1184,6 +1184,149 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     return c.json({ ok: true });
   });
 
+  // ── Channels management ─────────────────────────────────────────────
+
+  const CHANNEL_DEFS: Record<string, { label: string; secretKeys: { key: string; label: string; placeholder: string }[] }> = {
+    telegram: {
+      label: 'Telegram',
+      secretKeys: [
+        { key: 'TELEGRAM_BOT_TOKEN', label: 'Bot Token', placeholder: 'Enter Telegram bot token' },
+      ],
+    },
+    discord: {
+      label: 'Discord',
+      secretKeys: [
+        { key: 'DISCORD_BOT_TOKEN', label: 'Bot Token', placeholder: 'Enter Discord bot token' },
+      ],
+    },
+    slack: {
+      label: 'Slack',
+      secretKeys: [
+        { key: 'SLACK_BOT_TOKEN', label: 'Bot Token (xoxb-...)', placeholder: 'Enter Slack bot token' },
+        { key: 'SLACK_APP_TOKEN', label: 'App Token (xapp-...)', placeholder: 'Enter Slack app token' },
+      ],
+    },
+  };
+
+  app.get('/api/agents/:agentId/channels', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    await requireOwnerOrAdmin(c, agentId);
+    const runner = instances.getRunner(agentId);
+    if (!runner) throw new NotFoundError(`Agent ${agentId} is not running.`);
+
+    const config = await runner.security.readRawConfig();
+    const channels = (config.channels ?? {}) as Record<string, { enabled?: boolean }>;
+    const secretNames = await runner.security.listSecretNames();
+    const runtimeStatuses = instances.getChannelStatuses(agentId);
+
+    const result = Object.entries(CHANNEL_DEFS).map(([id, def]) => {
+      const cfg = channels[id];
+      const configured = !!cfg;
+      const enabled = cfg?.enabled ?? false;
+      const secretsSet = def.secretKeys.every((sk) => secretNames.includes(sk.key));
+      const runtime = runtimeStatuses.find((s) => s.name === id);
+      const status = !configured ? undefined : !enabled ? 'disabled' : runtime?.status ?? 'unknown';
+      const error = runtime?.status === 'error' ? runtime.error : undefined;
+      return { id, label: def.label, configured, enabled, secretsSet, secretKeys: def.secretKeys, status, error };
+    });
+
+    return c.json(result);
+  });
+
+  app.post('/api/agents/:agentId/channels/:channelId/enable', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    const channelId = c.req.param('channelId') ?? '';
+    await requireOwnerOrAdmin(c, agentId);
+    const runner = instances.getRunner(agentId);
+    if (!runner) throw new NotFoundError(`Agent ${agentId} is not running.`);
+    if (!CHANNEL_DEFS[channelId]) throw new NotFoundError(`Unknown channel: ${channelId}`);
+
+    const config = await runner.security.readRawConfig();
+    const channels = (config.channels ?? {}) as Record<string, Record<string, unknown>>;
+    if (!channels[channelId]) throw new NotFoundError(`Channel ${channelId} is not configured. Configure it first.`);
+    channels[channelId]!.enabled = true;
+    await runner.security.writeConfig({ ...config, channels });
+
+    const status = await instances.startSingleChannel(agentId, channelId, log);
+    return c.json({ ok: true, status: status.status, error: status.error });
+  });
+
+  app.post('/api/agents/:agentId/channels/:channelId/disable', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    const channelId = c.req.param('channelId') ?? '';
+    await requireOwnerOrAdmin(c, agentId);
+    const runner = instances.getRunner(agentId);
+    if (!runner) throw new NotFoundError(`Agent ${agentId} is not running.`);
+    if (!CHANNEL_DEFS[channelId]) throw new NotFoundError(`Unknown channel: ${channelId}`);
+
+    const config = await runner.security.readRawConfig();
+    const channels = (config.channels ?? {}) as Record<string, Record<string, unknown>>;
+    if (!channels[channelId]) throw new NotFoundError(`Channel ${channelId} is not configured.`);
+    channels[channelId]!.enabled = false;
+    await runner.security.writeConfig({ ...config, channels });
+
+    await instances.stopSingleChannel(agentId, channelId, log);
+    return c.json({ ok: true });
+  });
+
+  app.put('/api/agents/:agentId/channels/:channelId', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    const channelId = c.req.param('channelId') ?? '';
+    await requireOwnerOrAdmin(c, agentId);
+    const runner = instances.getRunner(agentId);
+    if (!runner) throw new NotFoundError(`Agent ${agentId} is not running.`);
+    const def = CHANNEL_DEFS[channelId];
+    if (!def) throw new NotFoundError(`Unknown channel: ${channelId}`);
+
+    const body = await c.req.json() as { secrets: Record<string, string> };
+    if (!body.secrets || typeof body.secrets !== 'object') {
+      return c.json({ error: { message: 'Missing secrets object' } }, 400);
+    }
+
+    // Write secrets
+    const existingSecrets = await runner.security.readSecrets();
+    for (const sk of def.secretKeys) {
+      const val = body.secrets[sk.key];
+      if (val && typeof val === 'string' && val.trim()) {
+        existingSecrets[sk.key] = val.trim();
+      }
+    }
+    await runner.security.writeSecrets(existingSecrets);
+
+    // Write channel config with ${{SECRET}} placeholders
+    const config = await runner.security.readRawConfig();
+    const channels = (config.channels ?? {}) as Record<string, Record<string, unknown>>;
+    const channelCfg: Record<string, unknown> = { enabled: channels[channelId]?.enabled ?? true };
+
+    if (channelId === 'telegram') {
+      channelCfg.bot_token = '${{TELEGRAM_BOT_TOKEN}}';
+      channelCfg.mode = 'polling';
+    } else if (channelId === 'discord') {
+      channelCfg.bot_token = '${{DISCORD_BOT_TOKEN}}';
+    } else if (channelId === 'slack') {
+      channelCfg.bot_token = '${{SLACK_BOT_TOKEN}}';
+      channelCfg.app_token = '${{SLACK_APP_TOKEN}}';
+    }
+
+    channels[channelId] = channelCfg;
+    await runner.security.writeConfig({ ...config, channels });
+    return c.json({ ok: true });
+  });
+
+  app.delete('/api/agents/:agentId/channels/:channelId', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    const channelId = c.req.param('channelId') ?? '';
+    await requireOwnerOrAdmin(c, agentId);
+    const runner = instances.getRunner(agentId);
+    if (!runner) throw new NotFoundError(`Agent ${agentId} is not running.`);
+
+    const config = await runner.security.readRawConfig();
+    const channels = (config.channels ?? {}) as Record<string, Record<string, unknown>>;
+    delete channels[channelId];
+    await runner.security.writeConfig({ ...config, channels });
+    return c.json({ ok: true });
+  });
+
   app.get('/api/agents/:agentId/schedules', async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     await requireOwnerOrAdmin(c, agentId);

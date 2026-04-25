@@ -481,3 +481,12 @@ export const updateSchedule = (id: string, data: Record<string, unknown>) => api
 export const deleteSchedule = (id: string) => apiFetch<{ ok: boolean }>(`/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' });
 export const triggerSchedule = (id: string) => apiFetch<{ ok: boolean }>(`/schedules/${encodeURIComponent(id)}/trigger`, { method: 'POST' });
 export const fetchScheduleRuns = (id: string) => apiFetch<ScheduleRunInfo[]>(`/schedules/${encodeURIComponent(id)}/runs`);
+
+// Channels
+export interface ChannelSecretKey { key: string; label: string; placeholder: string }
+export interface ChannelInfo { id: string; label: string; configured: boolean; enabled: boolean; secretsSet: boolean; secretKeys: ChannelSecretKey[]; status?: string; error?: string }
+export const fetchChannels = () => apiFetch<ChannelInfo[]>('/channels');
+export const enableChannel = (id: string) => apiFetch<{ ok: boolean }>(`/channels/${encodeURIComponent(id)}/enable`, { method: 'POST' });
+export const disableChannel = (id: string) => apiFetch<{ ok: boolean }>(`/channels/${encodeURIComponent(id)}/disable`, { method: 'POST' });
+export const configureChannel = (id: string, secrets: Record<string, string>) => apiFetch<{ ok: boolean }>(`/channels/${encodeURIComponent(id)}`, { method: 'PUT', body: { secrets } });
+export const removeChannel = (id: string) => apiFetch<{ ok: boolean }>(`/channels/${encodeURIComponent(id)}`, { method: 'DELETE' });

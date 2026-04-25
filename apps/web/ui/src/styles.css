@@ -954,6 +954,84 @@ h2 { font-size: 14px; font-weight: 600; }
   background: rgba(239, 83, 80, 0.1);
 }
 
+.btn--outline {
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px dashed var(--line);
+}
+.btn--outline:hover {
+  background: var(--hover);
+  border-style: solid;
+}
+
+/* Channel card badges */
+.manage__card-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.manage__card-badge--on { background: rgba(76, 175, 80, 0.15); color: var(--green); }
+.manage__card-badge--off { background: var(--hover); color: var(--muted); }
+.manage__card-badge--warn { background: rgba(255, 193, 7, 0.15); color: var(--yellow); }
+.manage__card-badge--err { background: rgba(239, 83, 80, 0.15); color: var(--red); cursor: help; }
+
+.manage__card-error {
+  font-size: 0.75rem;
+  color: var(--red);
+  margin-top: 2px;
+}
+
+/* Inline dialog (non-modal) */
+.manage__dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.manage__dialog-header h3 { margin: 0; font-size: 1rem; }
+
+.manage__dialog-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.manage__dialog-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.manage__field-hint {
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* Section headers */
+.manage__section {
+  margin-top: 16px;
+}
+.manage__section-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+
+.manage__add-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 @media (max-width: 768px) {
   .shell {
     grid-template-columns: 1fr;
