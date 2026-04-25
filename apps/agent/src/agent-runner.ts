@@ -767,6 +767,13 @@ export class AgentRunner implements SessionRuntime {
       });
     });
 
+    void this.events.publish({
+      type: 'user_message',
+      sessionId,
+      text: message.text,
+      ...(messageUserName ? { name: messageUserName } : {}),
+    });
+
     // Determine whether to trigger an agent response
     const isGroup = session.spec.source.type === 'group';
     const mentioned = message.mentioned !== false;
@@ -830,6 +837,7 @@ export class AgentRunner implements SessionRuntime {
     }
 
     const receivedAt = new Date().toISOString();
+    const displayName = message.sender?.displayName;
     await this.queueSideEffect(session, async () => {
       await this.store.messages.appendLogEntry(this.scope, session.spec.sessionId, {
         ts: receivedAt,
@@ -838,9 +846,16 @@ export class AgentRunner implements SessionRuntime {
         content: message.text,
         ...(message.attachments ? { attachments: message.attachments } : {}),
         ...(messageUserId ? { userId: messageUserId } : {}),
-        ...(message.sender?.displayName ? { userName: message.sender.displayName } : {}),
+        ...(displayName ? { userName: displayName } : {}),
         ...(message.metadata ? { metadata: message.metadata } : {}),
       });
+    });
+
+    void this.events.publish({
+      type: 'user_message',
+      sessionId,
+      text: message.text,
+      ...(displayName ? { name: displayName } : {}),
     });
   }
 

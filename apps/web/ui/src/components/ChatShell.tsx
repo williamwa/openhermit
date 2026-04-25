@@ -60,6 +60,7 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
   const streamingThinkingRef = useRef('');
   const thinkingAsAssistantRef = useRef(false);
   const skipPushRef = useRef(false);
+  const pendingSentTexts = useRef<string[]>([]);
 
   currentSessionRef.current = currentSessionId;
 
@@ -172,6 +173,17 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
     };
 
     switch (event.type) {
+      case 'user_message': {
+        const msgText = event.text as string;
+        const idx = pendingSentTexts.current.indexOf(msgText);
+        if (idx !== -1) {
+          pendingSentTexts.current.splice(idx, 1);
+          break;
+        }
+        setItems(prev => [...prev, { type: 'user', text: msgText, streaming: false, name: event.name as string | undefined }]);
+        break;
+      }
+
       case 'thinking_delta':
         streamingThinkingRef.current += event.text as string;
         thinkingAsAssistantRef.current = true;
@@ -316,6 +328,7 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
     const sessionId = currentSessionRef.current;
     if (!ws || !sessionId || !text.trim()) return;
 
+    pendingSentTexts.current.push(text);
     setItems(prev => [...prev, { type: 'user', text, streaming: false }, { type: 'thinking' }]);
     setSending(true);
     setStatus('Running');
