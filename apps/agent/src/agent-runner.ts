@@ -777,18 +777,19 @@ export class AgentRunner implements SessionRuntime {
     // Determine whether to trigger an agent response
     const isGroup = session.spec.source.type === 'group';
     const mentioned = message.mentioned !== false;
-    const isGuestRole = !session.resolvedUserRole || session.resolvedUserRole === 'guest';
+    const isOwner = session.resolvedUserRole === 'owner';
 
-    // Group + guest + not mentioned → inject only, don't trigger agent
-    if (isGroup && !mentioned && isGuestRole) {
+    // Group + non-owner + not mentioned → inject only, don't trigger agent
+    if (isGroup && !mentioned && !isOwner) {
       session.status = 'idle';
       return { sessionId, ...(message.messageId ? { messageId: message.messageId } : {}), triggered: false };
     }
 
-    // In group sessions, prefix the message with the sender's display name
+    // In group sessions, prefix the message with the sender's display name and mention status
+    const mentionTag = mentioned ? '' : '[not directed at you] ';
     const promptText = isGroup && message.sender?.displayName
-      ? `[${message.sender.displayName}] ${mentioned ? message.text : `[not directed at you] ${message.text}`}`
-      : mentioned ? message.text : `[not directed at you] ${message.text}`;
+      ? `[${message.sender.displayName}] ${mentionTag}${message.text}`
+      : `${mentionTag}${message.text}`;
     const promptMessage = { ...message, text: promptText };
 
     const run = async (): Promise<void> => {
@@ -819,7 +820,7 @@ export class AgentRunner implements SessionRuntime {
     };
   }
 
-  async injectMessage(
+  async appendMessage(
     sessionId: string,
     message: SessionMessage,
   ): Promise<void> {

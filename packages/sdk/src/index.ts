@@ -91,11 +91,11 @@ export class AgentLocalClient {
     return this.postJson(agentLocalRoutes.sessionMessages(sessionId), message);
   }
 
-  async injectMessage(
+  async appendMessage(
     sessionId: string,
     message: SessionMessage,
-  ): Promise<{ sessionId: string; injected: boolean }> {
-    const path = `${agentLocalRoutes.sessionMessages(sessionId)}?inject=true`;
+  ): Promise<{ sessionId: string; appended: boolean }> {
+    const path = `${agentLocalRoutes.sessionMessages(sessionId)}?append=true`;
     return this.postJson(path, message);
   }
 
