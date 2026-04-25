@@ -43,7 +43,9 @@ openhermit/
 │   ├── cli/                  # Platform CLI (hermit command)
 │   ├── web/                  # Browser client
 │   └── channels/
-│       └── telegram/         # Telegram channel adapter
+│       ├── telegram/         # Telegram channel adapter
+│       ├── discord/          # Discord channel adapter
+│       └── slack/            # Slack channel adapter
 ├── packages/
 │   ├── protocol/             # Session/event contracts, route constants
 │   ├── sdk/                  # Gateway client SDK
@@ -163,7 +165,7 @@ Each agent supports multiple concurrent users with identity tracking:
 - **Identity resolution** — users are identified by source (CLI username, Telegram chat ID, web session, etc.) and tracked across sessions
 - **Role-based access** — three tiers: `owner` (full control), `user` (standard access), `guest` (limited)
 - **Per-user memory** — memory is namespaced (`user/{userId}/...`, `agent/...`, `project/...`)
-- **Channel adapters** — Telegram adapter with auto-guest creation; extensible to other platforms
+- **Channel adapters** — Telegram, Discord, and Slack adapters with identity resolution, auto-guest creation, and runtime enable/disable
 
 ## Development
 
@@ -197,6 +199,7 @@ The CLI auto-loads `.env` from the current directory. Key variables:
 - [Sandbox Model](docs/sandbox-model.md)
 - [Plan](docs/plan.md)
 - [Skills](docs/skills.md)
+- [Channel Adapters](docs/channel-adapter.md)
 - [MCP Servers](docs/mcp-servers.md)
 - [Decisions](docs/decisions.md)
 

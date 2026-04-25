@@ -17,6 +17,18 @@ Different callers need different transport modes. Automation scripts want sync H
 
 All four modes share the same `SessionEventBroker` internally. The agent runner publishes events identically regardless of transport.
 
+## Append-Only Mode
+
+Messages can be appended to a session without triggering agent processing:
+
+```
+POST /sessions/:sessionId/messages?append=true
+```
+
+This stores the message in the session log and publishes a `user_message` SSE event, but does not trigger an agent response. Used by channel adapters for messages that don't need agent attention (e.g., non-owner non-mentioned messages in group chats).
+
+The legacy query parameter `?inject=true` is also supported for backwards compatibility.
+
 ## HTTP Sync Mode
 
 ### Request
@@ -278,7 +290,7 @@ Existing `OutboundEvent` types wrapped in WS envelope:
 }
 ```
 
-The `OutboundEvent` union remains exactly as-is.
+The `OutboundEvent` union includes all standard events plus `user_message` (broadcast when any user sends a message, enabling cross-channel real-time visibility).
 
 ### Error Handling
 

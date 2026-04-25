@@ -2,164 +2,175 @@
 
 ## Overview
 
-Channel adapters connect external messaging platforms (Telegram, Slack, Discord, etc.) to OpenHermit agents. An adapter is an independent process that translates between platform-specific protocols and the standard OpenHermit agent API.
+Channel adapters connect external messaging platforms (Telegram, Slack, Discord, etc.) to OpenHermit agents. Adapters are built-in processes launched by the gateway when configured and enabled.
 
 ## Architecture
 
 ```
-Platform (Telegram, Slack, ...)
+Platform (Telegram, Slack, Discord)
     ↕ platform protocol (webhook / polling / websocket)
-[Channel Adapter]  ← independent process
+[Channel Adapter]  ← launched by gateway
     ↕ OpenHermit SDK (AgentLocalClient)
 [Agent API]  ← existing HTTP + SSE endpoints
 ```
 
-An adapter is a **SDK client**, no different from the CLI or web client. It uses the same `AgentLocalClient` to interact with the agent:
+Each adapter is a **SDK client** that uses `AgentLocalClient` to interact with the agent:
 
 - `openSession()` — create or resume a session
-- `postMessage()` — send user messages
+- `postMessage()` — send user messages (triggers agent response based on routing rules)
+- `appendMessage()` — append a message to session log without triggering agent
 - SSE stream — receive agent responses (text_delta, text_final, tool events, agent_end)
 - `submitApproval()` — handle tool approval requests
 
-No new agent endpoints are needed. The adapter is a consumer of the existing API.
+## Implemented Adapters
+
+| Platform | Package | Connection | Status |
+|----------|---------|------------|--------|
+| Telegram | `@openhermit/channel-telegram` | Polling or webhook | Stable |
+| Discord | `@openhermit/channel-discord` | Gateway websocket (discord.js) | Stable |
+| Slack | `@openhermit/channel-slack` | Socket Mode (app-level token) | Stable |
 
 ## Session Mapping
 
 Each platform conversation maps to an OpenHermit session:
 
-| Platform | Session ID | Source |
-|----------|------------|--------|
-| Telegram | `telegram:{date}-{random}` | `{ kind: 'channel', platform: 'telegram', interactive: true }` |
-| Slack | `slack:{date}-{random}` | `{ kind: 'channel', platform: 'slack', interactive: true }` |
-| Discord | `discord:{date}-{random}` | `{ kind: 'channel', platform: 'discord', interactive: true }` |
+| Platform | Session key | Source type |
+|----------|-------------|-------------|
+| Telegram | `tg:{chatId}` | `group` (group chats) or `dm` (private chats) |
+| Discord | `discord:{channelId}` | `group` (guild channels) or `dm` (DMs) |
+| Slack | `slack:{channelId}` | `group` (channels) or `dm` (direct messages) |
 
-The adapter calls `openSession()` on first contact with a new conversation, then reuses the session for all subsequent messages in that conversation.
+The adapter calls `openSession()` on first contact with a new conversation, then reuses the session for subsequent messages.
 
 ## Message Flow
 
 ### Inbound (platform → agent)
 
-1. Adapter receives message from platform (via webhook or polling)
+1. Adapter receives message from platform
 2. Adapter maps chat/channel ID to session ID
 3. `client.openSession({ sessionId, source })` — ensure session exists
-4. `client.postMessage(sessionId, { text })` — send user message
-5. Open SSE stream to `client.buildEventsUrl(sessionId)` — wait for response
-6. Accumulate `text_delta` events, capture `text_final`
-7. On `agent_end` — close stream, send response back to platform
+4. `client.postMessage(sessionId, { text, sender, mentioned })` — send with routing metadata
+5. Server stores message in session log (all messages, regardless of routing decision)
+6. Server publishes `user_message` SSE event for real-time cross-channel visibility
+7. Server applies group chat routing rules (see below)
+8. If triggered: adapter opens SSE stream, accumulates response, sends back to platform
+9. If not triggered: adapter does nothing further
 
 ### Outbound (agent → platform)
 
-The adapter translates the agent's response into platform format:
+The adapter translates agent responses into platform format:
 
 - `text_final` → platform text message
 - Long responses → split into multiple messages (platform-specific limits)
-- Tool events → optionally shown as status indicators
+- `<NO_REPLY>` → silently discarded, no message sent to platform
 - Errors → error message to user
 
 ### Approval Handling
 
-When `tool_approval_required` arrives via SSE:
+When `tool_approval_required` arrives via SSE, the adapter auto-approves (current behavior for all channel adapters).
 
-- **Auto-approve** — adapter approves automatically (for non-interactive/trusted contexts)
-- **Forward to user** — send approval prompt to the platform chat, wait for user response, call `submitApproval()`
+## Group Chat Routing
 
-The approval mode is configurable per adapter.
+The agent runtime applies unified routing rules for all channels in `postMessage()`:
 
-## Adapter Configuration
+### Rules
 
-Each adapter reads configuration from environment variables and/or a config file:
+1. **Owner messages** — always trigger agent response, regardless of mention status. If not mentioned, message is prefixed with `[not directed at you]` so the agent has context.
+2. **Non-owner, mentioned** — triggers agent response.
+3. **Non-owner, not mentioned** — message is stored in session log but does NOT trigger agent response. No tokens consumed.
+4. **`<NO_REPLY>` mechanism** — even when triggered, the agent may respond with exactly `<NO_REPLY>` to decline replying. All bridges detect this and silently discard it instead of sending to the platform.
 
-```
-# Agent connection (required)
-OPENHERMIT_AGENT_URL=http://localhost:3001
-OPENHERMIT_AGENT_TOKEN=<token from runtime.json>
+### Message Storage
 
-# Or: auto-discover from runtime.json
-OPENHERMIT_AGENT_ID=<agent-id>
+All messages from all users are stored in the session log regardless of routing decisions. This ensures:
+- Complete conversation history for context
+- Owner can review all group activity
+- Agent has full context when it does respond
 
-# Platform-specific
-TELEGRAM_BOT_TOKEN=<bot token from @BotFather>
-```
+### System Prompt
 
-For local development, the adapter can read `runtime.json` directly to discover the agent's port and token (same as CLI).
+In group sessions, the agent receives a "Group Reply Policy" section in its system prompt instructing it:
+- Always respond when mentioned or replied to
+- For `[not directed at you]` messages, only respond if genuinely useful
+- Otherwise respond with `<NO_REPLY>`
 
-## Telegram Adapter
+## Real-Time Cross-Channel Visibility
 
-### Overview
+When a message arrives from any channel, the agent runtime publishes a `user_message` SSE event:
 
-The first channel adapter. Connects a Telegram bot to an OpenHermit agent.
-
-### Bot Setup
-
-1. Create a bot via [@BotFather](https://t.me/BotFather)
-2. Get the bot token
-3. Configure the adapter with the token
-
-### Connection Modes
-
-**Polling mode** (development):
-- Uses Telegram `getUpdates` long-polling API
-- No public URL needed
-- Simpler to develop and debug
-
-**Webhook mode** (production):
-- Telegram pushes updates to a public HTTPS endpoint
-- Lower latency, more efficient
-- Requires public URL (direct or via tunnel)
-
-The adapter supports both modes, configured via environment variable:
-
-```
-TELEGRAM_MODE=polling    # default for development
-TELEGRAM_MODE=webhook    # production
-TELEGRAM_WEBHOOK_URL=https://example.com/telegram/webhook
-TELEGRAM_WEBHOOK_PORT=8443
+```typescript
+{ type: 'user_message', sessionId: string, text: string, name?: string }
 ```
 
-### Supported Message Types
+This allows the web UI (and any other SSE/WebSocket client) to see messages from Telegram, Discord, and Slack in real-time without polling.
 
-Phase 1:
-- Text messages → `postMessage({ text })`
-- `/start` command → open new session, send welcome
-- `/new` command → checkpoint current session, start new one
+The web UI deduplicates its own messages using a `pendingSentTexts` buffer to avoid showing web-originated messages twice.
 
-Phase 2 (future):
-- Photos/documents → attachments
-- Voice messages → transcription + text
-- Inline keyboards for approval prompts
+## Configuration
 
-### Streaming Response
+Channels are configured in the agent's `config.json` under `channels`:
 
-Telegram supports message editing. The adapter can provide a streaming experience:
-
-1. On first `text_delta` → send initial message via `sendMessage`
-2. On subsequent `text_delta` → accumulate text, periodically `editMessageText` (throttled to avoid rate limits)
-3. On `text_final` → final `editMessageText` with complete text
-
-Throttle edits to ~1 per second to stay within Telegram rate limits.
-
-### Implementation Structure
-
-```
-apps/channels/telegram/src/
-  index.ts          — entry point, arg parsing, startup
-  bot.ts            — Telegram bot (polling + webhook modes)
-  bridge.ts         — message bridge: Telegram ↔ Agent SDK
-  config.ts         — configuration loading
-  formatting.ts     — response formatting (markdown, message splitting)
+```json
+{
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "bot_token": "${{TELEGRAM_BOT_TOKEN}}",
+      "mode": "polling"
+    },
+    "discord": {
+      "enabled": true,
+      "bot_token": "${{DISCORD_BOT_TOKEN}}"
+    },
+    "slack": {
+      "enabled": true,
+      "bot_token": "${{SLACK_BOT_TOKEN}}",
+      "app_token": "${{SLACK_APP_TOKEN}}"
+    }
+  }
+}
 ```
 
-### Dependencies
+Secrets (bot tokens) are stored separately in `secrets.json` and interpolated at load time via `${{SECRET_NAME}}` placeholders.
 
-- `@openhermit/sdk` — agent client (existing)
-- `@openhermit/protocol` — types (existing)
-- No Telegram SDK library — use Telegram Bot API directly via `fetch` (the API is simple HTTP+JSON, no need for a wrapper library)
+## Runtime Management
 
-### Rate Limits
+Channels can be managed at runtime via the web UI (Manage → Channels) or gateway API:
 
-Telegram rate limits:
-- ~30 messages/second to different chats
-- ~20 messages/minute to the same chat
-- Message edits: ~1/second per message
+- **Enable/Disable** — starts or stops the channel process immediately without restarting the gateway
+- **Configure** — updates secrets and config.json
+- **Remove** — removes channel from config entirely
+- **Status tracking** — each channel reports `connected` or `error` with error details
 
-The adapter must respect these limits, especially for streaming edits.
+### Gateway API
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/agents/:id/channels` | GET | List all channels with status |
+| `/api/agents/:id/channels/:ch/enable` | POST | Enable and start channel |
+| `/api/agents/:id/channels/:ch/disable` | POST | Disable and stop channel |
+| `/api/agents/:id/channels/:ch` | PUT | Configure channel secrets |
+| `/api/agents/:id/channels/:ch` | DELETE | Remove channel configuration |
+
+## Platform-Specific Notes
+
+### Telegram
+
+- Uses Telegram Bot API directly via `fetch` (no SDK library)
+- Supports polling (development) and webhook (production) modes
+- Streaming responses via `editMessageText` (throttled ~1/second)
+- Rate limits: ~30 msgs/sec across chats, ~20 msgs/min per chat
+
+### Discord
+
+- Uses discord.js v14 with gateway intents
+- DMs handled via raw gateway dispatch (`MESSAGE_CREATE` packets) due to discord.js not reliably emitting `MessageCreate` for DMs
+- Group messages handled via standard `MessageCreate` event with mention detection
+- Requires: `GuildMessages`, `MessageContent`, `DirectMessages` intents
+
+### Slack
+
+- Uses Socket Mode (requires app-level token `xapp-...` + bot token `xoxb-...`)
+- Event deduplication: Slack sends both `message` and `app_mention` for @mentions; deduplicated using `event.ts` timestamp
+- Supports DMs and channel messages
+- Mention detection via `event.text` containing bot user ID

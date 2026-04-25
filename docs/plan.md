@@ -18,7 +18,7 @@ OpenHermit already has a working single-agent runtime with:
 - approval gate
 - exec, web, memory, instruction tools (container tools removed; planned as a future plugin)
 - user model with identity resolution, role-based access control, and user management tools
-- Telegram channel adapter with identity extraction and auto-guest creation
+- channel adapters (Telegram, Discord, Slack) with identity extraction, auto-guest creation, and runtime management
 
 The main architectural direction is now stable:
 
@@ -110,10 +110,16 @@ There are also several active design drafts that are intentionally not yet imple
 
 ### Channel Adapters
 
-- Telegram adapter with identity extraction (chat_id, username, first_name)
+- three built-in adapters: Telegram, Discord, Slack
 - auto-launch via `config.json` channel configuration
-- session-per-chat routing (`tg:{chatId}`)
-- `/start` and `/new` commands
+- session-per-chat routing (`tg:{chatId}`, `discord:{channelId}`, `slack:{channelId}`)
+- identity extraction with auto-guest creation for all platforms
+- group chat routing: owner always triggers agent, non-owner only when mentioned
+- `<NO_REPLY>` mechanism: agent can decline responding in group chats
+- real-time `user_message` SSE broadcast for cross-channel visibility
+- runtime channel enable/disable without gateway restart
+- channel management UI (web Manage → Channels) and gateway API
+- channel status tracking (connected/error with error details)
 
 ### CLI Platform
 
@@ -277,8 +283,11 @@ See `docs/user-model.md`. Phase 1 (core tables, identity resolution, role-based 
 ## Phase 5 — Web + Channel Maturity
 
 - improve web UX on top of the existing client
-- ✅ Telegram as the first real channel adapter (with identity resolution and auto-guest)
-- make adapter/session binding first-class across channels
+- ✅ Telegram, Discord, and Slack channel adapters (with identity resolution and auto-guest)
+- ✅ group chat routing (owner always triggers, non-owner only when mentioned, `<NO_REPLY>` mechanism)
+- ✅ real-time cross-channel message visibility via `user_message` SSE broadcast
+- ✅ channel management UI (web Manage → Channels) with runtime enable/disable
+- ✅ channel status tracking (connected/error)
 
 ## Phase 6 — Gateway / Multi-Agent (Partially Complete)
 

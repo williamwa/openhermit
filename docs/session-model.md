@@ -192,6 +192,20 @@ See `docs/introspection-design.md` and `docs/memory-model.md` for details.
 - allows creating a new session
 - streams the current session through SSE
 
+## Group Sessions
+
+Group chat sessions (from Telegram groups, Discord channels, Slack channels) follow specific routing rules:
+
+- **All messages stored** — every message from every user is recorded in the session log, regardless of whether it triggers the agent
+- **Owner messages** — always trigger agent response (with mention status as context)
+- **Non-owner, mentioned** — triggers agent response
+- **Non-owner, not mentioned** — stored only, agent is not triggered (saves tokens)
+- **`<NO_REPLY>`** — even when triggered, the agent may respond with `<NO_REPLY>` to decline replying; this is silently discarded by all channel adapters
+
+In group sessions, user messages are prefixed with the sender's display name: `[Alice] hello`. Non-mentioned messages add: `[Alice] [not directed at you] hello`.
+
+See [Channel Adapter Design](channel-adapter.md) for full details.
+
 ## Summary
 
 - session = durable thread
