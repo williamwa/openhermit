@@ -1,30 +1,40 @@
 /* ── Reset & base ───────────────────────────────────────────────────────── */
 
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg: #0f1117;
-  --bg-surface: #1a1d27;
-  --bg-hover: #242836;
-  --border: #2e3345;
-  --text: #e1e4ed;
-  --text-muted: #8b8fa7;
-  --accent: #6c8aff;
-  --accent-hover: #8da4ff;
-  --green: #4ade80;
-  --red: #f87171;
-  --yellow: #facc15;
+  --bg: #ffffff;
+  --bg-surface: #fafafa;
+  --bg-hover: #f4f4f5;
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --text: #09090b;
+  --text-muted: #71717a;
+  --text-dim: #a1a1aa;
+  --accent: #09090b;        /* primary buttons — match website's black CTA */
+  --accent-hover: #27272a;
+  --brand: #ee5c2c;         /* orange highlight — used sparingly */
+  --green: #16a34a;
+  --red: #dc2626;
+  --yellow: #ca8a04;
   --radius: 8px;
-  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  --font: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+html, body {
+  background: #ffffff;
 }
 
 body {
   font-family: var(--font);
-  background: var(--bg);
   color: var(--text);
   line-height: 1.5;
   min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* ── Typography ─────────────────────────────────────────────────────────── */
@@ -38,7 +48,7 @@ h3 { font-size: 1.1rem; font-weight: 600; }
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--accent);
+  color: var(--brand);
 }
 
 /* ── Buttons ────────────────────────────────────────────────────────────── */
@@ -63,7 +73,7 @@ h3 { font-size: 1.1rem; font-weight: 600; }
 .btn--primary { background: var(--accent); color: #fff; border-color: var(--accent); }
 .btn--primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 .btn--danger { color: var(--red); }
-.btn--danger:hover { background: rgba(248, 113, 113, 0.1); }
+.btn--danger:hover { background: rgba(220, 38, 38, 0.08); }
 .btn--sm { padding: 0.3rem 0.7rem; font-size: 0.8rem; }
 .btn--ghost { background: transparent; border-color: transparent; }
 .btn--ghost:hover { background: var(--bg-hover); }
@@ -136,8 +146,9 @@ h3 { font-size: 1.1rem; font-weight: 600; }
 .topbar__brand {
   font-weight: 600;
   font-size: 0.9rem;
-  color: var(--accent);
+  color: var(--brand);
   margin-right: 1rem;
+  letter-spacing: -0.01em;
 }
 
 .topbar__tabs { display: flex; gap: 0.25rem; flex: 1; }
@@ -206,8 +217,8 @@ h3 { font-size: 1.1rem; font-weight: 600; }
   margin-left: 0.5rem;
 }
 
-.badge--running { background: rgba(74, 222, 128, 0.15); color: var(--green); }
-.badge--stopped { background: rgba(139, 143, 167, 0.15); color: var(--text-muted); }
+.badge--running { background: rgba(22, 163, 74, 0.1); color: var(--green); }
+.badge--stopped { background: var(--bg-hover); color: var(--text-muted); }
 
 .agent-list__empty {
   text-align: center;
@@ -262,18 +273,19 @@ h3 { font-size: 1.1rem; font-weight: 600; }
 /* ── Dialog ─────────────────────────────────────────────────────────────── */
 
 dialog {
-  border: none;
+  border: 1px solid var(--border);
   padding: 0;
-  background: var(--bg-surface);
+  background: var(--bg);
   color: var(--text);
   position: fixed;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   border-radius: var(--radius);
+  box-shadow: 0 12px 40px -8px rgba(9, 9, 11, 0.18);
 }
 
-dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+dialog::backdrop { background: rgba(9, 9, 11, 0.4); }
 
 .dialog {
   width: 420px;
@@ -487,10 +499,10 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
 .schedule-card__meta code { font-family: var(--mono); color: var(--accent); }
 .schedule-card__errors { color: var(--red); }
 
-.badge--active { background: rgba(74, 222, 128, 0.15); color: var(--green); }
-.badge--paused { background: rgba(250, 204, 21, 0.15); color: var(--yellow); }
-.badge--completed { background: rgba(139, 143, 167, 0.15); color: var(--text-muted); }
-.badge--failed { background: rgba(248, 113, 113, 0.15); color: var(--red); }
+.badge--active { background: rgba(22, 163, 74, 0.1); color: var(--green); }
+.badge--paused { background: rgba(202, 138, 4, 0.1); color: var(--yellow); }
+.badge--completed { background: var(--bg-hover); color: var(--text-muted); }
+.badge--failed { background: rgba(220, 38, 38, 0.08); color: var(--red); }
 
 .schedule-runs-table-wrap { overflow-x: auto; }
 
@@ -569,7 +581,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
 .fleet-table__check { width: 36px; }
 .fleet-table__num { text-align: right; font-variant-numeric: tabular-nums; }
 
-.fleet-row--selected { background: rgba(108, 138, 255, 0.08); }
+.fleet-row--selected { background: rgba(238, 92, 44, 0.06); }
 
 .fleet-cell-agent {
   display: flex;
