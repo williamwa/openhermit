@@ -12,5 +12,12 @@ export default defineConfig({
   build: {
     outDir: '../public',
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          katex: ['katex'],
+        },
+      },
+    },
   },
 });
