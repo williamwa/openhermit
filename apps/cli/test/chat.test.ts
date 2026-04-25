@@ -289,8 +289,7 @@ test('waitForAssistantTurn prints tool starts and result labels without result b
     assert.equal(nextEventId, 5);
     assert.match(stdoutChunks.join(''), /\[tool\] write_file/);
     assert.match(stdoutChunks.join(''), /"path":"files\/test.py"/);
-    assert.match(stdoutChunks.join(''), /\[tool result\] write_file/);
-    assert.doesNotMatch(stdoutChunks.join(''), /"bytes":8/);
+    assert.doesNotMatch(stdoutChunks.join(''), /\[tool result\]/);
     assert.equal(stderrChunks.join(''), '');
   } finally {
     globalThis.fetch = originalFetch;

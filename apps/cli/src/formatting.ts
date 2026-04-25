@@ -84,6 +84,6 @@ export const writeToolStarted = (tool: string, args: unknown): void => {
 };
 
 export const writeToolResult = (tool: string, isError: boolean): void => {
-  const label = isError ? '[tool error]' : '[tool result]';
-  stdout.write(`\n${label} ${tool}\n`);
+  if (!isError) return;
+  stdout.write(`\n[tool error] ${tool}\n`);
 };

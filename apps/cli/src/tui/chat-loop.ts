@@ -336,17 +336,10 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
                 : '';
               addText(`${gray('[tool]')} ${yellow(tool)}${suffix}`);
             },
-            onToolResult: (_tool, isError, text) => {
+            onToolResult: (_tool, isError) => {
               if (isError) {
                 ensureAgentLabel();
                 addText(`${red('[tool error]')} ${yellow(_tool)}`);
-              } else {
-                const preview = typeof text === 'string' && text.length > 0
-                  ? (text.length > 120 ? text.slice(0, 120) + '...' : text)
-                  : undefined;
-                if (preview) {
-                  addText(`${gray('[tool done]')} ${yellow(_tool)} ${dim(preview)}`);
-                }
               }
             },
             onApprovalPrompt: (toolName, args) => {
