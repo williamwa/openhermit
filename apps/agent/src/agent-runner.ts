@@ -777,19 +777,17 @@ export class AgentRunner implements SessionRuntime {
     // Determine whether to trigger an agent response
     const isGroup = session.spec.source.type === 'group';
     const mentioned = message.mentioned !== false;
-    const isOwner = session.resolvedUserRole === 'owner';
 
-    // Group + non-owner + not mentioned → inject only, don't trigger agent
-    if (isGroup && !mentioned && !isOwner) {
+    // Group + not mentioned → store only, don't trigger agent
+    if (isGroup && !mentioned) {
       session.status = 'idle';
       return { sessionId, ...(message.messageId ? { messageId: message.messageId } : {}), triggered: false };
     }
 
-    // In group sessions, prefix the message with the sender's display name and mention status
-    const mentionTag = mentioned ? '' : '[not directed at you] ';
+    // In group sessions, prefix the message with the sender's display name
     const promptText = isGroup && message.sender?.displayName
-      ? `[${message.sender.displayName}] ${mentionTag}${message.text}`
-      : `${mentionTag}${message.text}`;
+      ? `[${message.sender.displayName}] ${message.text}`
+      : message.text;
     const promptMessage = { ...message, text: promptText };
 
     const run = async (): Promise<void> => {
