@@ -787,6 +787,11 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const auth = requireAuth(c, agentId);
     enforceSessionNamespace(auth, sessionId);
     const runtime = resolveRunner(instances, agentId);
+
+    if (auth.mode === 'admin') {
+      return c.json(await runtime.listSessionMessages(sessionId));
+    }
+
     const callerUserId = await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId });
     if (!callerUserId) throw new NotFoundError(`Session not found: ${sessionId}`);
     const messages = await runtime.listSessionMessages(sessionId, callerUserId);

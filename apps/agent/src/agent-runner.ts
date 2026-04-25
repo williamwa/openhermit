@@ -494,8 +494,11 @@ export class AgentRunner implements SessionRuntime {
     return limit !== undefined ? summaries.slice(0, limit) : summaries;
   }
 
-  /** Verify that callerUserId is a participant of the session. Throws NotFoundError if not. */
+  /** Verify that callerUserId is a participant of the session (or an owner). Throws NotFoundError if not. */
   async verifySessionAccess(sessionId: string, callerUserId: string): Promise<void> {
+    const role = await this.store.users.getAgentRole(this.scope, callerUserId);
+    if (role === 'owner') return;
+
     const session = this.sessions.get(sessionId);
     if (session) {
       if (!session.userIds.includes(callerUserId)) {
