@@ -255,7 +255,7 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
     let thinkingDisplayedAsMessage = false;
 
     const collapseThinkingToBlock = () => {
-      if (!thinkingDisplayedAsMessage || !streamedThinkingText) return;
+      if (!thinkingDisplayedAsMessage || !streamedThinkingText.trim()) return;
       thinkingDisplayedAsMessage = false;
       // The thinking was displayed as a streamed assistant message.
       // We can't un-render it in the TUI, but we add a label to indicate
