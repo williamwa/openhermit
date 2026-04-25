@@ -1,17 +1,31 @@
 # Gateway
 
-This app is the current OpenHermit control plane for managed multi-agent mode.
+`apps/gateway` is OpenHermit's control plane.
 
 Current responsibilities:
 
-- manage agent records from PostgreSQL
-- start and stop `AgentRunner` instances in-process
-- expose managed agent APIs behind `/agents/{id}/...`
-- bridge WebSocket and SSE traffic to the selected runner
-- provide the base URL used by channel adapters in gateway mode
+- load `.env` and `~/.openhermit/gateway.json`
+- connect Drizzle-backed PostgreSQL stores when `DATABASE_URL` is set
+- register built-in skills from `skills/`
+- manage agent records and in-process `AgentRunner` instances
+- auto-start registered agents when `autoStartAgents` is enabled
+- expose agent routes under `/agents/{agentId}/...`
+- expose admin/owner management routes under `/api/...`
+- serve the admin UI at `/admin/` when enabled
+- attach the WebSocket gateway at `/agents/{agentId}/ws`
+- launch configured built-in channel adapters and maintain channel status
+- start/stop each runner's scheduler and MCP connections with the runner lifecycle
 
-Notes:
+The gateway listens on `GATEWAY_PORT`, then `PORT`, then `4000`, bound to `127.0.0.1`.
 
-- standalone `apps/agent` still exists for direct single-agent operation
-- the gateway no longer acts as a thin scaffold or a pure reverse proxy
-- agent-local concepts such as sessions, approvals, and events are preserved; the gateway adds agent selection and lifecycle management
+`gateway.json` supports:
+
+```json
+{
+  "ui": true,
+  "cors": { "origin": "*" },
+  "autoStartAgents": true
+}
+```
+
+See [../../docs/architecture.md](../../docs/architecture.md) and [../../docs/transport-protocol.md](../../docs/transport-protocol.md).

@@ -5,113 +5,67 @@ description: Explain what OpenHermit is, how to set it up, use the CLI, configur
 
 # OpenHermit Usage Guide
 
-You are an OpenHermit agent. When users ask about OpenHermit — what it is, how to use it, how to configure things — use this guide.
+Use this guide when explaining OpenHermit itself.
 
-## What is OpenHermit
+## What OpenHermit Is
 
-OpenHermit is a multi-agent platform for deploying and managing autonomous AI agents as production services. Key properties:
+OpenHermit is a TypeScript multi-agent platform with:
 
-- **Platform-first**: A central gateway manages many agents on shared infrastructure with a shared PostgreSQL database.
-- **Multi-user**: Multiple users interact with each agent via CLI, web, or channel adapters (Telegram, etc.). Users are identified and tracked with role-based access (owner / user / guest).
-- **Sandboxed**: Each agent runs code inside its own Docker workspace container, isolating actions from the host.
-- **Centralized state**: Sessions, memories, instructions, and user data live in PostgreSQL — not in per-agent files.
+- gateway-managed agents
+- PostgreSQL internal state through Drizzle stores
+- CLI, admin UI, and end-user web app
+- Telegram, Discord, and Slack channel adapters
+- cron/once schedules
+- prompt-based skills
+- MCP server tool integrations
+- Docker and local exec backends
 
-## Architecture
-
-```
-Gateway (control plane)
-  ├── Agent A ─── Container A
-  ├── Agent B ─── Container B
-  └── Agent C ─── Container C
-
-PostgreSQL (shared state store)
-```
-
-The gateway manages agent lifecycle, routing, and auth. Each agent has an in-process runtime and a Docker workspace container.
+The gateway manages agent lifecycle, auth, APIs, WebSocket/SSE transport, built-in channels, schedules, skills, and MCP assignments.
 
 ## Setup
 
 ```bash
-# Install
 npm install -g openhermit
-
-# Interactive setup (database, admin token, JWT secret)
 hermit setup
-
-# Start the gateway
 hermit gateway start
-
-# Verify
-hermit status
-hermit doctor
+hermit agents create main
+hermit agents start main
+hermit chat --agent-id main
 ```
 
-### Required Environment Variables
+`hermit setup` configures `.env`, can start local PostgreSQL through Docker Compose, applies Drizzle SQL migrations, and writes `OPENHERMIT_TOKEN` from the admin token for CLI use.
+
+## Environment
 
 | Variable | Description |
 |----------|-------------|
 | `DATABASE_URL` | PostgreSQL connection string |
-| `GATEWAY_ADMIN_TOKEN` | Admin token for gateway API |
+| `DATABASE_URL_TEST` | Test database URL |
+| `GATEWAY_ADMIN_TOKEN` | Admin bearer token |
 | `GATEWAY_JWT_SECRET` | JWT signing secret |
+| `OPENHERMIT_TOKEN` | CLI token, usually the admin token |
+| `OPENHERMIT_GATEWAY_URL` | Gateway URL, default `http://127.0.0.1:4000` |
+| `OPENHERMIT_AGENT_ID` | Default agent ID, default `main` |
+| `OPENHERMIT_WEB_PORT` | End-user web app port, default `4310` |
 
-Optional:
-| Variable | Description |
-|----------|-------------|
-| `OPENHERMIT_TOKEN` | CLI auth token (defaults to admin token) |
-| `OPENHERMIT_GATEWAY_URL` | Gateway URL (default: `http://127.0.0.1:4000`) |
-| `OPENHERMIT_AGENT_ID` | Default agent ID (default: `main`) |
+## CLI
 
-## CLI Commands
+| Area | Commands |
+|------|----------|
+| Setup | `hermit setup` |
+| Gateway | `hermit gateway start`, `stop`, `run`, `status` |
+| Agents | `hermit agents list`, `create`, `start`, `stop`, `remove` |
+| Chat | `hermit chat`, `hermit chat --agent-id <id>`, `--resume`, `--session <id>` |
+| Config | `hermit config show`, `get`, `set` |
+| Secrets | `hermit config secrets list`, `set`, `remove` |
+| Schedules | `hermit schedules list`, `create`, `pause`, `resume`, `delete`, `runs` |
+| Ops | `hermit status`, `hermit doctor`, `hermit logs` |
 
-### Platform Management
+## Agent Config
 
-| Command | What it does |
-|---------|-------------|
-| `hermit setup` | Interactive setup wizard |
-| `hermit gateway start` | Start gateway as daemon |
-| `hermit gateway stop` | Stop gateway daemon |
-| `hermit gateway run` | Run gateway in foreground |
-| `hermit status` | Gateway health + agent list |
-| `hermit doctor` | Environment health checks |
-| `hermit logs [-f] [-n N]` | View gateway logs |
+Agent config is stored at `~/.openhermit/agents/<agentId>/config.json`.
 
-### Agent Management
-
-| Command | What it does |
-|---------|-------------|
-| `hermit agents list` | List all agents |
-| `hermit agents create <id>` | Create a new agent |
-| `hermit agents start <id>` | Start an agent |
-| `hermit agents stop <id>` | Stop a running agent |
-| `hermit agents remove <id>` | Remove a stopped agent |
-
-### Chat
-
-| Command | What it does |
-|---------|-------------|
-| `hermit chat` | Interactive TUI chat |
-| `hermit chat --agent-id <id>` | Chat with a specific agent |
-| `hermit chat --resume` | Resume last session |
-| `hermit chat --session <name>` | Use a named session |
-
-### Configuration
-
-| Command | What it does |
-|---------|-------------|
-| `hermit config show` | Show full agent config |
-| `hermit config get <key>` | Get value by dot-path (`model.provider`) |
-| `hermit config set <key> <value>` | Set value by dot-path |
-| `hermit config secrets list` | List secrets (masked) |
-| `hermit config secrets set <key> <value>` | Set a secret |
-| `hermit config secrets remove <key>` | Remove a secret |
-
-All agent commands accept `--agent-id <id>` (default: `main` or `$OPENHERMIT_AGENT_ID`).
-
-## Agent Configuration
-
-Agent config is stored at `~/.openhermit/agents/<agentId>/config.json`. Key sections:
-
-### Model
+Model:
 
 ```json
 {
@@ -123,105 +77,95 @@ Agent config is stored at `~/.openhermit/agents/<agentId>/config.json`. Key sect
 }
 ```
 
-Set API keys as secrets: `hermit config secrets set ANTHROPIC_API_KEY <key>`
-
-### Execution Backend
-
-Agents can execute commands via Docker (default) or local shell:
+Exec:
 
 ```json
 {
   "exec": {
     "backends": [
-      { "type": "docker", "image": "node:20" },
+      { "type": "docker", "image": "ubuntu:24.04" },
       { "type": "local", "cwd": "/path/to/project" }
     ],
-    "default_backend": "docker"
-  }
-}
-```
-
-### Channels
-
-Enable Telegram:
-```json
-{
-  "channels": {
-    "telegram": {
-      "enabled": true,
-      "bot_token": "<bot-token-from-botfather>"
+    "default_backend": "docker",
+    "lifecycle": {
+      "start": "ondemand",
+      "stop": "idle",
+      "idle_timeout_minutes": 30
     }
   }
 }
 ```
 
-### Security Policy
+Channels:
 
 ```json
 {
-  "security": {
-    "autonomy_level": "supervised",
-    "require_approval_for": [],
-    "access": "protected",
-    "access_token": "<token>"
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "bot_token": "${{TELEGRAM_BOT_TOKEN}}",
+      "mode": "polling"
+    },
+    "discord": {
+      "enabled": true,
+      "bot_token": "${{DISCORD_BOT_TOKEN}}"
+    },
+    "slack": {
+      "enabled": true,
+      "bot_token": "${{SLACK_BOT_TOKEN}}",
+      "app_token": "${{SLACK_APP_TOKEN}}"
+    }
   }
 }
 ```
 
-Autonomy levels: `readonly` (observe only), `supervised` (ask before risky actions), `full` (autonomous).
+Store secrets with `hermit config secrets set KEY value` and reference them as `${{KEY}}`.
+
+Security policy is stored separately in `security.json`:
+
+```json
+{
+  "autonomy_level": "supervised",
+  "require_approval_for": ["exec"],
+  "access": "protected",
+  "access_token": "<token>"
+}
+```
 
 ## API
 
-The gateway exposes a multi-protocol API:
+Core routes:
 
-- **HTTP sync**: `POST /agents/{id}/sessions/{sid}/messages?wait=true`
-- **HTTP streaming**: `POST /agents/{id}/sessions/{sid}/messages?stream=true` (SSE)
-- **WebSocket**: `ws://host/agents/{id}/ws` (bidirectional RPC)
+- `POST /agents/{id}/sessions`
+- `GET /agents/{id}/sessions`
+- `POST /agents/{id}/sessions/{sessionId}/messages`
+- `POST /agents/{id}/sessions/{sessionId}/messages?wait=true`
+- `POST /agents/{id}/sessions/{sessionId}/messages?stream=true`
+- `GET /agents/{id}/sessions/{sessionId}/events`
+- `ws://host/agents/{id}/ws`
 
-### Common Patterns
+Example:
 
 ```bash
-# Send a message and wait for response
-curl -X POST http://localhost:4000/agents/main/sessions/my-session/messages?wait=true \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <token>" \
-  -d '{"text": "Hello, what can you do?"}'
-
-# List sessions
-curl http://localhost:4000/agents/main/sessions \
-  -H "Authorization: Bearer <token>"
+curl -X POST 'http://127.0.0.1:4000/agents/main/sessions/cli%3Adefault/messages?wait=true' \
+  -H "authorization: Bearer $OPENHERMIT_TOKEN" \
+  -H "content-type: application/json" \
+  -d '{"text":"Hello"}'
 ```
-
-## Skills
-
-Skills are prompt-based instructions that extend agent capabilities. They are loaded at startup and shown in the system prompt index.
-
-- **Platform skills**: Admin-managed, mounted read-only at `/skills/<id>/`
-- **Per-agent skills**: Owner-managed, enabled per agent
-- **Workspace skills**: Agent-installed at `/workspace/.openhermit/skills/<id>/`
-
-Read a skill: `cat /skills/<skill-id>/SKILL.md`
 
 ## Internal State
 
-All internal state is in PostgreSQL, scoped by `agent_id`:
+PostgreSQL stores agents, sessions, events, memories, instructions, users, containers, skills, MCP servers, schedules, and schedule runs.
 
-| Store | Contents |
-|-------|----------|
-| Sessions | Metadata, execution state, compaction summaries |
-| Messages | Full session history |
-| Memories | Long-term memory with full-text search |
-| Instructions | Agent identity and behavior instructions |
-| Users | Identities, roles, cross-identity linking |
-| Containers | Workspace container inventory |
-
-Per-agent local files (`~/.openhermit/agents/<agentId>/`) hold only runtime config, secrets, and security policy — not conversation data.
+Per-agent files contain config, security policy, secrets, and generated skill mounts. Workspace files are external task state, not conversation storage.
 
 ## Development
 
 ```bash
-npm run dev:gateway    # Gateway with hot reload
-npm run dev:cli        # CLI
-npm run dev:web        # Web UI at http://127.0.0.1:4310
-npm run dev:agent      # Standalone agent (no gateway)
+npm run dev:gateway
+npm run dev:web
+npm run dev:cli
+npm run dev:studio
+npm run typecheck
+npm test
 ```
