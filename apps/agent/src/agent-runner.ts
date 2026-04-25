@@ -71,6 +71,14 @@ import { loadSkillIndex } from './skills.js';
 import { Scheduler, type SchedulerHost } from './core/scheduler.js';
 import { McpClientManager } from './mcp-client.js';
 import { createMcpManagementToolset, createMcpStatusOnlyToolset } from './tools/mcp.js';
+import {
+  agentErrorsTotal,
+  agentMessagesTotal,
+  agentTokensTotal,
+  agentToolCallsTotal,
+  agentTurnDuration,
+  agentTurnsTotal,
+} from './metrics.js';
 
 const addUserIdToList = (existing: string[], userId: string | undefined): string[] => {
   if (!userId) return existing;
@@ -804,6 +812,11 @@ export class AgentRunner implements SessionRuntime {
       ...(messageUserName ? { name: messageUserName } : {}),
     });
 
+    agentMessagesTotal.inc({
+      agent_id: this.scope.agentId,
+      source: session.spec.source.kind,
+    });
+
     // Determine whether to trigger an agent response
     const isGroup = session.spec.source.type === 'group';
     const mentioned = message.mentioned !== false;
@@ -843,6 +856,7 @@ export class AgentRunner implements SessionRuntime {
             message.text,
           );
         }
+        session.turnStartMs = Date.now();
         await session.agent.prompt(createUserMessage(promptMessage));
       } catch (error) {
         await this.handleRunError(session, error);
@@ -939,6 +953,8 @@ export class AgentRunner implements SessionRuntime {
       const ts = new Date().toISOString();
       session.status = 'running';
       session.updatedAt = ts;
+
+      agentToolCallsTotal.inc({ agent_id: this.scope.agentId, tool: toolName });
 
       await this.events.publish({
         type: 'tool_call',
@@ -1756,6 +1772,8 @@ export class AgentRunner implements SessionRuntime {
           session.updatedAt = ts;
           void this.persistSessionIndex(session);
 
+          agentErrorsTotal.inc({ agent_id: this.scope.agentId, source: 'model' });
+
           this.logRuntime(`model error in ${session.spec.sessionId}: ${errorMsg}`);
 
           void this.events.publish({
@@ -1807,6 +1825,14 @@ export class AgentRunner implements SessionRuntime {
         const ts = new Date().toISOString();
         session.updatedAt = ts;
         void this.persistSessionIndex(session);
+
+        if (assistantMessage.usage) {
+          const u = assistantMessage.usage;
+          if (u.input) agentTokensTotal.inc({ agent_id: this.scope.agentId, direction: 'in' }, u.input);
+          if (u.output) agentTokensTotal.inc({ agent_id: this.scope.agentId, direction: 'out' }, u.output);
+          if (u.cacheRead) agentTokensTotal.inc({ agent_id: this.scope.agentId, direction: 'cache_read' }, u.cacheRead);
+          if (u.cacheWrite) agentTokensTotal.inc({ agent_id: this.scope.agentId, direction: 'cache_write' }, u.cacheWrite);
+        }
 
         void this.queueSideEffect(session, async () => {
           await this.store.messages.appendLogEntry(this.scope, session.spec.sessionId, {
@@ -1872,6 +1898,14 @@ export class AgentRunner implements SessionRuntime {
         session.completedTurnCount += 1;
         session.updatedAt = ts;
         session.status = 'idle';
+        agentTurnsTotal.inc({ agent_id: this.scope.agentId });
+        if (session.turnStartMs) {
+          agentTurnDuration.observe(
+            { agent_id: this.scope.agentId },
+            (Date.now() - session.turnStartMs) / 1000,
+          );
+          delete session.turnStartMs;
+        }
         void this.persistSessionIndex(session);
         this.scheduleIdleSummary(session);
         void this.queueBackgroundTask(session, async () => {
@@ -1933,6 +1967,14 @@ export class AgentRunner implements SessionRuntime {
     this.clearIdleSummaryTimer(session);
     session.updatedAt = ts;
     session.status = 'idle';
+    agentErrorsTotal.inc({ agent_id: this.scope.agentId, source: 'runtime' });
+    if (session.turnStartMs) {
+      agentTurnDuration.observe(
+        { agent_id: this.scope.agentId },
+        (Date.now() - session.turnStartMs) / 1000,
+      );
+      delete session.turnStartMs;
+    }
     await this.persistSessionIndex(session);
 
     if (this.options.langfuse && session.langfuseTurnContext) {

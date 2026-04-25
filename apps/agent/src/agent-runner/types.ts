@@ -28,6 +28,7 @@ export interface RunnerSession extends SessionDescriptor {
   resolvedUserRole?: UserRole;
   resolvedUserName?: string;
   langfuseTurnContext?: LangfuseTurnContext;
+  turnStartMs?: number;
 }
 
 export interface AgentRunnerOptions {

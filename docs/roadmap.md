@@ -107,16 +107,21 @@ and reach any single agent's detail view in one click.
 
 You cannot operate what you cannot see.
 
-### M2.1 — Metrics
+### M2.1 — Metrics ✅ shipped
 
-- Gateway exposes `/metrics` in Prometheus format.
-- Per-agent labels: turns, tokens (in/out), tool calls, channel messages,
-  error counts, p50/p95 turn latency.
-- Sparkline data in the fleet overview UI is sourced from the same metrics,
-  not fabricated.
-
-**Acceptance:** Scraping `/metrics` shows real time-series data; the admin UI
-sparklines reflect actual traffic.
+- Gateway exposes `/metrics` in Prometheus format (no auth — bind to
+  localhost or scrape via reverse proxy).
+- Per-agent metrics, all labeled by `agent_id`:
+  - `openhermit_agent_turns_total` — completed LLM turns
+  - `openhermit_agent_turn_duration_seconds` — histogram for p50/p95 latency
+  - `openhermit_agent_tokens_total{direction=in|out|cache_read|cache_write}`
+  - `openhermit_agent_tool_calls_total{tool}`
+  - `openhermit_agent_errors_total{source=runtime|model}`
+  - `openhermit_agent_messages_total{source}` — inbound messages by source
+    kind (web, telegram, discord, slack, …)
+- Default Node process metrics (CPU, heap, event loop) also exposed.
+- The fleet overview UI (M1.2) sparklines will source from these metrics,
+  not fabricated data.
 
 ### M2.2 — Cross-agent audit log
 

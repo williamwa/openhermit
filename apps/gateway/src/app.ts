@@ -30,6 +30,7 @@ import {
 } from '@openhermit/shared';
 
 import type { AgentRunner, SessionEventEnvelope } from '@openhermit/agent/agent-runner';
+import { metricsRegistry, startDefaultMetrics } from '@openhermit/agent/metrics';
 
 import type { AgentInstanceManager } from './agent-instance.js';
 import type { LogBuffer } from './log-buffer.js';
@@ -188,6 +189,11 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   const log = options.logger ?? ((msg: string) => console.log(msg));
   const app = new Hono();
 
+  // Register default Node.js process metrics (heap, CPU, event loop) on
+  // first app creation. The agent-runtime metrics are auto-registered when
+  // their module is imported.
+  startDefaultMetrics();
+
   // --- CORS ---
 
   app.use('*', cors({
@@ -336,6 +342,13 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   app.get('/health', (c) =>
     c.json({ ok: true, role: 'gateway' }),
   );
+
+  // --- prometheus metrics (no auth — bind to localhost or scrape via reverse proxy) ---
+
+  app.get('/metrics', async (c) => {
+    const body = await metricsRegistry.metrics();
+    return c.text(body, 200, { 'content-type': metricsRegistry.contentType });
+  });
 
   // --- agent CRUD (admin-only) ---
 
