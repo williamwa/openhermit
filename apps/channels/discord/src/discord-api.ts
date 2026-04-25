@@ -1,6 +1,7 @@
 import {
   Client,
   GatewayIntentBits,
+  Partials,
   type Message,
 } from 'discord.js';
 
@@ -27,6 +28,7 @@ export class DiscordApi {
         GatewayIntentBits.DirectMessages,
         GatewayIntentBits.MessageContent,
       ],
+      partials: [Partials.Channel],
     });
 
     this.client.once('ready', () => {
