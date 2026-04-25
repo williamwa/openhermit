@@ -753,6 +753,7 @@ export class AgentRunner implements SessionRuntime {
     await this.persistSessionIndex(session);
 
     const receivedAt = new Date().toISOString();
+    const messageUserName = session.resolvedUserName;
     await this.queueSideEffect(session, async () => {
       await this.store.messages.appendLogEntry(this.scope, session.spec.sessionId, {
         ts: receivedAt,
@@ -761,6 +762,7 @@ export class AgentRunner implements SessionRuntime {
         content: message.text,
         ...(message.attachments ? { attachments: message.attachments } : {}),
         ...(messageUserId ? { userId: messageUserId } : {}),
+        ...(messageUserName ? { userName: messageUserName } : {}),
         ...(message.metadata ? { metadata: message.metadata } : {}),
       });
     });
@@ -1314,116 +1316,117 @@ export class AgentRunner implements SessionRuntime {
     session.agent.sessionId = session.spec.sessionId;
   }
 
-  private static formatSessionEntry(entry: import('@openhermit/store').SessionLogEntry): string | undefined {
-    if (entry.role === 'user' && typeof entry.content === 'string') {
-      return `[USER] ${entry.content}`;
-    }
-
-    if (entry.role === 'assistant' && typeof entry.content === 'string') {
-      return `[ASSISTANT] ${entry.content}`;
-    }
-
-    if (entry.role === 'tool_call') {
-      const name = typeof entry.name === 'string' ? entry.name : 'unknown';
-      const args = entry.args !== undefined ? JSON.stringify(entry.args) : '';
-      return `[TOOL_CALL] ${name}(${args})`;
-    }
-
-    if (entry.role === 'tool_result') {
-      const name = typeof entry.name === 'string' ? entry.name : 'unknown';
-      const isError = entry.isError === true;
-      const content = typeof entry.content === 'string'
-        ? entry.content
-        : JSON.stringify(entry.content ?? '');
-      const prefix = isError ? '[TOOL_ERROR]' : '[TOOL_RESULT]';
-      return `${prefix} ${name}: ${content}`;
-    }
-
-    if (entry.role === 'error' && typeof entry.message === 'string') {
-      return `[ERROR] ${entry.message}`;
-    }
-
-    if (entry.role === 'system' && entry.type === 'introspection_start') {
-      const reason = typeof entry.reason === 'string' ? entry.reason : '';
-      return `[INTROSPECTION_START] reason: ${reason}`;
-    }
-
-    if (entry.role === 'system' && entry.type === 'introspection_end') {
-      const summary = typeof entry.summary === 'string' ? entry.summary : '';
-      return `[INTROSPECTION_END] ${summary}`;
-    }
-
-    return undefined;
-  }
-
-  /** Max share of the context window the resumption block may occupy. */
-  private static readonly RESUMPTION_BUDGET_RATIO = 0.5;
-
-  private async buildSessionResumptionBlock(
+  /**
+   * Rebuild the real AgentMessage[] from DB entries for session resumption.
+   * Produces the same message types the agent would have in memory if the
+   * session had been running continuously, so compaction and LLM conversion
+   * work identically to a live session.
+   */
+  private async buildResumptionMessages(
     sessionId: string,
-    config: AgentConfig,
-  ): Promise<AgentMessage | undefined> {
-    const parts: string[] = [];
-
-    // Load all session entries since the last compaction (or from beginning).
+  ): Promise<AgentMessage[]> {
     const { compactionSummary, entries } =
       await this.store.messages.listSessionEntriesSinceLastCompaction(this.scope, sessionId);
 
+    const messages: AgentMessage[] = [];
+
+    // If there was a previous compaction, inject its summary as a context block.
     if (compactionSummary?.trim()) {
-      parts.push('Previous session summary:', compactionSummary.trim(), '');
+      messages.push({
+        role: 'user',
+        content: [{ type: 'text', text: `Context compaction summary (runtime-generated, read-only context):\n\n${compactionSummary.trim()}` }],
+        timestamp: Date.now(),
+      });
     }
 
-    // Format all entries, then trim oldest to fit the token budget.
-    const formattedEntries = entries
-      .map((entry) => AgentRunner.formatSessionEntry(entry))
-      .filter((line): line is string => line !== undefined);
+    // Track the last assistant message so tool_call entries can be appended to it.
+    let lastAssistant: import('@mariozechner/pi-ai').AssistantMessage | null = null;
 
-    if (formattedEntries.length > 0) {
-      const model = resolveModel(config);
-      const budgetTokens = Math.floor(model.contextWindow * AgentRunner.RESUMPTION_BUDGET_RATIO);
-      const headerTokens = estimateTextTokens(parts.join('\n'));
+    for (const entry of entries) {
+      const ts = new Date(entry.ts).getTime() || Date.now();
 
-      // Drop oldest entries until we fit the budget.
-      let startIndex = 0;
-      let totalTokens = headerTokens + formattedEntries.reduce(
-        (sum, line) => sum + estimateTextTokens(line), 0,
-      );
+      // Skip introspection, system events, agent lifecycle
+      if (entry.role === 'system') continue;
+      if (entry.role === 'error') continue;
 
-      while (totalTokens > budgetTokens && startIndex < formattedEntries.length - 1) {
-        totalTokens -= estimateTextTokens(formattedEntries[startIndex]!);
-        startIndex++;
+      if (entry.role === 'user' && typeof entry.content === 'string') {
+        lastAssistant = null;
+        messages.push({ role: 'user', content: entry.content, timestamp: ts });
+        continue;
       }
 
-      const trimmedEntries = formattedEntries.slice(startIndex);
-
-      if (startIndex > 0) {
-        this.logDebug(
-          `[${sessionId}] resumption trimmed ${startIndex}/${formattedEntries.length} oldest entries `
-          + `to fit ${budgetTokens.toLocaleString()} token budget (${model.contextWindow.toLocaleString()} × ${AgentRunner.RESUMPTION_BUDGET_RATIO})`,
-        );
+      if (entry.role === 'assistant' && typeof entry.content === 'string') {
+        const content: import('@mariozechner/pi-ai').AssistantMessage['content'] = [];
+        if (typeof entry.thinking === 'string' && entry.thinking) {
+          content.push({ type: 'thinking', thinking: entry.thinking });
+        }
+        if (entry.content) {
+          content.push({ type: 'text', text: entry.content });
+        }
+        lastAssistant = {
+          role: 'assistant',
+          content,
+          api: 'anthropic-messages',
+          provider: typeof entry.provider === 'string' ? entry.provider : 'anthropic',
+          model: typeof entry.model === 'string' ? entry.model : 'unknown',
+          usage: (entry.usage as import('@mariozechner/pi-ai').Usage) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+          stopReason: (typeof entry.stopReason === 'string' ? entry.stopReason : 'stop') as import('@mariozechner/pi-ai').StopReason,
+          timestamp: ts,
+        };
+        messages.push(lastAssistant);
+        continue;
       }
 
-      parts.push(
-        'Conversation history since last compaction (including tool interactions):',
-        ...trimmedEntries,
-        '',
-      );
+      if (entry.role === 'tool_call') {
+        const toolCall: import('@mariozechner/pi-ai').ToolCall = {
+          type: 'toolCall',
+          id: typeof entry.toolCallId === 'string' ? entry.toolCallId : '',
+          name: typeof entry.name === 'string' ? entry.name : 'unknown',
+          arguments: (entry.args as Record<string, unknown>) ?? {},
+        };
+        if (lastAssistant) {
+          lastAssistant.content.push(toolCall);
+          if (lastAssistant.stopReason !== 'toolUse') {
+            lastAssistant.stopReason = 'toolUse';
+          }
+        } else {
+          // Orphan tool_call without a preceding assistant message — create one.
+          lastAssistant = {
+            role: 'assistant',
+            content: [toolCall],
+            api: 'anthropic-messages',
+            provider: 'anthropic',
+            model: 'unknown',
+            usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+            stopReason: 'toolUse',
+            timestamp: ts,
+          };
+          messages.push(lastAssistant!);
+        }
+        continue;
+      }
+
+      if (entry.role === 'tool_result') {
+        lastAssistant = null;
+        const text = typeof entry.content === 'string' ? entry.content : JSON.stringify(entry.content ?? '');
+        messages.push({
+          role: 'toolResult',
+          toolCallId: typeof entry.toolCallId === 'string' ? entry.toolCallId : '',
+          toolName: typeof entry.name === 'string' ? entry.name : 'unknown',
+          content: [{ type: 'text', text }],
+          isError: entry.isError === true,
+          timestamp: ts,
+        });
+        continue;
+      }
     }
 
-    if (parts.length === 0) {
-      return undefined;
-    }
+    this.logRuntime(
+      `[${sessionId}] resumed with ${messages.length} messages from DB`
+      + (compactionSummary ? ' (with compaction summary)' : ''),
+    );
 
-    return {
-      role: 'user',
-      content: [
-        {
-          type: 'text',
-          text: `Session resumption context (runtime-generated, read-only context):\n\n${parts.join('\n').trim()}`,
-        },
-      ],
-      timestamp: Date.now(),
-    };
+    return messages;
   }
 
   private async transformContext(
@@ -1438,14 +1441,13 @@ export class AgentRunner implements SessionRuntime {
     const contextBlocks: AgentMessage[] = [];
 
     // When a resumed session has at most 1 message in the current agent
-    // instance, inject prior session context so the LLM has history.
+    // instance, restore the full message history from DB so compaction
+    // and LLM conversion work identically to a live session.
     const session = this.sessions.get(sessionId);
+    let restoredMessages: AgentMessage[] = [];
     if (session?.resumed && messages.length <= 1) {
-      const resumptionBlock = await this.buildSessionResumptionBlock(sessionId, config);
-      if (resumptionBlock) {
-        contextBlocks.push(resumptionBlock);
-        session.resumed = false; // Only inject once.
-      }
+      restoredMessages = await this.buildResumptionMessages(sessionId);
+      session.resumed = false;
     }
 
     if (sessionWorking.trim()) {
@@ -1461,10 +1463,16 @@ export class AgentRunner implements SessionRuntime {
       });
     }
 
+    // Prepend restored history from DB so it's treated identically to
+    // messages that accumulated in memory during a live session.
+    const allMessages = restoredMessages.length > 0
+      ? [...restoredMessages, ...messages]
+      : messages;
+
     // Truncate oversized tool results before compaction so that a single
     // huge tool response cannot blow past the entire context window.
     const model = resolveModel(config);
-    const truncatedMessages = truncateToolResults(messages, model.contextWindow);
+    const truncatedMessages = truncateToolResults(allMessages, model.contextWindow);
 
     // Only offer LLM compaction when we have a dedicated API key.
     // When streamFn is provided (tests, proxied setups), the shared stream
