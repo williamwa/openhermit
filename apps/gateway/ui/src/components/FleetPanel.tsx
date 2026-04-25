@@ -110,6 +110,7 @@ export function FleetPanel() {
       )}
 
       {fleet.length > 0 && (
+        <div className="fleet-table-wrap">
         <table className="fleet-table">
           <thead>
             <tr>
@@ -173,6 +174,7 @@ export function FleetPanel() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
 
       <dialog ref={dialogRef} className="dialog">

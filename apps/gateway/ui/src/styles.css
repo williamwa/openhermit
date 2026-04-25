@@ -607,3 +607,126 @@ dialog::backdrop { background: rgba(9, 9, 11, 0.4); }
   color: var(--text-muted);
   border: 1px solid var(--border);
 }
+
+/* --- Mobile --- */
+
+.fleet-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 -0.5rem;
+}
+
+.fleet-table-wrap .fleet-table {
+  min-width: 720px;
+}
+
+@media (max-width: 720px) {
+  .panel {
+    padding: 1rem 0.75rem;
+  }
+
+  .panel__header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .panel__header h2 {
+    font-size: 1.1rem;
+  }
+
+  .panel__header-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .topbar {
+    padding: 0 0.75rem;
+    height: auto;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+
+  .topbar__brand {
+    margin-right: 0.5rem;
+  }
+
+  .topbar__tabs {
+    order: 3;
+    width: 100%;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .topbar__tabs::-webkit-scrollbar { display: none; }
+
+  .tab {
+    flex-shrink: 0;
+    padding: 0.4rem 0.7rem;
+    font-size: 0.85rem;
+  }
+
+  /* Agent / skill / MCP / schedule cards: stack info above actions */
+  .agent-card,
+  .skill-card,
+  .mcp-card,
+  .schedule-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .agent-card__actions,
+  .skill-card__actions,
+  .mcp-card__actions,
+  .schedule-card__actions {
+    flex-wrap: wrap;
+  }
+
+  /* Dialogs go full-width with margin */
+  .dialog,
+  .dialog--wide {
+    width: calc(100vw - 1.5rem);
+    max-width: calc(100vw - 1.5rem);
+  }
+
+  .dialog__form,
+  .dialog__inner {
+    padding: 1rem;
+  }
+
+  /* Stats grid stacks */
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stats-row {
+    grid-template-columns: 1fr;
+  }
+
+  /* Fleet panel header bits wrap nicely */
+  .fleet__sub {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.78rem;
+  }
+
+  /* Schedule runs table — already has its own wrap */
+  .schedule-runs-table {
+    font-size: 0.75rem;
+  }
+}
+
+@media (max-width: 420px) {
+  .topbar__brand {
+    font-size: 0.85rem;
+  }
+
+  .panel {
+    padding: 0.75rem 0.5rem;
+  }
+}
