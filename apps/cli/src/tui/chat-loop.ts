@@ -260,7 +260,7 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
       // The thinking was displayed as a streamed assistant message.
       // We can't un-render it in the TUI, but we add a label to indicate
       // it was reasoning, then the real output follows.
-      addText(dim(gray('  ↑ [thinking]')));
+      addText(dim(gray('[thinking]')));
     };
 
     try {
