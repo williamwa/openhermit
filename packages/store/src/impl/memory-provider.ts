@@ -175,7 +175,7 @@ export class DbMemoryProvider implements MemoryProvider {
       FROM memories
       WHERE agent_id = ${scope.agentId}
         AND memory_key LIKE ${pattern}
-      ORDER BY memory_key ASC
+      ORDER BY updated_at DESC
       LIMIT ${limit}
     `);
     return rows.rows.map((row) => ({
