@@ -10,7 +10,7 @@ import type { ChannelsConfig } from './core/types.js';
 export interface ChannelContext {
   agentBaseUrl: string;
   agentTokens: Record<string, string>;
-  logger: (message: string) => void;
+  logger: (channel: string, message: string) => void;
 }
 
 export interface ChannelHandle {
@@ -60,7 +60,7 @@ async function startDiscord(
   config: NonNullable<ChannelsConfig['discord']>,
   context: ChannelContext,
 ): Promise<ChannelHandle | undefined> {
-  const { logger } = context;
+  const log = (msg: string) => context.logger('discord', msg);
 
   try {
     const { DiscordApi, DiscordBridge, DiscordBot } = await import(
@@ -71,13 +71,13 @@ async function startDiscord(
     const bridge = new DiscordBridge(api, {
       baseUrl: context.agentBaseUrl,
       token: context.agentTokens['discord'] ?? '',
-    }, logger);
+    }, log);
 
     const bot = new DiscordBot({
       botToken: config.bot_token,
       discord: api,
       bridge,
-      logger,
+      logger: log,
     });
 
     await bot.start();
@@ -89,7 +89,7 @@ async function startDiscord(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    logger(`failed to start discord channel: ${message}`);
+    log(`failed to start discord channel: ${message}`);
     return undefined;
   }
 }
@@ -98,7 +98,7 @@ async function startSlack(
   config: NonNullable<ChannelsConfig['slack']>,
   context: ChannelContext,
 ): Promise<ChannelHandle | undefined> {
-  const { logger } = context;
+  const log = (msg: string) => context.logger('slack', msg);
 
   try {
     const { SlackApi, SlackBridge, SlackBot } = await import(
@@ -109,13 +109,13 @@ async function startSlack(
     const bridge = new SlackBridge(api, {
       baseUrl: context.agentBaseUrl,
       token: context.agentTokens['slack'] ?? '',
-    }, logger);
+    }, log);
 
     const bot = new SlackBot({
       appToken: config.app_token,
       slack: api,
       bridge,
-      logger,
+      logger: log,
     });
 
     await bot.start();
@@ -127,7 +127,7 @@ async function startSlack(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    logger(`failed to start slack channel: ${message}`);
+    log(`failed to start slack channel: ${message}`);
     return undefined;
   }
 }
@@ -136,7 +136,7 @@ async function startTelegram(
   config: NonNullable<ChannelsConfig['telegram']>,
   context: ChannelContext,
 ): Promise<ChannelHandle | undefined> {
-  const { logger } = context;
+  const log = (msg: string) => context.logger('telegram', msg);
 
   try {
     const { TelegramApi, TelegramBridge, TelegramBot } = await import(
@@ -147,13 +147,13 @@ async function startTelegram(
     const bridge = new TelegramBridge(api, {
       baseUrl: context.agentBaseUrl,
       token: context.agentTokens['telegram'] ?? '',
-    }, logger);
+    }, log);
 
     const botOptions: ConstructorParameters<typeof TelegramBot>[0] = {
       botToken: config.bot_token,
       bridge,
       mode: config.mode ?? 'polling',
-      logger,
+      logger: log,
     };
     if (config.webhook_url) botOptions.webhookUrl = config.webhook_url;
     if (config.webhook_port) botOptions.webhookPort = config.webhook_port;
@@ -168,7 +168,7 @@ async function startTelegram(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    logger(`failed to start telegram channel: ${message}`);
+    log(`failed to start telegram channel: ${message}`);
     return undefined;
   }
 }

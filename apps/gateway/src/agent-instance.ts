@@ -160,7 +160,7 @@ export class AgentInstanceManager {
           const handles = await startChannels(config.channels, {
             agentBaseUrl,
             agentTokens,
-            logger: (msg) => log(`[${agentId}] [telegram] ${msg}`),
+            logger: (channel, msg) => log(`[${agentId}] [${channel}] ${msg}`),
           });
           if (handles.length > 0) {
             this.channelHandles.set(agentId, handles);
