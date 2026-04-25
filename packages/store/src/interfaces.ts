@@ -59,6 +59,7 @@ export interface MemoryProvider {
   shutdown(): Promise<void>;
   add(scope: StoreScope, input: MemoryAddInput): Promise<MemoryEntry>;
   search(scope: StoreScope, query: string, options?: MemorySearchOptions): Promise<MemoryEntry[]>;
+  list(scope: StoreScope, prefix: string, options?: { limit?: number }): Promise<MemoryEntry[]>;
   get(scope: StoreScope, id: string): Promise<MemoryEntry | undefined>;
   update(scope: StoreScope, id: string, input: MemoryUpdateInput): Promise<MemoryEntry>;
   delete(scope: StoreScope, id: string): Promise<void>;

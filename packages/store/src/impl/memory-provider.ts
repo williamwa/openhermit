@@ -161,6 +161,32 @@ export class DbMemoryProvider implements MemoryProvider {
     return results.slice(0, limit);
   }
 
+  async list(scope: StoreScope, prefix: string, options?: { limit?: number }): Promise<MemoryEntry[]> {
+    const limit = Math.max(1, Math.min(50, options?.limit ?? 20));
+    const pattern = `${prefix}%`;
+    const rows = await this.db.execute<{
+      memory_key: string;
+      content: string;
+      metadata_json: string;
+      created_at: string;
+      updated_at: string;
+    }>(sql`
+      SELECT memory_key, content, metadata_json, created_at, updated_at
+      FROM memories
+      WHERE agent_id = ${scope.agentId}
+        AND memory_key LIKE ${pattern}
+      ORDER BY memory_key ASC
+      LIMIT ${limit}
+    `);
+    return rows.rows.map((row) => ({
+      id: row.memory_key,
+      content: row.content,
+      metadata: JSON.parse(row.metadata_json || '{}') as Record<string, unknown>,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  }
+
   async get(scope: StoreScope, id: string): Promise<MemoryEntry | undefined> {
     const [row] = await this.db.select().from(memories)
       .where(and(eq(memories.agentId, scope.agentId), eq(memories.memoryKey, id)));

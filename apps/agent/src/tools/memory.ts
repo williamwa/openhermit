@@ -108,6 +108,57 @@ export const createMemoryGetTool = ({
   },
 });
 
+const MemoryListParams = Type.Object({
+  prefix: Type.String({
+    description: 'Key prefix to list entries under (e.g. "user/usr-owner", "project", "agent"). Use empty string to list all.',
+  }),
+  limit: Type.Optional(
+    Type.Number({
+      description: 'Maximum number of entries to return. Defaults to 20.',
+    }),
+  ),
+});
+
+type MemoryListArgs = Static<typeof MemoryListParams>;
+
+export const createMemoryListTool = ({
+  memoryProvider,
+  storeScope,
+}: ToolContext): AgentTool<typeof MemoryListParams> => ({
+  name: 'memory_list',
+  label: 'List Memory',
+  description:
+    'List memory entries by key prefix. Returns keys with a content preview for each entry. Use this to browse what memories exist under a namespace (e.g. "user/usr-owner/", "project/", "agent/") before using memory_get or memory_recall for details.',
+  parameters: MemoryListParams,
+  execute: async (_toolCallId, args: MemoryListArgs) => {
+    if (!memoryProvider || !storeScope) {
+      throw new ValidationError('memory_list is unavailable: no memory provider is configured.');
+    }
+
+    const prefix = args.prefix.trim();
+    const limit = Math.max(1, Math.min(50, Math.trunc(args.limit ?? 20)));
+    const entries = await memoryProvider.list(storeScope, prefix, { limit });
+
+    if (entries.length === 0) {
+      return {
+        content: asTextContent(`No memory entries found under "${prefix}".\n`),
+        details: { prefix, limit, count: 0, entries: [] },
+      };
+    }
+
+    const summary = entries.map(e => ({
+      key: e.id,
+      preview: e.content.length > 120 ? `${e.content.slice(0, 120)}...` : e.content,
+      updatedAt: e.updatedAt,
+    }));
+
+    return {
+      content: asTextContent(formatJson(summary)),
+      details: { prefix, limit, count: entries.length, entries: summary },
+    };
+  },
+});
+
 export const createMemoryRecallTool = ({
   memoryProvider,
   storeScope,
@@ -263,7 +314,7 @@ You have persistent memory across sessions. The most valuable memory is one that
 
 **Do NOT save:** task progress, session outcomes, completed-work logs, content the user browsed, trivially re-discoverable facts, or raw data dumps.
 
-**When to recall:** Use \`memory_recall\` proactively when the user's question or task might relate to previously stored knowledge — preferences, project decisions, prior context. Memory is not automatically injected; you must search for it when relevant.
+**When to recall:** Use \`memory_list\` to browse what exists under a namespace (e.g. \`user/{userId}/\`, \`project/\`) before searching. Use \`memory_recall\` for keyword search when you know what you're looking for. Memory is not automatically injected; you must search for it when relevant.
 
 **ID namespacing (strict):**
 - \`agent/…\` — the agent's own identity and configuration (e.g. \`agent/name\`, \`agent/identity\`)
@@ -279,6 +330,7 @@ export const createMemoryToolset = (context: ToolContext): Toolset => ({
   description: MEMORY_DESCRIPTION,
   tools: [
     createMemoryGetTool(context),
+    createMemoryListTool(context),
     createMemoryRecallTool(context),
     createMemoryAddTool(context),
     createMemoryUpdateTool(context),
