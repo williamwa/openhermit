@@ -97,9 +97,12 @@ const handleRequest = async (
           sendError(ws, id, 'INVALID_PARAMS', 'Invalid SessionSpec params.');
           return;
         }
-        // Inject authenticated identity into session metadata
-        if (conn.auth.mode === 'user' && conn.auth.channelUserId) {
-          p.metadata = { ...(p.metadata as Record<string, unknown> ?? {}), username: conn.auth.channelUserId };
+        // Inject authenticated identity into new web sessions only
+        if (conn.auth.mode === 'user' && conn.auth.channelUserId && p.source?.kind === 'web') {
+          const meta = (p.metadata as Record<string, unknown>) ?? {};
+          if (!meta.username) {
+            p.metadata = { ...meta, username: conn.auth.channelUserId };
+          }
         }
         const session = await runtime.openSession(p);
         sendResult(ws, id, { sessionId: session.spec.sessionId });
