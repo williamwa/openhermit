@@ -16,6 +16,7 @@ export class SlackBot {
   private readonly bridge: SlackBridge;
   private readonly log: (message: string) => void;
   private botUserId: string | undefined;
+  private readonly recentlyHandled = new Set<string>();
 
   constructor(private readonly options: BotOptions) {
     this.slack = options.slack;
@@ -56,14 +57,17 @@ export class SlackBot {
     if (event.bot_id) return;
     if (!event.text || !event.user) return;
 
+    // Deduplicate: Slack sends both `message` and `app_mention` for @mentions.
+    const eventKey = event.ts;
+    if (this.recentlyHandled.has(eventKey)) return;
+    this.recentlyHandled.add(eventKey);
+    setTimeout(() => this.recentlyHandled.delete(eventKey), 10_000);
+
     const isDm = event.channel_type === 'im';
     const isMentioned = isDm || this.isMentioned(event.text);
-
-    if (!isDm && !isMentioned) return;
-
     const text = this.stripMention(event.text);
 
-    if (text === 'new' || text === '/new') {
+    if (isMentioned && (text === 'new' || text === '/new')) {
       try {
         await this.bridge.handleNewSession(event.channel, event.thread_ts);
       } catch (error) {
@@ -77,6 +81,7 @@ export class SlackBot {
       await this.bridge.handleMessage({
         ...event,
         text,
+        mentioned: isMentioned,
       });
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);

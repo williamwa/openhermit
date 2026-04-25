@@ -85,7 +85,7 @@ export class SlackBridge implements ChannelOutbound {
     return sessionId;
   }
 
-  async handleMessage(event: SlackMessageEvent): Promise<void> {
+  async handleMessage(event: SlackMessageEvent & { mentioned?: boolean }): Promise<void> {
     const channelId = event.channel;
     const text = event.text?.trim();
 
@@ -93,9 +93,10 @@ export class SlackBridge implements ChannelOutbound {
 
     const threadTs = event.thread_ts;
     const isDm = event.channel_type === 'im';
+    const mentioned = event.mentioned ?? isDm;
     const sessionId = await this.getSessionId(channelId, threadTs);
 
-    await this.sendToAgent(channelId, sessionId, text, event, isDm, threadTs);
+    await this.sendToAgent(channelId, sessionId, text, event, isDm, mentioned, threadTs);
   }
 
   async handleNewSession(channelId: string, threadTs?: string): Promise<void> {
@@ -120,6 +121,7 @@ export class SlackBridge implements ChannelOutbound {
     text: string,
     event: SlackMessageEvent,
     isDm: boolean,
+    mentioned: boolean,
     threadTs?: string,
   ): Promise<void> {
     await this.ensureSession(sessionId, event, isDm, threadTs);
@@ -132,8 +134,9 @@ export class SlackBridge implements ChannelOutbound {
       } catch { /* ignore */ }
     }
 
-    await this.client.postMessage(sessionId, {
+    const postResult = await this.client.postMessage(sessionId, {
       text,
+      mentioned,
       ...(event.user ? {
         sender: {
           channel: 'slack',
@@ -142,6 +145,8 @@ export class SlackBridge implements ChannelOutbound {
         },
       } : {}),
     });
+
+    if (!(postResult as any).triggered) return;
 
     const result = await this.waitForAgentResponse(sessionId, channelId, threadTs);
 
