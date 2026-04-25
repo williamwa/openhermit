@@ -333,6 +333,42 @@ export class GatewayClient {
     await this.putJson(`/api/admin/agents/${encodeURIComponent(agentId)}/secrets`, secrets);
   }
 
+  // --- skills (admin) ---
+
+  async listSkills(): Promise<unknown[]> {
+    return this.getJson(`/api/admin/skills`);
+  }
+
+  async listSkillAssignments(): Promise<Array<{ agentId: string; skillId: string; enabled: boolean }>> {
+    return this.getJson(`/api/admin/skills/assignments`);
+  }
+
+  async enableSkill(skillId: string, agentId: string): Promise<void> {
+    await this.postJson(`/api/admin/skills/${encodeURIComponent(skillId)}/enable`, { agentId });
+  }
+
+  async disableSkill(skillId: string, agentId: string): Promise<void> {
+    await this.postJson(`/api/admin/skills/${encodeURIComponent(skillId)}/disable`, { agentId });
+  }
+
+  // --- mcp servers (admin) ---
+
+  async listMcpServers(): Promise<unknown[]> {
+    return this.getJson(`/api/admin/mcp-servers`);
+  }
+
+  async listMcpAssignments(): Promise<Array<{ agentId: string; mcpServerId: string; enabled: boolean }>> {
+    return this.getJson(`/api/admin/mcp-servers/assignments`);
+  }
+
+  async enableMcpServer(mcpServerId: string, agentId: string): Promise<void> {
+    await this.postJson(`/api/admin/mcp-servers/${encodeURIComponent(mcpServerId)}/enable`, { agentId });
+  }
+
+  async disableMcpServer(mcpServerId: string, agentId: string): Promise<void> {
+    await this.postJson(`/api/admin/mcp-servers/${encodeURIComponent(mcpServerId)}/disable`, { agentId });
+  }
+
   /**
    * Returns an `AgentLocalClient` whose requests are routed through the
    * gateway at `/agents/:agentId/...`. The agent-local client sees the

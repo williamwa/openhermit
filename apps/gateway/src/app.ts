@@ -1484,12 +1484,23 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     return c.json({ ok: true });
   });
 
+  const syncAffectedAgentMcp = async (agentId: string): Promise<void> => {
+    const ids = agentId === '*' ? instances.getRunningAgentIds() : [agentId];
+    for (const id of ids) {
+      const runner = instances.getRunner(id);
+      if (runner) {
+        await runner.reloadMcpServers();
+      }
+    }
+  };
+
   app.post('/api/admin/mcp-servers/:id/enable', async (c) => {
     requireAdmin(c.req.header('authorization'));
     const store = requireMcpServerStore();
     const body = await c.req.json() as Record<string, unknown>;
     const agentId = typeof body.agentId === 'string' ? body.agentId : '*';
     await store.enable(agentId, c.req.param('id'));
+    await syncAffectedAgentMcp(agentId);
     return c.json({ ok: true });
   });
 
@@ -1499,6 +1510,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const body = await c.req.json() as Record<string, unknown>;
     const agentId = typeof body.agentId === 'string' ? body.agentId : '*';
     await store.disable(agentId, c.req.param('id'));
+    await syncAffectedAgentMcp(agentId);
     return c.json({ ok: true });
   });
 

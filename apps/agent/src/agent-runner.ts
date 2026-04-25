@@ -183,6 +183,28 @@ export class AgentRunner implements SessionRuntime {
     await this.scheduler?.reload();
   }
 
+  /**
+   * Disconnect any active MCP clients and reconnect against the current
+   * enabled list. Called after admin actions that change MCP assignments
+   * (including wildcard `agent_id = '*'` assignments) so running agents
+   * pick up changes without a restart. If MCP has not been initialized
+   * yet (no session has run), this is a no-op — the next session will
+   * connect lazily against the fresh list.
+   */
+  async reloadMcpServers(): Promise<void> {
+    if (!this.options.mcpServerStore) return;
+    if (this.mcpClientManager) {
+      await this.mcpClientManager.disconnectAll();
+      this.mcpClientManager = undefined;
+    }
+    const mcpServers = await this.options.mcpServerStore.listEnabled(this.scope.agentId);
+    if (mcpServers.length > 0) {
+      this.mcpClientManager = new McpClientManager();
+      await this.mcpClientManager.connectAll(mcpServers);
+    }
+    this.logRuntime(`mcp: reloaded (${mcpServers.length} server(s) enabled)`);
+  }
+
   /** Register a channel outbound adapter (called after channel startup). */
   registerChannelOutbound(adapter: import('@openhermit/protocol').ChannelOutbound): void {
     this.channelOutbound.set(adapter.channel, adapter);

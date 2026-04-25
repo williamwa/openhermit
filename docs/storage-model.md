@@ -48,6 +48,41 @@ Agent-scoped tables:
 | `schedules` | Cron and one-shot schedule definitions |
 | `schedule_runs` | Schedule execution history |
 
+## Wildcard assignments (`agent_id = '*'`)
+
+Some assignment tables support a wildcard agent identifier `'*'` that means
+"every agent." A wildcard assignment is a single row stored once; it is
+matched at query time, not fanned out at write time:
+
+```sql
+WHERE agent_id IN ($agentId, '*')
+```
+
+This means:
+
+- One write affects every agent, including agents created later.
+- Removing the wildcard removes it for all agents in one operation.
+- There are no per-agent rows to keep in sync.
+
+| Table | Wildcard supported | Runtime sync on change |
+|-------|--------------------|------------------------|
+| `agent_skills` | ✅ | gateway calls `syncAffectedAgentSkillMounts` |
+| `agent_mcp_servers` | ✅ | gateway calls `runner.reloadMcpServers()` |
+| `schedules` | ❌ — each schedule is owned by exactly one agent | n/a |
+| `agent_channels` | ❌ — adapters bind to a specific bot identity | n/a |
+
+The admin UI, REST API, and CLI all accept `*` in the `agentId` field to
+write or remove a wildcard assignment. Example:
+
+```bash
+hermit skills enable my-skill --agent '*'
+hermit mcp enable my-mcp-server --agent '*'
+```
+
+When designing a new assignment table, prefer the wildcard pattern unless
+the resource semantically requires per-agent identity (channels) or
+per-agent ownership (schedules).
+
 ## Memory Search
 
 `memories.content_tsv` is a generated PostgreSQL `tsvector` column created by migration SQL or lazily by `DbMemoryProvider.ensureFts()`. Search uses:

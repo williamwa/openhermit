@@ -10,6 +10,8 @@ import { registerLogsCommand } from './commands/logs.js';
 import { registerSetupCommand } from './commands/setup.js';
 import { registerConfigCommand } from './commands/config.js';
 import { registerSchedulesCommand } from './commands/schedules.js';
+import { registerSkillsCommand } from './commands/skills.js';
+import { registerMcpCommand } from './commands/mcp.js';
 
 await loadEnv();
 
@@ -31,5 +33,7 @@ registerStatusCommand(program);
 registerDoctorCommand(program);
 registerLogsCommand(program);
 registerSchedulesCommand(program);
+registerSkillsCommand(program);
+registerMcpCommand(program);
 
 await program.parseAsync(process.argv);
