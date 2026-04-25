@@ -1237,6 +1237,7 @@ export class AgentRunner implements SessionRuntime {
     const GUEST_BLOCKED_TOOLS = new Set([
       'exec',
       'schedule_create', 'schedule_update', 'schedule_delete', 'schedule_trigger',
+      'mcp_enable', 'mcp_disable',
     ]);
     const filteredTools = isGuestRole
       ? tools.filter((t: any) => !GUEST_BLOCKED_TOOLS.has(t.name))
