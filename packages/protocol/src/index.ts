@@ -38,6 +38,9 @@ export interface SessionMessage {
   attachments?: SessionAttachment[];
   sender?: MessageSender;
   metadata?: Record<string, unknown>;
+  /** Whether the bot was explicitly mentioned. When false in a group session,
+   *  the server may inject instead of prompting based on user role. */
+  mentioned?: boolean;
 }
 
 export type SessionHistoryRole = 'user' | 'assistant' | 'error' | 'tool' | 'introspection';

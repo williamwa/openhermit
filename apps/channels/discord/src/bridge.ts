@@ -86,22 +86,6 @@ export class DiscordBridge implements ChannelOutbound {
     await this.sendToAgent(event, sessionId, text);
   }
 
-  async injectMessage(event: DiscordMessageEvent): Promise<void> {
-    const text = event.text.trim();
-    if (!text) return;
-
-    const sessionId = await this.getSessionId(event.channelId);
-    await this.ensureSession(sessionId, event);
-    await this.client.injectMessage(sessionId, {
-      text,
-      sender: {
-        channel: 'discord',
-        channelUserId: event.userId,
-        displayName: event.displayName,
-      },
-    });
-  }
-
   async handleNewSession(channelId: string): Promise<void> {
     const oldSessionId = this.channelSessions.get(channelId);
 
@@ -124,16 +108,19 @@ export class DiscordBridge implements ChannelOutbound {
   ): Promise<void> {
     await this.ensureSession(sessionId, event);
 
-    void this.discord.startTyping(event.channelId);
-
-    await this.client.postMessage(sessionId, {
+    const postResult = await this.client.postMessage(sessionId, {
       text,
+      mentioned: event.mentioned,
       sender: {
         channel: 'discord',
         channelUserId: event.userId,
         displayName: event.displayName,
       },
     });
+
+    if (!(postResult as any).triggered) return;
+
+    void this.discord.startTyping(event.channelId);
 
     const result = await this.waitForAgentResponse(sessionId, event.channelId);
 

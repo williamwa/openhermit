@@ -222,7 +222,6 @@ export class TelegramBridge implements ChannelOutbound {
   ): Promise<void> {
     const mentioned = isGroup ? await this.isMentioned(message) : true;
 
-    // Ensure session exists.
     await this.ensureSession(sessionId, message, isGroup);
 
     const displayName = message.from?.first_name || message.from?.username;
@@ -236,15 +235,11 @@ export class TelegramBridge implements ChannelOutbound {
         }
       : {};
 
-    // Non-mentioned group messages: inject as context without triggering a response
-    if (isGroup && !mentioned) {
-      await this.client.injectMessage(sessionId, { text, ...senderPayload });
-      return;
-    }
+    const postResult = await this.client.postMessage(sessionId, { text, mentioned, ...senderPayload });
+
+    if (!(postResult as any).triggered) return;
 
     void this.telegram.sendChatAction(chatId).catch(() => undefined);
-
-    await this.client.postMessage(sessionId, { text, ...senderPayload });
 
     const result = await this.waitForAgentResponse(sessionId, chatId);
 

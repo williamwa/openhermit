@@ -655,6 +655,15 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const waitMode = url.searchParams.get('wait') === 'true';
     const streamMode = url.searchParams.get('stream') === 'true';
 
+    // For fire-and-forget or when the server decides not to trigger (guest + not mentioned in group),
+    // we can handle it early in wait/stream modes too.
+    if (!waitMode && !streamMode) {
+      const result = await runtime.postMessage(sessionId, payload);
+      return c.json(result);
+    }
+
+    // Check if the message will actually trigger a response before setting up SSE/wait.
+    // We need to post first, then check `triggered`.
     if (waitMode) {
       const timeoutMs = parsePositiveIntegerQuery(
         url.searchParams.get('timeout') ?? undefined,
@@ -719,6 +728,11 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
       const result = await runtime.postMessage(sessionId, payload);
       messageId = result.messageId;
 
+      if (!result.triggered) {
+        cleanup();
+        return c.json({ sessionId, ...(messageId ? { messageId } : {}), text: null, toolCalls: [], triggered: false } satisfies SyncResponse & { triggered: boolean });
+      }
+
       if (done) {
         cleanup();
         return c.json({
@@ -754,6 +768,11 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
 
       const result = await runtime.postMessage(sessionId, payload);
 
+      if (!result.triggered) {
+        unsubscribe();
+        return c.json(result);
+      }
+
       return streamSSE(c, async (stream) => {
         streamApi = stream;
 
@@ -782,10 +801,6 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
         }
       });
     }
-
-    // Default: fire-and-forget.
-    const result = await runtime.postMessage(sessionId, payload);
-    return c.json(result);
   });
 
   app.get(gatewayRoutes.agentSessionMessagesPattern, async (c) => {

@@ -718,7 +718,7 @@ export class AgentRunner implements SessionRuntime {
   async postMessage(
     sessionId: string,
     message: SessionMessage,
-  ): Promise<{ sessionId: string; messageId?: string }> {
+  ): Promise<{ sessionId: string; messageId?: string; triggered: boolean }> {
     const session = this.getRequiredSession(sessionId);
     this.clearIdleSummaryTimer(session);
     session.updatedAt = new Date().toISOString();
@@ -767,12 +767,22 @@ export class AgentRunner implements SessionRuntime {
       });
     });
 
-    // In group sessions, prefix the message with the sender's display name
-    // so the model can distinguish who is speaking
+    // Determine whether to trigger an agent response
     const isGroup = session.spec.source.type === 'group';
-    const promptMessage = isGroup && message.sender?.displayName
-      ? { ...message, text: `[${message.sender.displayName}] ${message.text}` }
-      : message;
+    const mentioned = message.mentioned !== false;
+    const isGuestRole = !session.resolvedUserRole || session.resolvedUserRole === 'guest';
+
+    // Group + guest + not mentioned → inject only, don't trigger agent
+    if (isGroup && !mentioned && isGuestRole) {
+      session.status = 'idle';
+      return { sessionId, ...(message.messageId ? { messageId: message.messageId } : {}), triggered: false };
+    }
+
+    // In group sessions, prefix the message with the sender's display name
+    const promptText = isGroup && message.sender?.displayName
+      ? `[${message.sender.displayName}] ${mentioned ? message.text : `[not directed at you] ${message.text}`}`
+      : mentioned ? message.text : `[not directed at you] ${message.text}`;
+    const promptMessage = { ...message, text: promptText };
 
     const run = async (): Promise<void> => {
       try {
@@ -795,14 +805,11 @@ export class AgentRunner implements SessionRuntime {
 
     session.queue = session.queue.then(run, run);
 
-    if (message.messageId) {
-      return {
-        sessionId,
-        messageId: message.messageId,
-      };
-    }
-
-    return { sessionId };
+    return {
+      sessionId,
+      ...(message.messageId ? { messageId: message.messageId } : {}),
+      triggered: true,
+    };
   }
 
   async injectMessage(

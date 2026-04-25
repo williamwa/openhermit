@@ -13,6 +13,7 @@ export interface DiscordMessageEvent {
   text: string;
   messageId: string;
   isDm: boolean;
+  mentioned: boolean;
   guildId?: string;
 }
 

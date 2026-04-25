@@ -42,32 +42,10 @@ export class DiscordBot {
     if (!message.content) return;
 
     const isDm = message.channel.type === ChannelType.DM;
-    const isMentioned = isDm || this.isMentioned(message);
+    const mentioned = isDm || this.isMentioned(message);
     const text = this.stripMention(message.content);
 
-    const event: DiscordMessageEvent = {
-      channelId: message.channelId,
-      userId: message.author.id,
-      username: message.author.username,
-      displayName: message.member?.displayName ?? message.author.displayName ?? message.author.username,
-      text,
-      messageId: message.id,
-      isDm,
-      ...(message.guildId ? { guildId: message.guildId } : {}),
-    };
-
-    // Non-mentioned group messages: inject as context without triggering a response
-    if (!isDm && !isMentioned) {
-      try {
-        await this.bridge.injectMessage(event);
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        this.log(`error injecting message in ${message.channelId}: ${msg}`);
-      }
-      return;
-    }
-
-    if (text === 'new' || text === '/new') {
+    if (mentioned && (text === 'new' || text === '/new')) {
       try {
         await this.bridge.handleNewSession(message.channelId);
       } catch (error) {
@@ -77,14 +55,28 @@ export class DiscordBot {
       return;
     }
 
+    const event: DiscordMessageEvent = {
+      channelId: message.channelId,
+      userId: message.author.id,
+      username: message.author.username,
+      displayName: message.member?.displayName ?? message.author.displayName ?? message.author.username,
+      text,
+      messageId: message.id,
+      isDm,
+      mentioned,
+      ...(message.guildId ? { guildId: message.guildId } : {}),
+    };
+
     try {
       await this.bridge.handleMessage(event);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       this.log(`error handling message in ${message.channelId}: ${msg}`);
-      try {
-        await message.reply('Sorry, something went wrong. Please try again.');
-      } catch { /* ignore */ }
+      if (mentioned) {
+        try {
+          await message.reply('Sorry, something went wrong. Please try again.');
+        } catch { /* ignore */ }
+      }
     }
   }
 
