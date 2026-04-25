@@ -74,6 +74,7 @@ const HttpApiConfigSchema = z.object({
 const IntrospectionConfigSchema = z.object({
   enabled: z.boolean(),
   turn_interval: z.number(),
+  passive_turn_interval: z.number(),
   idle_timeout_minutes: z.number(),
   max_tool_calls: z.number(),
   model: z.string().nullable(),

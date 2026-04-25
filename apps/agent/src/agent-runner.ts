@@ -610,6 +610,14 @@ export class AgentRunner implements SessionRuntime {
     return DEFAULT_INTROSPECTION_CONFIG.turn_interval;
   }
 
+  private getPassiveTurnInterval(config?: AgentConfig): number {
+    const introspection = config?.memory.introspection;
+    if (introspection?.enabled && introspection.passive_turn_interval > 0) {
+      return introspection.passive_turn_interval;
+    }
+    return DEFAULT_INTROSPECTION_CONFIG.passive_turn_interval;
+  }
+
   private clearIdleSummaryTimer(session: RunnerSession): void {
     if (!session.idleSummaryTimer) {
       return;
@@ -781,6 +789,16 @@ export class AgentRunner implements SessionRuntime {
     // Group + not mentioned → store only, don't trigger agent
     if (isGroup && !mentioned) {
       session.status = 'idle';
+      void this.queueBackgroundTask(session, async () => {
+        const config = await this.options.security.readConfig();
+        const passiveInterval = this.getPassiveTurnInterval(config);
+        const userMsgCount = await this.store.messages.getUserMessagesSinceLastIntrospection(
+          this.scope, sessionId,
+        );
+        if (userMsgCount >= passiveInterval) {
+          await this.runSessionCheckpoint(session, 'idle');
+        }
+      });
       return { sessionId, ...(message.messageId ? { messageId: message.messageId } : {}), triggered: false };
     }
 

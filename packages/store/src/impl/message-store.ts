@@ -210,6 +210,18 @@ export class DbMessageStore implements MessageStore {
     return row?.count ?? 0;
   }
 
+  async getUserMessagesSinceLastIntrospection(scope: StoreScope, sessionId: string): Promise<number> {
+    const lastId = await this.getLastIntrospectionEventId(scope, sessionId);
+    const [row] = await this.db.select({ count: sql<number>`count(*)::int` }).from(sessionEvents)
+      .where(and(
+        eq(sessionEvents.agentId, scope.agentId),
+        eq(sessionEvents.sessionId, sessionId),
+        eq(sessionEvents.eventType, 'user'),
+        gt(sessionEvents.id, lastId),
+      ));
+    return row?.count ?? 0;
+  }
+
   async listSessionEntries(scope: StoreScope, sessionId: string): Promise<SessionLogEntry[]> {
     const rows = await this.db.select({ payloadJson: sessionEvents.payloadJson }).from(sessionEvents)
       .where(and(eq(sessionEvents.agentId, scope.agentId), eq(sessionEvents.sessionId, sessionId)))

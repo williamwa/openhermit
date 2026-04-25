@@ -37,6 +37,7 @@ export interface HttpApiConfig {
 export interface IntrospectionConfig {
   enabled: boolean;
   turn_interval: number;
+  passive_turn_interval: number;
   idle_timeout_minutes: number;
   max_tool_calls: number;
   model: string | null;
@@ -45,6 +46,7 @@ export interface IntrospectionConfig {
 export const DEFAULT_INTROSPECTION_CONFIG: IntrospectionConfig = {
   enabled: true,
   turn_interval: 5,
+  passive_turn_interval: 20,
   idle_timeout_minutes: 10,
   max_tool_calls: 10,
   model: null,

@@ -44,6 +44,7 @@ export interface MessageStore {
   getLatestEventId(scope: StoreScope, sessionId: string): Promise<number>;
   getLastIntrospectionEventId(scope: StoreScope, sessionId: string): Promise<number>;
   getTurnsSinceLastIntrospection(scope: StoreScope, sessionId: string): Promise<number>;
+  getUserMessagesSinceLastIntrospection(scope: StoreScope, sessionId: string): Promise<number>;
   listSessionEntries(scope: StoreScope, sessionId: string): Promise<SessionLogEntry[]>;
   getSessionWorkingMemory(scope: StoreScope, sessionId: string): Promise<string | undefined>;
   setSessionWorkingMemory(scope: StoreScope, sessionId: string, content: string, updatedAt: string): Promise<void>;
