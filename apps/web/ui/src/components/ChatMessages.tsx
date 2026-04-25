@@ -1,7 +1,53 @@
 import { useEffect, useRef, useMemo } from 'react';
-import { marked } from 'marked';
+import { marked, type TokenizerExtension, type RendererExtension } from 'marked';
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
 import remend from 'remend';
 import { apiFetch } from '../api';
+
+// ─── KaTeX extension for marked ────────────────────────────────────────────
+
+const mathInline: TokenizerExtension & RendererExtension = {
+  name: 'mathInline',
+  level: 'inline',
+  start(src: string) { return src.indexOf('$'); },
+  tokenizer(src: string) {
+    const match = src.match(/^\$([^\$\n]+?)\$/);
+    if (match) {
+      return { type: 'mathInline', raw: match[0], text: match[1] };
+    }
+    return undefined;
+  },
+  renderer(token) {
+    try {
+      return katex.renderToString(token.text, { throwOnError: false });
+    } catch {
+      return token.raw;
+    }
+  },
+};
+
+const mathBlock: TokenizerExtension & RendererExtension = {
+  name: 'mathBlock',
+  level: 'block',
+  start(src: string) { return src.indexOf('$$'); },
+  tokenizer(src: string) {
+    const match = src.match(/^\$\$([\s\S]+?)\$\$/);
+    if (match) {
+      return { type: 'mathBlock', raw: match[0], text: match[1].trim() };
+    }
+    return undefined;
+  },
+  renderer(token) {
+    try {
+      return `<div class="math-block">${katex.renderToString(token.text, { throwOnError: false, displayMode: true })}</div>`;
+    } catch {
+      return `<pre>${token.raw}</pre>`;
+    }
+  },
+};
+
+marked.use({ extensions: [mathBlock, mathInline] });
 
 // ─── Markdown renderer ─────────────────────────────────────────────────────
 
