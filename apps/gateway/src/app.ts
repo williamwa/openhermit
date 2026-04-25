@@ -944,6 +944,39 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
 
   // --- admin API ---
 
+  app.get('/api/admin/agents/fleet', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    if (!agentStore) return c.json([]);
+
+    const records = await agentStore.list();
+    const agentIds = records.map((r) => r.agentId);
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const stats = await agentStore.fleetStats(agentIds, since);
+
+    const fleet = await Promise.all(records.map(async (record) => {
+      const stat = stats.get(record.agentId) ?? {
+        sessions24h: 0, errors24h: 0, skillsCount: 0, mcpCount: 0,
+      };
+      const runner = instances.getRunner(record.agentId);
+      const channelStatuses = instances.getChannelStatuses(record.agentId);
+      const channelsEnabled = channelStatuses
+        .filter((s) => s.status === 'connected')
+        .map((s) => s.name);
+      return {
+        agentId: record.agentId,
+        ...(record.name ? { name: record.name } : {}),
+        status: runner ? 'running' as const : 'stopped' as const,
+        sessions24h: stat.sessions24h,
+        errors24h: stat.errors24h,
+        ...(stat.lastActivity ? { lastActivity: stat.lastActivity } : {}),
+        channels: channelsEnabled,
+        skillsCount: stat.skillsCount,
+        mcpCount: stat.mcpCount,
+      };
+    }));
+    return c.json(fleet);
+  });
+
   app.get('/api/admin/stats', async (c) => {
     requireAdmin(c.req.header('authorization'));
     const memoryUsage = process.memoryUsage();

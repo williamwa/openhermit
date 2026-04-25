@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, getToken, setToken } from './api';
 import { AuthScreen } from './components/AuthScreen';
 import { Topbar } from './components/Topbar';
+import { FleetPanel } from './components/FleetPanel';
 import { AgentsPanel } from './components/AgentsPanel';
 import { SkillsPanel } from './components/SkillsPanel';
 import { McpServersPanel } from './components/McpServersPanel';
@@ -9,12 +10,12 @@ import { SchedulesPanel } from './components/SchedulesPanel';
 import { StatsPanel } from './components/StatsPanel';
 import { LogsPanel } from './components/LogsPanel';
 
-type Tab = 'agents' | 'skills' | 'mcp-servers' | 'schedules' | 'stats' | 'logs';
+type Tab = 'fleet' | 'agents' | 'skills' | 'mcp-servers' | 'schedules' | 'stats' | 'logs';
 
 export function App() {
   const [authed, setAuthed] = useState(false);
   const [checking, setChecking] = useState(true);
-  const [tab, setTab] = useState<Tab>('agents');
+  const [tab, setTab] = useState<Tab>('fleet');
 
   useEffect(() => {
     if (!getToken()) {
@@ -47,6 +48,7 @@ export function App() {
   return (
     <div className="shell">
       <Topbar tab={tab} onTabChange={setTab} onSignOut={handleSignOut} />
+      {tab === 'fleet' && <FleetPanel />}
       {tab === 'agents' && <AgentsPanel />}
       {tab === 'skills' && <SkillsPanel />}
       {tab === 'mcp-servers' && <McpServersPanel />}

@@ -1,11 +1,20 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, sql } from 'drizzle-orm';
 import pg from 'pg';
 
 import type { AgentStore } from '../interfaces.js';
 import type { AgentRecord } from '../types.js';
 import * as schema from '../schema.js';
-import { agents, instructions, users, userAgents, sessions, sessionEvents } from '../schema.js';
+import {
+  agents,
+  agentSkills,
+  agentMcpServers,
+  instructions,
+  users,
+  userAgents,
+  sessions,
+  sessionEvents,
+} from '../schema.js';
 import type { DrizzleDb } from './index.js';
 
 export class DbAgentStore implements AgentStore {
@@ -86,6 +95,132 @@ export class DbAgentStore implements AgentStore {
         target: [userAgents.userId, userAgents.agentId],
         set: { role: 'owner' },
       });
+  }
+
+  /**
+   * Aggregate per-agent stats for the fleet overview. One query per metric;
+   * the result is keyed by agentId. `agentIds` is the set of agents to
+   * include; the function also includes wildcard rows (`agent_id = '*'`)
+   * when computing skill/MCP counts so wildcard assignments are reflected.
+   *
+   * `since` is an ISO timestamp; events older than that are not counted.
+   */
+  async fleetStats(
+    agentIds: string[],
+    since: string,
+  ): Promise<Map<string, {
+    sessions24h: number;
+    errors24h: number;
+    lastActivity?: string;
+    skillsCount: number;
+    mcpCount: number;
+  }>> {
+    const result = new Map<string, {
+      sessions24h: number;
+      errors24h: number;
+      lastActivity?: string;
+      skillsCount: number;
+      mcpCount: number;
+    }>();
+    for (const id of agentIds) {
+      result.set(id, { sessions24h: 0, errors24h: 0, skillsCount: 0, mcpCount: 0 });
+    }
+    if (agentIds.length === 0) return result;
+
+    // Sessions touched in the last 24h (distinct session_id with any event).
+    const sessionRows = await this.db
+      .select({
+        agentId: sessionEvents.agentId,
+        count: sql<number>`count(distinct ${sessionEvents.sessionId})::int`,
+      })
+      .from(sessionEvents)
+      .where(and(
+        inArray(sessionEvents.agentId, agentIds),
+        gt(sessionEvents.ts, since),
+      ))
+      .groupBy(sessionEvents.agentId);
+    for (const r of sessionRows) {
+      const entry = result.get(r.agentId);
+      if (entry) entry.sessions24h = r.count;
+    }
+
+    // Errors in last 24h.
+    const errorRows = await this.db
+      .select({
+        agentId: sessionEvents.agentId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(sessionEvents)
+      .where(and(
+        inArray(sessionEvents.agentId, agentIds),
+        eq(sessionEvents.eventType, 'error'),
+        gt(sessionEvents.ts, since),
+      ))
+      .groupBy(sessionEvents.agentId);
+    for (const r of errorRows) {
+      const entry = result.get(r.agentId);
+      if (entry) entry.errors24h = r.count;
+    }
+
+    // Last activity timestamp (max ts across all events).
+    const lastRows = await this.db
+      .select({
+        agentId: sessionEvents.agentId,
+        lastTs: sql<string>`max(${sessionEvents.ts})`,
+      })
+      .from(sessionEvents)
+      .where(inArray(sessionEvents.agentId, agentIds))
+      .groupBy(sessionEvents.agentId);
+    for (const r of lastRows) {
+      const entry = result.get(r.agentId);
+      if (entry && r.lastTs) entry.lastActivity = r.lastTs;
+    }
+
+    // Skill counts: count skills enabled for the agent, including wildcard.
+    const wildcardSkillCount = (await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(agentSkills)
+      .where(and(eq(agentSkills.agentId, '*'), eq(agentSkills.enabled, true))))[0]?.count ?? 0;
+    const perAgentSkillRows = await this.db
+      .select({
+        agentId: agentSkills.agentId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(agentSkills)
+      .where(and(
+        inArray(agentSkills.agentId, agentIds),
+        eq(agentSkills.enabled, true),
+      ))
+      .groupBy(agentSkills.agentId);
+    for (const id of agentIds) {
+      const own = perAgentSkillRows.find((r) => r.agentId === id)?.count ?? 0;
+      const entry = result.get(id);
+      if (entry) entry.skillsCount = own + wildcardSkillCount;
+    }
+
+    // MCP counts: same shape.
+    const wildcardMcpCount = (await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(agentMcpServers)
+      .where(and(eq(agentMcpServers.agentId, '*'), eq(agentMcpServers.enabled, true))))[0]?.count ?? 0;
+    const perAgentMcpRows = await this.db
+      .select({
+        agentId: agentMcpServers.agentId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(agentMcpServers)
+      .where(and(
+        inArray(agentMcpServers.agentId, agentIds),
+        eq(agentMcpServers.enabled, true),
+      ))
+      .groupBy(agentMcpServers.agentId);
+    for (const id of agentIds) {
+      const own = perAgentMcpRows.find((r) => r.agentId === id)?.count ?? 0;
+      const entry = result.get(id);
+      if (entry) entry.mcpCount = own + wildcardMcpCount;
+    }
+
+    return result;
   }
 
   async counts(): Promise<{ users: number; sessions: number; sessionEvents: number }> {

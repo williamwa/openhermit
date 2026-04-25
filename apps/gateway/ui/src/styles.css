@@ -521,3 +521,77 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
   text-overflow: ellipsis;
   color: var(--red);
 }
+
+/* --- Fleet Panel --- */
+
+.panel__header-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.fleet__sub {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: normal;
+}
+
+.fleet__selection {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.fleet-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.fleet-table th,
+.fleet-table td {
+  text-align: left;
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.fleet-table th {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: var(--bg-surface);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.fleet-table__check { width: 36px; }
+.fleet-table__num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.fleet-row--selected { background: rgba(108, 138, 255, 0.08); }
+
+.fleet-cell-agent {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.2;
+}
+
+.fleet-cell-agent__id { font-weight: 600; }
+.fleet-cell-agent__name { font-size: 0.78rem; color: var(--text-muted); }
+
+.fleet-cell-relative { color: var(--text-muted); white-space: nowrap; }
+
+.fleet-cell-error { color: var(--red, #ff5e5e); font-weight: 600; }
+.fleet-cell-muted { color: var(--text-muted); }
+
+.fleet-chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.fleet-chip {
+  font-size: 0.72rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-hover, var(--bg-surface));
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}

@@ -75,19 +75,24 @@ write time, no partial-failure semantics, no batch concept.
 2. `docs/storage-model.md` documents the `agent_id = '*'` convention with a
    table of which resources honor it.
 
-### M1.2 — Fleet overview UI
+### M1.2 — Fleet overview UI ✅ shipped
 
-A top-level page in the admin UI listing every agent in one table:
+The admin UI's default landing tab is now "Fleet": a single table listing
+every agent with its operational health.
 
-- Columns: status, sessions (24h), last activity, channels, skills count,
-  errors (24h).
-- Multi-select for bulk actions; each action is just the existing per-agent
-  call repeated client-side, or a single wildcard call when the selection is
-  "all".
-- Replaces the agent-cards view as the default landing page.
+- Columns: status, last activity, sessions (24h), errors (24h), channels,
+  skills count, MCP count.
+- Auto-refreshes every 10 s; manual refresh button.
+- Multi-select with a "Bulk skill action" dialog. When all agents are
+  selected, the dialog targets `agent_id = '*'`; otherwise it iterates
+  per-agent using the existing endpoints.
+- Backend: `GET /api/admin/agents/fleet` aggregates per-agent stats
+  (`fleetStats` on `DbAgentStore`) — sessions and errors from
+  `session_events`, skills/MCP counts from assignments including wildcard,
+  channels from runtime status.
 
-**Acceptance:** Operator can see fleet health in one glance, sort by errors,
-and reach any single agent's detail view in one click.
+The "Agents" tab is preserved for per-agent management actions (start/stop,
+config, secrets, skills/MCP/channels detail).
 
 ### Explicitly NOT in M1
 
