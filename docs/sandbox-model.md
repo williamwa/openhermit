@@ -1,84 +1,74 @@
 # Sandbox Model
 
-This document describes the sandbox model for OpenHermit.
+OpenHermit's executable workspace is mediated by exec backends. The default gateway-created agent uses a Docker workspace backend; a local shell backend also exists for development or explicitly trusted setups.
 
-## Current Baseline
+## Exec Backend Config
 
-OpenHermit currently implements:
+```json
+{
+  "exec": {
+    "backends": [
+      {
+        "id": "docker",
+        "type": "docker",
+        "image": "ubuntu:24.04"
+      }
+    ],
+    "default_backend": "docker",
+    "lifecycle": {
+      "start": "ondemand",
+      "stop": "idle",
+      "idle_timeout_minutes": 30
+    }
+  }
+}
+```
 
-- all agent work runs inside containers — no direct host execution
-- the **workspace container** is the primary execution environment (workspace mounted at `/workspace`, used via `exec`)
-- **service containers** run long-lived daemons (databases, web servers)
-- **ephemeral containers** handle one-off isolated tasks
-- the orchestration process manages containers and persists internal state
+Supported backend types:
 
-Currently only `workspace` containers are implemented. `ephemeral` and `service` containers are planned.
+- `docker`
+- `local`
 
-## Sandbox Shapes
+If no exec config is present, the runner falls back to a local backend.
 
-### 1. Ephemeral Sandbox
+## Docker Backend
 
-Purpose:
+The Docker backend uses `DockerContainerManager` to ensure a per-agent workspace container. The workspace directory is mounted at `/workspace`. Enabled DB-managed skills are mounted read-only at `/skills` when skill mounts are available.
 
-- one-shot tasks
-- isolated command execution
-- temporary dependency installation
-- short-lived debugging or verification work
+Container inventory is internal state in the `containers` table. Mounted workspace files remain external task state.
 
-Characteristics:
+## Local Backend
 
-- created on demand
-- low persistence expectations
-- safe to discard after the task finishes
-- optimized for quick setup and teardown
+The local backend runs `shell -lc` commands on the host. It supports:
 
-Examples:
+- `cwd`
+- `shell`
+- `env`
+- `timeout_ms`
 
-- run a test suite
-- execute a script from an untrusted repo
-- inspect a build failure in isolation
+Use it only in trusted environments because it intentionally bypasses container isolation.
 
-### 2. Service Sandbox
+## Lifecycle
 
-Purpose:
+Start policy:
 
-- long-running background services
-- supporting infrastructure needed by the agent
-- stable endpoints that multiple runs may depend on
+- `ondemand`: start/ensure backend when a tool call needs it
+- `session`: ensure backend when a session opens
 
-Characteristics:
+Stop policy:
 
-- survives beyond a single task
-- exposes controlled ports or mounted data
-- managed as runtime inventory, not as ordinary workspace files
-- should be restartable and observable
+- `idle`: stop after idle timeout
+- `session`: stop when the session ends/shuts down
 
-Examples:
+## Security Policy
 
-- local databases
-- preview servers
-- vector stores
-- MCP sidecars or other helper daemons
+`security.json` controls model autonomy and approval gating:
 
-### 3. Workspace Container
+```json
+{
+  "autonomy_level": "supervised",
+  "require_approval_for": ["exec"]
+}
+```
 
-Purpose:
-
-- a persistent execution environment for each agent
-- the primary way agents run shell commands and interact with workspace files
-- installed packages and state persist across commands within a session
-
-Characteristics:
-
-- created on demand when `exec` is first called
-- workspace root mounted at `/workspace`
-- persists across agent restarts (restarted if stopped)
-- default image configurable per agent
-
-This is the implemented sandbox for everyday agent work.
-
-## Open Questions
-
-- should the workspace container eventually support declarative environment description (e.g. NixOS-based) for reproducible builds and rollback?
-- how should skill installation target specific sandbox types?
-- should the workspace container substrate evolve beyond plain Docker containers (microVM, etc.)?
+The sandbox limits where commands run; approval policy limits when commands run.

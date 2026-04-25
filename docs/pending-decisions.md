@@ -1,57 +1,23 @@
-# Pending Decisions
+# Open Questions
 
-Open questions and issues that need discussion before implementation.
+These are current product/architecture decisions that are not fully settled.
 
-## Open
+## Deployment And Migrations
 
-### 1. Introspection vs Per-Turn Memory (Letta/ChatGPT Pattern)
+`hermit setup` applies repository-local SQL migrations. The published package needs a clearer production migration story, including idempotent upgrades and operator visibility.
 
-**Context:** Most agent products (Letta, ChatGPT) let the agent write memories during normal conversation turns, not in a separate introspection step. Our current design uses periodic introspection as the primary reliable path, with main-agent memory tools as an optional fast path.
+## Session Capabilities
 
-**Question:** Should we also encourage the main agent to write memories per-turn (like ChatGPT's bio tool)? Or is periodic introspection sufficient?
+Roles are implemented. Fine-grained per-session capability sets are not. The open question is whether sessions should explicitly declare allowed tool categories, especially for group channels.
 
-**Trade-offs:**
-- Per-turn: more responsive, captures intent in the moment, but consumes tokens every turn
-- Periodic introspection: batched, cheaper, but may miss nuance or misinterpret context after the fact
-- Both: redundant writes possible, but the combination covers each other's weaknesses
+## Hosted Secrets
 
-### 2. Pipeline-Based Memory Extraction (Mem0 Pattern)
+Agent secrets currently live in per-agent `secrets.json`, while DB-managed MCP headers can include sensitive values. Hosted deployments need a stronger secret-store integration model.
 
-**Context:** Mem0 and Zep use program-driven pipelines to extract facts from conversations. The pipeline is deterministic and doesn't depend on model prompt-following ability.
+## External Channel Adapter API
 
-**Question:** Should we add a lightweight extraction pipeline alongside or instead of agent-driven introspection?
+Built-in channels are implemented. External adapters can use channel tokens and the SDK, but the formal adapter-author contract is not yet documented as a stable public API.
 
-**Trade-off:** Pipeline is more predictable but less contextually intelligent than agent-driven. Could be a good complement — pipeline for reliability, agent tools for nuance.
+## Observability
 
-### 3. Introspection Visibility to Main Agent
-
-**Current design:** Introspection events (start/end + tool calls) are written to session_events and visible in the main agent's timeline.
-
-**Question:** Is the full trace (every tool_call/tool_result) too verbose? Should we collapse old introspection spans into a single summary line?
-
-**Related:** How should introspection events appear after compaction? Currently they would be part of the compaction summary.
-
-### 4. Introspection Trigger Tuning
-
-**Current defaults:** `turn_interval: 5`, `idle_timeout_minutes: 10`
-
-**Questions:**
-- Is 5 turns too frequent or too infrequent?
-- Should the turn interval be token-based rather than turn-based?
-- Should introspection be skipped if the conversation was trivial?
-
-### 5. Letta Sleep-Time Agent Pattern
-
-**Context:** Letta's sleep-time agents run asynchronously in the background during idle periods to reorganize and refine memory.
-
-**Question:** Should our introspection be a background process that doesn't write events to the session timeline? Or is timeline visibility important for the main agent's awareness?
-
-**Trade-off:** Background processing is cleaner (no timeline noise) but the main agent won't know memory was updated. Timeline visibility prevents redundant memory writes but adds noise.
-
-## Resolved
-
-1. ~~Introspection Model Quality~~ — no longer relevant, introspection now uses capable models.
-2. ~~memory_recall Search Quality~~ — PostgreSQL `tsvector` + GIN index with full-text search and BM25-style ranking.
-3. ~~Working Memory Ownership~~ — `working_memory_update` now exclusive to introspection agent.
-4. ~~Legacy Checkpoint Removal~~ — fully removed, `episodic_checkpoints` table dropped.
-5. ~~Session Description After Introspection~~ — introspection agent has `session_description_update` tool.
+Gateway logs and stats exist. Open questions remain around metrics, traces, per-agent health history, and failure alerting.

@@ -1,186 +1,79 @@
-# Storage Model (Draft)
+# Storage Model
 
-This document is a working draft.
+OpenHermit stores durable internal state in PostgreSQL through Drizzle. The schema lives in [../packages/store/src/schema.ts](../packages/store/src/schema.ts), and SQL migrations live in [../packages/store/drizzle/](../packages/store/drizzle/).
 
-It records a possible storage abstraction direction for OpenHermit.
+## Database Scope
 
-It is not yet the implemented source of truth.
+Most tables include `agent_id` and are queried through a `StoreScope`. This gives every agent an isolated state view while sharing one PostgreSQL database.
 
-## Why This Draft Exists
+Global tables:
 
-OpenHermit needs to support two very different deployment shapes:
+- `meta`
+- `users`
+- `user_identities`
+- `skills`
+- `mcp_servers`
 
-- local or personal use, where plain files are convenient and naturally agent-friendly
-- hosted or multi-agent deployment, where database-backed state is easier to manage centrally
+Agent-scoped tables:
 
-That creates pressure to keep the agent-facing state model compatible with file-like access while also allowing non-filesystem backends.
+- `agents`
+- `sessions`
+- `session_events`
+- `memories`
+- `containers`
+- `instructions`
+- `user_agents`
+- `agent_skills`
+- `agent_mcp_servers`
+- `schedules`
+- `schedule_runs`
 
-## Design Goal
+## Tables
 
-The design goal is not to force every kind of state into one generic file API.
+| Table | Purpose |
+|-------|---------|
+| `agents` | Registered agents with config and workspace directories |
+| `sessions` | Durable session index: source, metadata, status, participants, descriptions, working memory |
+| `session_events` | Full persisted event log for messages, tool calls/results, errors, and introspection |
+| `memories` | Long-term memories keyed by `memory_key` |
+| `containers` | Workspace container runtime inventory |
+| `instructions` | Prompt instructions by key |
+| `users` | User records and merge links |
+| `user_agents` | User role per agent |
+| `user_identities` | Channel identity to user mapping |
+| `skills` | Registered skill metadata and host paths |
+| `agent_skills` | Global (`*`) and per-agent skill assignments |
+| `mcp_servers` | Registered external MCP HTTP servers |
+| `agent_mcp_servers` | Global (`*`) and per-agent MCP assignments |
+| `schedules` | Cron and one-shot schedule definitions |
+| `schedule_runs` | Schedule execution history |
 
-Instead, OpenHermit should separate:
+## Memory Search
 
-- agent-facing document access
-- runtime-facing internal state storage
+`memories.content_tsv` is a generated PostgreSQL `tsvector` column created by migration SQL or lazily by `DbMemoryProvider.ensureFts()`. Search uses:
 
-This keeps markdown, prompts, and workspace files natural for the agent while preserving strong structure for sessions, memories, and runtime metadata.
+1. `plainto_tsquery('english', query)` ranked with `ts_rank`
+2. per-word `ILIKE` fallback across memory keys and content for partial matches and non-English/CJK content
 
-## Proposed Layers
+## Per-Agent Files
 
-### 1. Document Store
+Files under `~/.openhermit/agents/{agentId}/` are configuration, not conversation storage:
 
-The document layer is the agent-facing path and content surface.
+| File | Purpose |
+|------|---------|
+| `config.json` | model, exec backend, web provider, channel config, memory/introspection config |
+| `security.json` | autonomy, approvals, access token, channel tokens |
+| `secrets.json` | provider/channel/MCP secrets |
+| `skill-mounts/` | generated symlinks to enabled DB-managed skills |
 
-It should feel file-like whether the backing store is a filesystem, database, or cloud object store.
+Workspace files under `~/.openhermit/workspaces/{agentId}/` are external task state.
 
-Draft interface:
+## Migrations
 
-```ts
-interface DocumentStore {
-  list(path: string): Promise<DocumentEntry[]>;
-  stat(path: string): Promise<DocumentStat | null>;
-  exists(path: string): Promise<boolean>;
-  read(path: string): Promise<DocumentContent>;
-  write(path: string, content: DocumentContent): Promise<void>;
-  delete(path: string): Promise<void>;
-  move(fromPath: string, toPath: string): Promise<void>;
-  search(query: string, options?: DocumentSearchOptions): Promise<DocumentSearchResult[]>;
-}
+`hermit setup` applies the consolidated Drizzle SQL migration when `DATABASE_URL` is configured and the repo migration directory is available. Development can inspect the database with:
+
+```bash
+npm run dev:studio
 ```
 
-This layer is a good fit for:
-
-- workspace files
-- identity markdown (bootstrap only; migrated to InstructionStore on first boot)
-- future agent-managed config documents
-- selected virtual views of internal state
-
-Possible adapters:
-
-- `FileSystemDocumentStore`
-- `DatabaseDocumentStore`
-- `ObjectBackedDocumentStore`
-
-### 2. Internal State Store
-
-Internal state should not be flattened into generic files by default.
-
-Many OpenHermit internals are structured runtime objects:
-
-- sessions
-- messages
-- memories
-- approvals
-- runtime inventory
-
-Those should keep domain-specific storage interfaces.
-
-Draft shape:
-
-```ts
-interface InternalStateStore {
-  sessions: SessionStore;
-  messages: MessageStore;
-  memories: MemoryProvider;
-  containers: ContainerStore;
-  instructions: InstructionStore;
-  users: UserStore;
-  close(): Promise<void>;
-}
-```
-
-Current adapter: `DbInternalStateStore` in `packages/store/src/impl/`.
-
-The store package uses Prisma ORM with PostgreSQL for type-safe queries. Full-text search uses PostgreSQL's native `tsvector` with a GIN index — the `content_tsv` generated stored column is auto-maintained by PostgreSQL, requiring no manual FTS sync.
-
-This preserves structure, indexing, migration control, and explicit lifecycle semantics.
-
-> **Note**: The `InternalStateStore` interface is now implemented, not draft. See `packages/store/src/interfaces.ts`.
-
-### 3. Virtual State View
-
-If the agent needs file-like access to internal state, OpenHermit can add a virtual document view on top of internal storage.
-
-That view should be treated as a projection, not the primary storage model.
-
-Possible examples:
-
-- `internal://memory/main.md`
-- `internal://sessions/{sessionId}/summary.md`
-- `internal://participants/{participantId}.md`
-
-This gives the agent a document-native surface without forcing the runtime to persist everything as loose files.
-
-## Why Not One Generic Storage Class
-
-A single `list/read/write/search` abstraction for everything sounds simple, but it creates a few problems:
-
-- session and memory semantics get flattened into weak document operations
-- indexing and transactional needs become harder to express
-- lifecycle rules become less explicit
-- it becomes harder to evolve internal storage independently from agent-facing views
-
-OpenHermit should unify access where it helps the agent, not erase domain boundaries inside the runtime.
-
-## Suggested Deployment Mapping
-
-### Local / Personal
-
-Suggested shape:
-
-- `FileSystemDocumentStore`
-- `DbInternalStateStore` (PostgreSQL via Docker Compose for local dev)
-
-Why:
-
-- files are easy to inspect and edit
-- markdown remains natural
-- PostgreSQL provides proper connection pooling, native full-text search, and matches the production deployment target
-
-### Hosted / Multi-Agent
-
-Suggested shape:
-
-- `DatabaseDocumentStore` or object-backed document layer
-- `PostgresInternalStateStore`
-
-Why:
-
-- central management is easier
-- multiple agents can share platform infrastructure
-- operational tooling, backup, and querying improve
-
-This does not require every external artifact to live inside a relational database.
-Some external state may still live in object storage or mounted volumes as long as the agent-facing document layer remains consistent.
-
-## Design Principles
-
-If this direction is implemented, these principles should hold:
-
-- agent-facing content should remain path-based and document-native
-- internal runtime state should remain strongly typed and domain-specific
-- files and database records should be interchangeable only at the right layer
-- virtual document views should be projections, not hidden sources of truth
-- deployment backend choices should not leak into prompt or tool semantics
-
-## Open Questions
-
-This draft intentionally leaves several questions open:
-
-- should search be a required capability for every document-store adapter, or optional?
-- which internal-state views should be exposed as virtual documents, if any?
-- how should binary artifacts fit into the document model?
-- should workspace external state in hosted mode be object storage plus index rather than pure relational storage?
-- how much of the current filesystem-oriented tool surface should be generalized versus kept explicit?
-
-## Current Status
-
-Status: draft only.
-
-Next steps:
-
-1. Keep the current mixed implementation as the baseline.
-2. Explore a `DocumentStore` abstraction for external state first.
-3. Keep internal state on domain-specific stores rather than collapsing everything into document APIs.
-4. Revisit virtual internal-state views only when the agent has a concrete need for them.
+Tests use `DATABASE_URL_TEST` through the root `npm test` script.

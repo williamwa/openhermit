@@ -1,119 +1,90 @@
-# Built-in Tools
+# Tools
 
-All tools are conditionally registered based on available context providers. Tools marked with approval icon (🔐) require user approval when not in full-autonomy mode. Tools marked with write icon (✏️) are blocked in readonly mode.
+OpenHermit builds toolsets per turn from available runtime capabilities and the resolved user role. Tools are wrapped by the approval gate according to `security.json`.
 
-## Memory
+## Built-In Tools
 
-Requires: `memoryProvider`
+| Tool | Purpose |
+|------|---------|
+| `exec` | Run a shell command through the configured exec backend |
+| `web_search` | Search the web through the configured web provider |
+| `web_fetch` | Fetch and extract web page content |
+| `memory_get` | Read one memory by ID |
+| `memory_list` | List memories by prefix |
+| `memory_recall` | Search memories |
+| `memory_add` | Create or replace a memory |
+| `memory_update` | Update memory content/metadata |
+| `memory_delete` | Delete a memory |
+| `instruction_update` | Update an instruction key |
+| `user_list` | List users, roles, and identities |
+| `user_identity_link` | Link an identity to a user |
+| `user_identity_unlink` | Remove an identity link |
+| `user_role_set` | Set a user's role for the agent |
+| `user_merge` | Merge one user into another |
+| `session_list` | List sessions |
+| `session_read` | Read session history |
+| `session_summary` | Read description, working memory, and recent activity |
+| `session_send` | Send a proactive message through a connected channel |
+| `schedule_list` | List schedules |
+| `schedule_create` | Create cron or once schedules |
+| `schedule_update` | Update schedule status/prompt/timing |
+| `schedule_delete` | Delete a schedule |
+| `schedule_trigger` | Run a schedule immediately |
+| `schedule_runs` | List schedule run history |
+| `mcp_status` | Show MCP connection/tool status |
+| `mcp_enable` | Enable/connect an MCP server for this agent |
+| `mcp_disable` | Disable/disconnect an MCP server for this agent |
 
-| Tool | Description | Parameters | 🔐 | ✏️ |
-|------|-------------|------------|:--:|:--:|
-| `memory_get` | Read one memory entry by exact ID | `id` (string, required) | | |
-| `memory_recall` | Search memory entries by keyword/phrase (stemming, token-level match) | `query` (string, required), `limit` (number, optional, default 5, max 10) | | |
-| `memory_add` | Create or upsert a memory entry. Prefer semantic IDs like `project/plan` or `user/{userId}/preferences` | `id` (string, optional), `content` (string, required), `metadata` (object, optional) | ✓ | ✓ |
-| `memory_update` | Update an existing memory entry by ID | `id` (string, required), `content` (string, optional), `metadata` (object, optional) | ✓ | ✓ |
-| `memory_delete` | Delete a memory entry by ID | `id` (string, required) | ✓ | ✓ |
+Introspection-only tools:
 
-## Instructions
+- `working_memory_update`
+- `session_description_update`
 
-Requires: `instructionStore`
+Connected MCP server tools are exposed as:
 
-| Tool | Description | Parameters | 🔐 | ✏️ |
-|------|-------------|------------|:--:|:--:|
-| `instruction_update` | Update an instruction entry (identity, soul, agents, etc.) | `key` (string, required), `content` (string, required) | ✓ | ✓ |
+```text
+mcp__{serverId}__{toolName}
+```
 
-## Web
+## Runtime Requirements
 
-Requires: `webProvider`
+| Tool area | Required capability |
+|-----------|---------------------|
+| exec | `agentId`, workspace, `ExecBackendManager` |
+| web | configured web provider |
+| memory | `memoryProvider` |
+| instruction | `instructionStore` |
+| users | `userStore` |
+| sessions | `sessionStore` |
+| schedules | `scheduleStore` |
+| session_send | matching channel outbound adapter |
+| MCP management | `McpClientManager` and MCP store |
 
-| Tool | Description | Parameters | 🔐 | ✏️ |
-|------|-------------|------------|:--:|:--:|
-| `web_search` | Search the web. Returns titles, URLs, snippets. Use `content_mode: "full"` for page content | `query` (string, required), `limit` (number, optional, default 5, max 10), `content_mode` (enum: `snippet` \| `full`, optional, default `snippet`) | | |
-| `web_fetch` | Fetch a web page. `markdown` mode extracts main content, `raw` returns HTTP body | `url` (string, required), `max_bytes` (number, optional, default 200000), `output` (enum: `raw` \| `markdown`, optional, default `markdown`) | | |
+## Role Filtering
 
-## Workspace Execution
+| Role | Tool access |
+|------|-------------|
+| `owner` | all available built-ins and MCP management |
+| `user` | normal interaction tools, memory, web, and read-oriented session access |
+| `guest` | restricted read/web access; no exec or mutating management tools |
 
-Requires: `agentId` + workspace container config
+The exact set is assembled in `AgentRunner.createAgent()` from the resolved role and available stores.
 
-| Tool | Description | Parameters | 🔐 | ✏️ |
-|------|-------------|------------|:--:|:--:|
-| `exec` | Execute a shell command in the workspace container (`/workspace`). Approval is cached per unique command string | `command` (string, required) | ✓ | ✓ |
+## Approval
 
-## User Management
+`security.json` controls approval behavior:
 
-Requires: `userStore`
+```json
+{
+  "autonomy_level": "supervised",
+  "require_approval_for": ["exec"]
+}
+```
 
-| Tool | Description | Parameters | 🔐 | ✏️ |
-|------|-------------|------------|:--:|:--:|
-| `user_list` | List all users with identities and roles | _(none)_ | | |
-| `user_identity_link` | Link a channel identity to a user. Re-links if already assigned elsewhere | `user_id` (string, required), `channel` (string, required), `channel_user_id` (string, required) | ✓ | ✓ |
-| `user_identity_unlink` | Remove a channel identity link | `channel` (string, required), `channel_user_id` (string, required) | ✓ | ✓ |
-| `user_role_set` | Change a user's role | `user_id` (string, required), `role` (enum: `owner` \| `user` \| `guest`, required) | ✓ | ✓ |
-| `user_merge` | Merge one user into another. Moves all identities; source marked as merged | `from_user_id` (string, required), `into_user_id` (string, required) | ✓ | ✓ |
+Autonomy levels:
 
-## Session Management
+- `readonly`
+- `supervised`
+- `full`
 
-Requires: `sessionStore`
-
-| Tool | Description | Parameters | 🔐 | ✏️ |
-|------|-------------|------------|:--:|:--:|
-| `session_list` | List sessions with descriptions, last activity, message counts, source | `channel` (string, optional), `limit` (number, optional, default 20) | | |
-| `session_read` | Read message history from a session. Use `offset` to page backwards | `session_id` (string, required), `limit` (number, optional, default 50), `offset` (number, optional, default 0) | | |
-| `session_summary` | Get session summary: description, working memory, message count, recent activity | `session_id` (string, required) | | |
-| `session_send` | Send a message to another session via its connected channel (e.g. Telegram) | `session_id` (string, required), `text` (string, required) | ✓ | ✓ |
-
-## Schedules
-
-Requires: `scheduleStore`
-
-| Tool | Description | Parameters | 🔐 | ✏️ |
-|------|-------------|------------|:--:|:--:|
-| `schedule_list` | List all scheduled jobs with status, next run time, run count | `status` (string, optional) | | |
-| `schedule_create` | Create a cron or one-time scheduled job | `type` (enum: `cron` \| `once`, required), `prompt` (string, required), `cron_expression` (string, optional), `run_at` (string, optional), `id` (string, optional), `delivery` (`"silent"` or `{session: id}`, optional), `timeout_seconds` (number, optional) | ✓ | ✓ |
-| `schedule_update` | Update a schedule's status, prompt, or cron expression | `id` (string, required), `status` (enum: `active` \| `paused`, optional), `prompt` (string, optional), `cron_expression` (string, optional), `run_at` (string, optional) | ✓ | ✓ |
-| `schedule_delete` | Delete a scheduled job permanently | `id` (string, required) | ✓ | ✓ |
-| `schedule_trigger` | Trigger a scheduled job immediately | `id` (string, required) | ✓ | ✓ |
-| `schedule_runs` | View execution history for a schedule | `id` (string, required), `limit` (number, optional, default 10) | | |
-
-## MCP Server Management
-
-Requires: `mcpClientManager` (automatically available when MCP servers are configured)
-
-| Tool | Description | Parameters | 🔐 | ✏️ |
-|------|-------------|------------|:--:|:--:|
-| `mcp_status` | List all MCP server connection states (id, name, status, tool count, last error) | _(none)_ | | |
-| `mcp_enable` | Enable an MCP server for this agent. Connects immediately | `serverId` (string, required) | ✓ | ✓ |
-| `mcp_disable` | Disable an MCP server for this agent. Disconnects immediately | `serverId` (string, required) | ✓ | ✓ |
-
-In addition to management tools, each connected MCP server's tools are exposed as `mcp__<serverId>__<toolName>` and behave like any other agent tool (subject to approval gating).
-
-## Introspection-only Tools
-
-These tools are **not** available to the main agent. They are registered exclusively for the introspection agent during background session checkpoints.
-
-| Tool | Description | Parameters |
-|------|-------------|------------|
-| `working_memory_update` | Replace session-local working memory (scratchpad). Injected into context every turn | `content` (string, required) |
-| `session_description_update` | Update the session title shown in listings. Under 10 words, plain text | `description` (string, required) |
-
-The introspection agent also has access to all memory tools (`memory_get`, `memory_recall`, `memory_add`, `memory_update`, `memory_delete`).
-
----
-
-## Autonomy & Approval
-
-- **Readonly mode**: All write/mutating tools (✏️) are blocked entirely via `ensureAutonomyAllows()`.
-- **Approval gating** (🔐): When autonomy is not `full`, the agent asks the user for confirmation before executing. The approval callback is provided by the channel adapter.
-- **Approval caching**: `exec` caches approval per command string. Same command in a session won't prompt twice.
-
-## Role-based Access
-
-Tool availability is filtered by user role in `createBuiltInToolsets()`:
-
-| Role | Available Tools |
-|------|----------------|
-| **owner** | All tools (memory, instruction, web, exec, user, session, session_send, schedule, mcp_status/enable/disable) |
-| **user** | memory, web, exec, session, session_send, mcp_status |
-| **guest** | web, session (read-only: list/read/summary), schedule_list, schedule_runs |
-
-Owner-only stores (`instructionStore`, `userStore`, `scheduleStore`) are only injected for the owner role. Guest-blocked tools (`exec`, `schedule_create/update/delete/trigger`) are filtered at the runner level. `session_send` requires `channelOutbound` adapters to be available.
+When approval is required, the runtime emits `tool_approval_required` and pauses until `/approve` or WebSocket `session.approve` resolves the tool call. Interactive sessions provide an approval callback; channel adapters currently auto-approve channel approvals.
