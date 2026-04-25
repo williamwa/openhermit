@@ -12,50 +12,73 @@ Every agent is a service. The gateway is the control plane. An operator with
 many agents must be able to **deploy, observe, change, and recover** them as a
 fleet — not one at a time.
 
+We prefer composition of small primitives over bespoke platform machinery. If
+operators can build a behavior themselves with the existing model
+(assignments, skills, scopes), the platform should not invent a new concept
+for it.
+
 ---
 
 ## Milestone 1 — Fleet operations
 
-Making the hero animation real: one action affects N agents.
+Make the hero animation real: one action affects N agents, with the same
+mental model that already works.
 
-### M1.1 — Fleet-scoped APIs
+### M1.1 — Wildcard assignment as the universal pattern
 
-- New gateway endpoints under `/fleet/*` that accept `agentIds: string[]` (or
-  `selector` for label-based targeting later) and fan out to each agent.
-- First targets: `POST /fleet/skills/install`, `POST /fleet/skills/uninstall`,
-  `POST /fleet/mcp/install`, `POST /fleet/channels/enable`,
-  `POST /fleet/channels/disable`.
-- Per-agent failures must not block the rest. Response is
-  `{ results: [{ agentId, status, error? }] }`.
+The skill assignment table already supports `agent_id = '*'`: a single row in
+`agent_skills` matches every agent at query time
+(`WHERE agent_id IN ($agentId, '*')`). New agents automatically inherit
+wildcard assignments at startup. This is the right model — no fan-out at
+write time, no partial-failure semantics, no batch concept.
 
-**Acceptance:** `hermit skills install standup-digest --all` installs the skill
-across every running agent and reports per-agent outcomes; a single failing
-agent does not abort the operation.
+Generalize it across the platform:
+
+- **Skills** — already done.
+- **MCP servers** — verify `mcp_servers` / assignments follow the same
+  pattern; if not, port them. UI accepts `*` in the assign-to field exactly
+  like skills.
+- **Schedules** — wildcard `agent_id` for "run this cron on every agent"
+  (e.g. nightly digest, hourly health check). Assignment + scheduler resolve
+  agents at trigger time.
+- **Skills / MCP runtime sync** — when a wildcard assignment is added or
+  removed, refresh every running agent's mounts (already done for skills via
+  `syncAffectedAgentSkillMounts`); ensure the same hook exists for MCP.
+- **Storage doc** — `docs/storage-model.md` should formally document
+  `agent_id = '*'` as the wildcard convention so future tables follow it.
+
+Channels deliberately stay per-agent (each adapter holds its own bot token /
+identity). A wildcard channel does not make sense.
+
+**Acceptance:** Adding `standup-digest` with target `*` shows up under every
+agent's enabled skills, including agents created afterward, without any extra
+operator action. Same for an MCP server. Same for a cron schedule.
 
 ### M1.2 — Fleet overview UI
 
-- New top-level page in the admin UI: a sortable table of all agents with
-  columns for status, sessions (24h), last activity, channels, skills count,
+A top-level page in the admin UI listing every agent in one table:
+
+- Columns: status, sessions (24h), last activity, channels, skills count,
   errors (24h).
-- Multi-select with bulk actions wired to the M1.1 endpoints.
-- Replaces the "agent list cards" view as the default landing page.
+- Multi-select for bulk actions; each action is just the existing per-agent
+  call repeated client-side, or a single wildcard call when the selection is
+  "all".
+- Replaces the agent-cards view as the default landing page.
 
-**Acceptance:** Operator can select 5 agents, click "Install skill", choose
-`standup-digest`, and confirm; UI shows a per-row progress indicator and final
-status without page reload.
+**Acceptance:** Operator can see fleet health in one glance, sort by errors,
+and reach any single agent's detail view in one click.
 
-### M1.3 — Skill / MCP versioning
+### Explicitly NOT in M1
 
-- Skills today are filesystem entries. Promote them to a registry table:
-  `(name, version, definition_json, created_at)`.
-- Assignments record `(agent_id, skill_name, installed_version)`.
-- `hermit skills publish ./standup-digest` bumps version; `hermit skills upgrade
-  --all` rolls out the latest version with rollback on failure.
-- Same shape for MCP servers (config + version pinning).
-
-**Acceptance:** A skill can be edited and republished, and a fleet-wide upgrade
-either rolls everyone forward or rolls back if too many agents fail health
-checks within a soak window.
+- **No `/fleet/*` API surface.** Existing per-agent endpoints + `*` are
+  sufficient.
+- **No skill or MCP version field.** Operators who want canary or staged
+  rollout publish a second skill (`standup-digest-v2`), assign it to a subset
+  of agents, observe, and then either expand the assignment or remove the new
+  skill. Two assignments express the intent without any platform-side state
+  machine.
+- **No Rollout resource.** Same reason — composition of existing primitives
+  covers the use case for any reasonable fleet size we care about today.
 
 ---
 
@@ -66,10 +89,10 @@ You cannot operate what you cannot see.
 ### M2.1 — Metrics
 
 - Gateway exposes `/metrics` in Prometheus format.
-- Per-agent labels: turns, tokens (in/out), tool calls, channel messages, error
-  counts, p50/p95 turn latency.
-- Sparkline data in the fleet overview UI is sourced from the same metrics, not
-  fabricated.
+- Per-agent labels: turns, tokens (in/out), tool calls, channel messages,
+  error counts, p50/p95 turn latency.
+- Sparkline data in the fleet overview UI is sourced from the same metrics,
+  not fabricated.
 
 **Acceptance:** Scraping `/metrics` shows real time-series data; the admin UI
 sparklines reflect actual traffic.
@@ -93,8 +116,8 @@ user took across all agents in the last week.
 - Admin UI shows a fleet health pill at the top of every page.
 
 **Acceptance:** Stopping the Docker daemon flips one agent's exec backend to
-DOWN, the gateway summary to DEGRADED, and the UI surfaces it without a manual
-refresh.
+DOWN, the gateway summary to DEGRADED, and the UI surfaces it without a
+manual refresh.
 
 ---
 
@@ -104,13 +127,13 @@ This is the line between "production service" and "manually-edited JSON."
 
 ### M3.1 — `agents.yaml` reconciliation
 
-- New CLI: `hermit apply -f agents.yaml`. The file is the source of truth for a
-  set of agents: model, skills, MCP servers, channels, schedules, secrets refs.
+- New CLI: `hermit apply -f agents.yaml`. The file is the source of truth for
+  a set of agents: model, skills (including `*` wildcard assignments), MCP
+  servers, channels, schedules, secrets refs.
 - Apply diffs against the current DB state and reconciles: create / update /
   delete agents, install / uninstall skills, etc.
 - `hermit diff -f agents.yaml` shows a dry-run plan.
-- Drift detection: `hermit drift` reports anything in the DB not represented in
-  the manifest.
+- `hermit drift` reports anything in the DB not represented in the manifest.
 
 **Acceptance:** An operator can check `agents.yaml` into git, change a model
 version on one agent, run `hermit apply`, and see exactly that one update
@@ -131,13 +154,14 @@ effect for every agent referencing it, with an audit trail.
 
 - Gateway-side supervisor for agent runners: crash → restart with exponential
   backoff, with a circuit breaker after N failures in a window.
-- Channel adapters reconnect on transient failures (already partial — make it
-  uniform across Telegram / Discord / Slack and observable in metrics).
-- Postgres reconnect logic in the gateway so a database blip does not require a
-  manual gateway restart.
+- Channel adapters reconnect on transient failures uniformly across Telegram
+  / Discord / Slack and surface state in metrics.
+- Postgres reconnect logic in the gateway so a database blip does not require
+  a manual gateway restart (we hit this in practice — restoring the DB
+  container should be enough).
 
-**Acceptance:** Killing the Postgres container, then restarting it, results in
-the gateway and all agents recovering automatically within ~30 seconds.
+**Acceptance:** Killing the Postgres container and then restarting it results
+in the gateway and all agents recovering automatically within ~30 seconds.
 
 ---
 
@@ -155,7 +179,7 @@ Operability for teams, not just one root user.
 ### M4.2 — Service accounts & API tokens
 
 - First-class non-human principals with scoped tokens
-  (e.g. `agents:one:read`, `fleet:skills:write`).
+  (e.g. `agents:one:read`, `skills:write`).
 - Tokens are issued via CLI / UI, revocable, and show last-used timestamps.
 
 ### M4.3 — Per-agent ACLs
@@ -180,13 +204,13 @@ These are valuable but deliberately deferred until the milestones above land:
 
 The suggested order is M1 → M2 → M3 → M4. The reasoning:
 
-- **M1** turns the brand promise into reality and is the most visible to users
-  evaluating the project.
+- **M1** turns the brand promise into reality and is the most visible to
+  users evaluating the project. It is also the smallest milestone — most of
+  the wildcard mechanism already exists for skills; the work is generalizing
+  the pattern and shipping the fleet overview UI.
 - **M2** is a hard prerequisite for anyone running this in production —
   without it, the fleet is a black box.
 - **M3** is what separates "demo" from "service" and naturally builds on the
-  fleet APIs from M1.
+  declarative wildcard assignments from M1.
 - **M4** unlocks team adoption but assumes the single-operator story is
   already polished.
-
-Within each milestone, the sub-items are listed in dependency order.
