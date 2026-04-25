@@ -28,6 +28,28 @@ export class DiscordBot {
       void this.handleMessage(message);
     });
 
+    // discord.js v14 doesn't reliably emit MessageCreate for DMs even with
+    // Partials.Channel — handle them via the raw gateway dispatch instead.
+    this.discord.client.on('raw' as any, (packet: any) => {
+      if (packet.t !== 'MESSAGE_CREATE') return;
+      const { guild_id: guildId, author, content, channel_id: channelId, id: messageId } = packet.d ?? {};
+      if (guildId || !author || author.bot || !content) return;
+
+      const event: DiscordMessageEvent = {
+        channelId,
+        userId: author.id,
+        username: author.username,
+        displayName: author.global_name ?? author.username,
+        text: content,
+        messageId,
+        isDm: true,
+        mentioned: true,
+      };
+      void this.bridge.handleMessage(event).catch((err: Error) => {
+        this.log(`error handling DM: ${err.message}`);
+      });
+    });
+
     await this.discord.login(this.botToken);
     this.log(`connected as ${this.discord.botUsername} (${this.discord.botUserId})`);
   }
@@ -38,11 +60,20 @@ export class DiscordBot {
   }
 
   private async handleMessage(message: Message): Promise<void> {
+    if (message.partial) {
+      try {
+        message = await message.fetch();
+      } catch {
+        return;
+      }
+    }
     if (message.author.bot) return;
     if (!message.content) return;
 
-    const isDm = message.channel.type === ChannelType.DM;
-    const mentioned = isDm || this.isMentioned(message);
+    // DMs are handled via the raw gateway dispatch above.
+    if (message.channel.type === ChannelType.DM) return;
+
+    const mentioned = this.isMentioned(message);
     const text = this.stripMention(message.content);
 
     if (mentioned && (text === 'new' || text === '/new')) {
@@ -62,7 +93,7 @@ export class DiscordBot {
       displayName: message.member?.displayName ?? message.author.displayName ?? message.author.username,
       text,
       messageId: message.id,
-      isDm,
+      isDm: false,
       mentioned,
       ...(message.guildId ? { guildId: message.guildId } : {}),
     };

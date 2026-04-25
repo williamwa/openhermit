@@ -29,7 +29,7 @@ export class DiscordApi {
         GatewayIntentBits.DirectMessages,
         GatewayIntentBits.MessageContent,
       ],
-      partials: [Partials.Channel],
+      partials: [Partials.Channel, Partials.Message, Partials.User, Partials.GuildMember],
     });
 
     this.client.once('ready', () => {
