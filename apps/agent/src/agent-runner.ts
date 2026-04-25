@@ -1345,9 +1345,9 @@ export class AgentRunner implements SessionRuntime {
     for (const entry of entries) {
       const ts = new Date(entry.ts).getTime() || Date.now();
 
-      // Skip introspection, system events, agent lifecycle
       if (entry.role === 'system') continue;
       if (entry.role === 'error') continue;
+      if (entry.introspection) continue;
 
       if (entry.role === 'user' && typeof entry.content === 'string') {
         lastAssistant = null;
