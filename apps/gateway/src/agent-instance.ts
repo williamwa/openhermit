@@ -139,16 +139,18 @@ export class AgentInstanceManager {
         if (config.channels) {
           const agentBaseUrl = `${this.gatewayBaseUrl}/agents/${encodeURIComponent(agentId)}`;
 
-          // Generate a per-agent token for built-in channels and register it.
-          const builtinToken = randomBytes(24).toString('hex');
+          // Generate a per-channel token so each builtin channel gets its own auth identity.
           const enabledBuiltins = BUILTIN_CHANNELS.filter(
             (def) => (config.channels as Record<string, { enabled?: boolean }>)[def.key]?.enabled,
           );
-          if (this.channelRegistry) {
-            for (const def of enabledBuiltins) {
+          const agentTokens: Record<string, string> = {};
+          for (const def of enabledBuiltins) {
+            const token = randomBytes(24).toString('hex');
+            agentTokens[def.key] = token;
+            if (this.channelRegistry) {
               this.channelRegistry.register({
                 channelId: `${agentId}:${def.key}:builtin`,
-                apiKey: builtinToken,
+                apiKey: token,
                 namespace: def.namespace,
                 agentId,
               });
@@ -157,7 +159,7 @@ export class AgentInstanceManager {
 
           const handles = await startChannels(config.channels, {
             agentBaseUrl,
-            agentToken: builtinToken,
+            agentTokens,
             logger: (msg) => log(`[${agentId}] [telegram] ${msg}`),
           });
           if (handles.length > 0) {

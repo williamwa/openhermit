@@ -9,7 +9,7 @@ import type { ChannelsConfig } from './core/types.js';
 
 export interface ChannelContext {
   agentBaseUrl: string;
-  agentToken: string;
+  agentTokens: Record<string, string>;
   logger: (message: string) => void;
 }
 
@@ -70,7 +70,7 @@ async function startDiscord(
     const api = new DiscordApi(config.bot_token);
     const bridge = new DiscordBridge(api, {
       baseUrl: context.agentBaseUrl,
-      token: context.agentToken,
+      token: context.agentTokens['discord'] ?? '',
     }, logger);
 
     const bot = new DiscordBot({
@@ -108,7 +108,7 @@ async function startSlack(
     const api = new SlackApi(config.bot_token);
     const bridge = new SlackBridge(api, {
       baseUrl: context.agentBaseUrl,
-      token: context.agentToken,
+      token: context.agentTokens['slack'] ?? '',
     }, logger);
 
     const bot = new SlackBot({
@@ -146,7 +146,7 @@ async function startTelegram(
     const api = new TelegramApi(config.bot_token);
     const bridge = new TelegramBridge(api, {
       baseUrl: context.agentBaseUrl,
-      token: context.agentToken,
+      token: context.agentTokens['telegram'] ?? '',
     }, logger);
 
     const botOptions: ConstructorParameters<typeof TelegramBot>[0] = {
