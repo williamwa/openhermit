@@ -20,7 +20,7 @@ type Route =
 const parseRoute = (pathname: string): Route => {
   if (pathname.startsWith('/manage')) {
     const tab = pathname.split('/')[2] as ManageTab | undefined;
-    return { view: 'manage', tab: MANAGE_TABS.includes(tab!) ? tab! : 'skills' };
+    return { view: 'manage', tab: MANAGE_TABS.includes(tab!) ? tab! : 'basic' };
   }
   if (pathname.startsWith('/chat/')) {
     const sessionId = decodeURIComponent(pathname.slice(6));
@@ -44,7 +44,7 @@ interface Props {
 export function ChatShell({ connection, role, onDisconnect }: Props) {
   const initialRoute = parseRoute(window.location.pathname);
   const [view, setView] = useState<View>(initialRoute.view);
-  const [manageTab, setManageTab] = useState<ManageTab>(initialRoute.view === 'manage' ? initialRoute.tab : 'skills');
+  const [manageTab, setManageTab] = useState<ManageTab>(initialRoute.view === 'manage' ? initialRoute.tab : 'basic');
   const isOwner = role === 'owner';
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const initialSessionId = initialRoute.view === 'chat' ? initialRoute.sessionId : null;
@@ -452,7 +452,7 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
               <button className="btn btn--primary" onClick={() => void createNewSession()}>New Session</button>
             )}
             {isOwner && view === 'chat' && (
-              <button className="btn btn--ghost" onClick={() => { setView('manage'); setManageTab('skills'); }}>Manage</button>
+              <button className="btn btn--ghost" onClick={() => { setView('manage'); setManageTab('basic'); }}>Manage</button>
             )}
           </div>
         </div>
