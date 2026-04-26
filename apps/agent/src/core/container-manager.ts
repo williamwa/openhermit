@@ -7,6 +7,7 @@ import type {
   ContainerProcessResult,
   ContainerRegistryEntry,
   ContainerStatus,
+  ContainerType,
   WorkspaceContainerConfig,
 } from './types.js';
 import { AgentWorkspace } from './workspace.js';
@@ -123,6 +124,77 @@ export interface DockerContainerManagerOptions {
   agentId?: string;
   runner?: DockerRunner;
 }
+
+export interface OpenHermitContainerInfo {
+  id: string;
+  name: string;
+  agentId: string;
+  type: ContainerType;
+  image: string;
+  status: ContainerStatus;
+  statusText: string;
+}
+
+/**
+ * List all docker containers managed by openhermit (name-prefixed
+ * `openhermit-`) on the current host. Returns parsed agentId/type
+ * extracted from the container's name pattern
+ * `openhermit-{agentId}-{suffix}`.
+ */
+export const listAllOpenHermitContainers = async (
+  runner: DockerRunner = new DockerCliRunner(),
+): Promise<OpenHermitContainerInfo[]> => {
+  const result = await runner.run(['ps', '-a', '--format', '{{json .}}']);
+  if (result.exitCode !== 0) {
+    throw new OpenHermitError(
+      `Failed to list containers: ${result.stderr || result.stdout}`,
+      'docker_ps_failed',
+      500,
+    );
+  }
+
+  const containers: OpenHermitContainerInfo[] = [];
+  for (const line of result.stdout.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let raw: Record<string, string>;
+    try {
+      raw = JSON.parse(trimmed) as Record<string, string>;
+    } catch {
+      continue;
+    }
+    // `Names` may include several comma-separated names; the canonical
+    // openhermit one is the prefixed one.
+    const name = (raw.Names ?? '')
+      .split(',')
+      .map((n) => n.trim())
+      .find((n) => n.startsWith('openhermit-'));
+    if (!name) continue;
+
+    // openhermit-{agentId}-{suffix} — agentId may itself contain dashes,
+    // so split off the trailing suffix. Only include containers whose
+    // suffix matches a known openhermit container type so unrelated
+    // containers (e.g. compose-managed postgres) are not surfaced.
+    const stripped = name.slice('openhermit-'.length);
+    const lastDash = stripped.lastIndexOf('-');
+    if (lastDash === -1) continue;
+    const agentId = stripped.slice(0, lastDash);
+    const suffix = stripped.slice(lastDash + 1);
+    if (suffix !== 'workspace') continue;
+    const type: ContainerType = 'workspace';
+
+    containers.push({
+      id: raw.ID ?? '',
+      name,
+      agentId,
+      type,
+      image: raw.Image ?? '',
+      status: deriveContainerStatus(raw.Status),
+      statusText: raw.Status ?? '',
+    });
+  }
+  return containers;
+};
 
 interface LiveDockerContainer {
   id: string;

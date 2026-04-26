@@ -6,6 +6,7 @@ const tabs: { id: Tab; label: string }[] = [
   { id: 'skills', label: 'Skills' },
   { id: 'mcp-servers', label: 'MCP' },
   { id: 'schedules', label: 'Schedules' },
+  { id: 'containers', label: 'Containers' },
   { id: 'stats', label: 'Stats' },
   { id: 'logs', label: 'Logs' },
 ];

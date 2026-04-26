@@ -31,7 +31,7 @@ import {
 
 import type { AgentRunner, SessionEventEnvelope } from '@openhermit/agent/agent-runner';
 import { metricsRegistry, startDefaultMetrics } from '@openhermit/agent/metrics';
-import { buildDefaultAgentConfig } from '@openhermit/agent/core';
+import { buildDefaultAgentConfig, listAllOpenHermitContainers } from '@openhermit/agent/core';
 
 import type { AgentInstanceManager } from './agent-instance.js';
 import type { LogBuffer } from './log-buffer.js';
@@ -946,6 +946,28 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
       };
     }));
     return c.json(fleet);
+  });
+
+  app.get('/api/admin/containers', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    try {
+      const containers = await listAllOpenHermitContainers();
+      // Resolve agent display name where possible.
+      const nameByAgent = new Map<string, string | undefined>();
+      if (agentStore) {
+        const records = await agentStore.list();
+        for (const r of records) nameByAgent.set(r.agentId, r.name);
+      }
+      return c.json(containers.map((ct) => ({
+        ...ct,
+        ...(nameByAgent.has(ct.agentId)
+          ? { agentName: nameByAgent.get(ct.agentId) }
+          : {}),
+      })));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ error: { code: 'docker_unavailable', message } }, 503);
+    }
   });
 
   app.get('/api/admin/stats', async (c) => {
