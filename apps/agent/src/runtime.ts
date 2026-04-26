@@ -39,6 +39,16 @@ export interface SessionRuntime {
   resolveCallerUserId?(caller: { channel: string; channelUserId: string }): Promise<string | undefined>;
   /** Update a user's display name by channel identity. */
   updateUserName?(caller: { channel: string; channelUserId: string }, name: string): Promise<void>;
+  /**
+   * Ensure a user record exists for the given channel identity. Creates a
+   * guest user if none is found. Used at JWT exchange time so the caller
+   * has a stable userId immediately on first device auth, instead of
+   * waiting for the first session-open to lazily create one.
+   */
+  ensureUserForCaller?(
+    caller: { channel: string; channelUserId: string },
+    displayName?: string,
+  ): Promise<{ userId: string; role: string | undefined; created: boolean }>;
   checkpointSession(
     sessionId: string,
     reason?: 'manual' | 'new_session' | 'turn_limit' | 'idle',

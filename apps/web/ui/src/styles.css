@@ -110,6 +110,12 @@ h2 { font-size: 14px; font-weight: 600; }
 .sidebar__meta { margin: 4px 0 12px; }
 .hint { margin: 0 0 16px; line-height: 1.5; }
 
+.hint__uid {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
 /* ─── Buttons ───────────────────────────────────────────────────── */
 
 .btn {

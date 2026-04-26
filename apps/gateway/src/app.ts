@@ -289,14 +289,19 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
         throw new UnauthorizedError('Invalid credentials.');
       }
 
-      // Check if this is a new or returning user
-      const existingUserId = await instance.resolveCallerUserId({
-        channel: authResult.channel,
-        channelUserId: authResult.channelUserId,
-      });
-      const isNewDevice = !existingUserId;
+      // Ensure a user record exists for this channel identity. Auto-creates
+      // a guest on first contact so we always have a stable userId to return
+      // to the caller, instead of waiting for the first session-open.
+      const ensure = instance.ensureUserForCaller
+        ? await instance.ensureUserForCaller(
+            { channel: authResult.channel, channelUserId: authResult.channelUserId },
+            authResult.displayName,
+          )
+        : null;
+      const userId = ensure?.userId;
+      const isNewDevice = ensure?.created ?? false;
 
-      if (existingUserId && authResult.displayName && instance.updateUserName) {
+      if (!ensure?.created && authResult.displayName && instance.updateUserName) {
         await instance.updateUserName(
           { channel: authResult.channel, channelUserId: authResult.channelUserId },
           authResult.displayName,
@@ -309,16 +314,17 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
         channelUserId: authResult.channelUserId,
       });
 
-      const role = await instance.resolveCallerRole({
-        channel: authResult.channel,
-        channelUserId: authResult.channelUserId,
-      });
+      const role = ensure?.role
+        ?? await instance.resolveCallerRole({
+          channel: authResult.channel,
+          channelUserId: authResult.channelUserId,
+        });
 
       return c.json({
         token,
         expiresAt,
         isNewDevice,
-        ...(existingUserId ? { userId: existingUserId } : {}),
+        ...(userId ? { userId } : {}),
         ...(authResult.displayName ? { displayName: authResult.displayName } : {}),
         ...(role ? { role } : {}),
       });

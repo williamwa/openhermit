@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { getDisplayName, type Connection } from '../api';
+import { getDisplayName, getUserId, type Connection } from '../api';
 
 interface Props {
   defaultGatewayUrl: string;
@@ -34,7 +34,10 @@ export function ConnectScreen({ defaultGatewayUrl, defaultAgentId, defaultToken,
       <form className="card card--form" onSubmit={handleSubmit}>
         <p className="eyebrow">OpenHermit</p>
         <h1>Connect to Agent</h1>
-        <p className="hint">Signed in as <strong>{getDisplayName() || 'Unknown'}</strong></p>
+        <p className="hint">
+          Signed in as <strong>{getDisplayName() || 'Unknown'}</strong>
+          {getUserId() && <span className="hint__uid"> · {getUserId()}</span>}
+        </p>
 
         <label className="field">
           <span className="field__label">Gateway URL</span>

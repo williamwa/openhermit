@@ -1245,6 +1245,43 @@ export class AgentRunner implements SessionRuntime {
   }
 
   /**
+   * Ensure a user record exists for this channel identity. Returns the
+   * resolved userId, role on this agent, and whether the record was newly
+   * created. CLI users go through ensureCliUser at session-open time; this
+   * method is the analog for HTTP/WS auth (web devices), called from the
+   * JWT exchange so a userId is available immediately on first connect.
+   */
+  async ensureUserForCaller(
+    caller: { channel: string; channelUserId: string },
+    displayName?: string,
+  ): Promise<{ userId: string; role: UserRole | undefined; created: boolean }> {
+    const existingUserId = await this.store.users.resolve(caller.channel, caller.channelUserId);
+    if (existingUserId) {
+      const role = await this.store.users.getAgentRole(this.scope, existingUserId);
+      return { userId: existingUserId, role, created: false };
+    }
+    // Auto-create as guest. Owner promotion is always explicit (web admin
+    // UI / CLI claim flow), never silent.
+    const now = new Date().toISOString();
+    const userId = await this.generateGuestUserId();
+    await this.store.users.upsert({
+      userId,
+      ...(displayName ? { name: displayName } : {}),
+      createdAt: now,
+      updatedAt: now,
+    });
+    await this.store.users.assignAgent(this.scope, userId, 'guest', now);
+    await this.store.users.linkIdentity({
+      userId,
+      channel: caller.channel,
+      channelUserId: caller.channelUserId,
+      createdAt: now,
+    });
+    this.logRuntime(`auto-created guest user ${userId} for ${caller.channel}:${caller.channelUserId} on agent ${this.scope.agentId}`);
+    return { userId, role: 'guest', created: true };
+  }
+
+  /**
    * Derive a channel user ID from a session spec's metadata and source.
    * Returns undefined if no identity can be extracted.
    */
