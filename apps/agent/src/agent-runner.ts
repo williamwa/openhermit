@@ -504,20 +504,6 @@ export class AgentRunner implements SessionRuntime {
     };
   }
 
-  getSession(sessionId: string): SessionDescriptor | undefined {
-    const session = this.sessions.get(sessionId);
-
-    if (!session) {
-      return undefined;
-    }
-
-    return {
-      spec: session.spec,
-      createdAt: session.createdAt,
-      updatedAt: session.updatedAt,
-    };
-  }
-
   async listSessions(query: SessionListQuery = {}, callerUserId?: string): Promise<SessionSummary[]> {
     const persistedSessions = await this.store.sessions.list(
       this.scope,
@@ -545,13 +531,6 @@ export class AgentRunner implements SessionRuntime {
     const role = await this.store.users.getAgentRole(this.scope, callerUserId);
     if (role === 'owner') return;
 
-    const session = this.sessions.get(sessionId);
-    if (session) {
-      if (!session.userIds.includes(callerUserId)) {
-        throw new NotFoundError(`Session not found: ${sessionId}`);
-      }
-      return;
-    }
     const persisted = await this.store.sessions.get(this.scope, sessionId);
     if (!persisted || !persisted.userIds?.includes(callerUserId)) {
       throw new NotFoundError(`Session not found: ${sessionId}`);
