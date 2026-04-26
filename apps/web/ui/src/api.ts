@@ -512,7 +512,15 @@ export const putAgentConfig = (config: AgentConfig) => apiFetch<{ ok: boolean }>
 export interface ProviderCatalogEntry { provider: string; models: { id: string }[] }
 export const fetchProviderCatalog = () => apiFetchGlobal<ProviderCatalogEntry[]>('/api/providers');
 
-// Secrets (full map — values are read for masking on the client)
+// Secrets — server returns values masked (e.g. "abcd********wxyz").
+// Use setAgentSecret / deleteAgentSecret for per-key edits.
 export const fetchAgentSecrets = () => apiFetch<Record<string, string>>('/secrets');
-export const putAgentSecrets = (secrets: Record<string, string>) =>
-  apiFetch<{ ok: boolean }>('/secrets', { method: 'PUT', body: secrets });
+export const setAgentSecret = (name: string, value: string) =>
+  apiFetch<{ ok: boolean }>(`/secrets/${encodeURIComponent(name)}`, {
+    method: 'PUT',
+    body: { value },
+  });
+export const deleteAgentSecret = (name: string) =>
+  apiFetch<{ ok: boolean }>(`/secrets/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+  });

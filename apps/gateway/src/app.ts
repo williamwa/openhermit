@@ -1107,6 +1107,14 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     return c.json({ ok: true });
   });
 
+  // Mask secret values: show first 4 + last 4 (with **** in between) for
+  // long values, full mask for short ones. Empty string stays empty.
+  const maskSecret = (value: string): string => {
+    if (!value) return '';
+    if (value.length <= 8) return '*'.repeat(value.length);
+    return `${value.slice(0, 4)}${'*'.repeat(8)}${value.slice(-4)}`;
+  };
+
   app.get('/api/agents/:agentId/secrets', async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     await requireOwnerOrAdmin(c, agentId);
@@ -1115,7 +1123,10 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
       throw new NotFoundError(`Agent ${agentId} is not running.`);
     }
     await runner.security.load();
-    return c.json(await runner.security.readSecrets());
+    const all = await runner.security.readSecrets();
+    const masked: Record<string, string> = {};
+    for (const [k, v] of Object.entries(all)) masked[k] = maskSecret(v);
+    return c.json(masked);
   });
 
   app.put('/api/agents/:agentId/secrets', async (c) => {
@@ -1135,6 +1146,47 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
       }
     }
     await runner.security.writeSecrets(body as Record<string, string>);
+    return c.json({ ok: true });
+  });
+
+  app.put('/api/agents/:agentId/secrets/:name', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    const name = c.req.param('name') ?? '';
+    await requireOwnerOrAdmin(c, agentId);
+    const runner = instances.getRunner(agentId);
+    if (!runner) {
+      throw new NotFoundError(`Agent ${agentId} is not running.`);
+    }
+    if (!name) throw new ValidationError('Secret name required.');
+    const body = await c.req.json() as Record<string, unknown>;
+    const value = body.value;
+    if (typeof value !== 'string') {
+      throw new ValidationError('Body must be { value: string }.');
+    }
+    const secretStore = instances.getSecretStore();
+    if (!secretStore) {
+      throw new OpenHermitError('Secret store is not configured.', 'not_configured', 500);
+    }
+    await secretStore.set(agentId, name, value);
+    await runner.security.load();
+    return c.json({ ok: true });
+  });
+
+  app.delete('/api/agents/:agentId/secrets/:name', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    const name = c.req.param('name') ?? '';
+    await requireOwnerOrAdmin(c, agentId);
+    const runner = instances.getRunner(agentId);
+    if (!runner) {
+      throw new NotFoundError(`Agent ${agentId} is not running.`);
+    }
+    if (!name) throw new ValidationError('Secret name required.');
+    const secretStore = instances.getSecretStore();
+    if (!secretStore) {
+      throw new OpenHermitError('Secret store is not configured.', 'not_configured', 500);
+    }
+    await secretStore.delete(agentId, name);
+    await runner.security.load();
     return c.json({ ok: true });
   });
 

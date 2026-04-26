@@ -149,12 +149,9 @@ export const registerConfigCommand = (program: Command): void => {
           console.log('No secrets configured.');
           return;
         }
+        // Values returned by the gateway are already masked.
         for (const key of keys) {
-          const val = map[key]!;
-          const masked = val.length > 8
-            ? `${val.slice(0, 4)}...${val.slice(-4)}`
-            : '****';
-          console.log(`  ${key} = ${masked}`);
+          console.log(`  ${key} = ${map[key]}`);
         }
       } catch (error) {
         handleError(error);
@@ -168,9 +165,7 @@ export const registerConfigCommand = (program: Command): void => {
       const agentId = resolveAgentId(this);
       try {
         const gateway = createGateway();
-        const existing = await gateway.getAgentSecrets(agentId);
-        existing[key] = value;
-        await gateway.putAgentSecrets(agentId, existing);
+        await gateway.setAgentSecret(agentId, key, value);
         console.log(`Secret set: ${key}`);
       } catch (error) {
         handleError(error);
@@ -184,13 +179,7 @@ export const registerConfigCommand = (program: Command): void => {
       const agentId = resolveAgentId(this);
       try {
         const gateway = createGateway();
-        const existing = await gateway.getAgentSecrets(agentId);
-        if (!(key in existing)) {
-          console.error(`Secret not found: ${key}`);
-          process.exit(1);
-        }
-        delete existing[key];
-        await gateway.putAgentSecrets(agentId, existing);
+        await gateway.deleteAgentSecret(agentId, key);
         console.log(`Secret removed: ${key}`);
       } catch (error) {
         handleError(error);
