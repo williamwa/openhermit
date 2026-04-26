@@ -381,7 +381,11 @@ export class AgentRunner implements SessionRuntime {
       if (userId) existing.resolvedUserId = userId;
       if (role) existing.resolvedUserRole = role;
       if (userName) existing.resolvedUserName = userName;
-      existing.userIds = addUserIdToList(existing.userIds, userId);
+      // Don't add the reopener to user_ids. That list is the
+      // canonical participant set (for direct: the original speaker;
+      // for group: everyone who has sent a message). Reviewing a
+      // session — even by owner via the role-override above — must
+      // not silently promote the reviewer to a participant.
 
       await this.persistSessionIndex(existing);
 
