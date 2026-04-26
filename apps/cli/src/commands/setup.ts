@@ -286,6 +286,17 @@ export const registerSetupCommand = (program: Command): void => {
         console.log(`\n  → GATEWAY_JWT_SECRET generated (tokens will persist across restarts)`);
       }
 
+      // ── Step 3b: Secrets encryption key (auto-generate if missing) ──
+
+      if (!env.has('OPENHERMIT_SECRETS_KEY')) {
+        // 32 random bytes, base64-encoded. Used by DbSecretStore (AES-256-GCM)
+        // to encrypt every per-agent secret value at rest in postgres.
+        const secretsKey = crypto.randomBytes(32).toString('base64');
+        env.set('OPENHERMIT_SECRETS_KEY', secretsKey);
+        changed = true;
+        console.log(`  → OPENHERMIT_SECRETS_KEY generated (encrypts agent secrets in DB; back this up!)`);
+      }
+
       // Also set OPENHERMIT_TOKEN = admin token for CLI convenience.
       const adminToken = env.get('GATEWAY_ADMIN_TOKEN');
       if (adminToken && !env.has('OPENHERMIT_TOKEN')) {

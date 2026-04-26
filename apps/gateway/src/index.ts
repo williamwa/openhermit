@@ -15,6 +15,7 @@ import {
   DbSkillStore,
   DbUserStore,
   FileSecretStore,
+  DbSecretStore,
   runMigrations,
 } from '@openhermit/store';
 import { scanSkillDirectory } from '@openhermit/agent/skills';
@@ -153,14 +154,50 @@ export const main = async (): Promise<void> => {
 
   if (configStore) {
     instances.setConfigStore(configStore);
-    // FileSecretStore needs to know each agent's configDir; resolve via
-    // the agentStore so we don't take a hard dep on filesystem layout.
-    const secretStore = new FileSecretStore(async (agentId: string) => {
-      const record = await agentStore?.get(agentId);
-      if (!record) throw new Error(`Agent not found: ${agentId}`);
-      return record.configDir;
-    });
-    instances.setSecretStore(secretStore);
+    // Prefer the DB-backed encrypted secret store when a key is
+    // configured. Fall back to the file-backed store with a warning so
+    // existing installs keep working until the operator runs setup
+    // again to generate a key.
+    if (process.env.OPENHERMIT_SECRETS_KEY) {
+      try {
+        const dbSecretStore = await DbSecretStore.open();
+        // One-shot migration: if the agent has secrets.json on disk but
+        // nothing in the DB, copy values over (encrypted) and rename
+        // the file. Idempotent across boots.
+        if (agentStore) {
+          const agents = await agentStore.list();
+          for (const agent of agents) {
+            try {
+              const fileStore = new FileSecretStore(async () => agent.configDir);
+              const fileSecrets = await fileStore.list(agent.agentId);
+              const dbSecrets = await dbSecretStore.list(agent.agentId);
+              if (Object.keys(fileSecrets).length > 0 && Object.keys(dbSecrets).length === 0) {
+                await dbSecretStore.setAll(agent.agentId, fileSecrets);
+                logStartup(`migrated ${Object.keys(fileSecrets).length} secret(s) from file to DB for agent ${agent.agentId}`);
+                const fs = await import('node:fs/promises');
+                const oldPath = `${agent.configDir}/secrets.json`;
+                await fs.rename(oldPath, `${oldPath}.imported`).catch(() => undefined);
+              }
+            } catch (e) {
+              logStartup(`secret migration skipped for ${agent.agentId}: ${e instanceof Error ? e.message : String(e)}`);
+            }
+          }
+        }
+        instances.setSecretStore(dbSecretStore);
+        logStartup('secret store: encrypted (DB)');
+      } catch (e) {
+        logStartup(`failed to open encrypted secret store: ${e instanceof Error ? e.message : String(e)}`);
+        process.exit(1);
+      }
+    } else {
+      logStartup('OPENHERMIT_SECRETS_KEY not set — falling back to FileSecretStore (plaintext on disk). Run `hermit setup` to enable encrypted DB-backed secrets.');
+      const secretStore = new FileSecretStore(async (agentId: string) => {
+        const record = await agentStore?.get(agentId);
+        if (!record) throw new Error(`Agent not found: ${agentId}`);
+        return record.configDir;
+      });
+      instances.setSecretStore(secretStore);
+    }
   }
 
   if (skillStore) {

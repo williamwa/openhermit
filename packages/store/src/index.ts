@@ -57,5 +57,7 @@ export {
   DbScheduleStore,
   DbMcpServerStore,
   FileSecretStore,
+  DbSecretStore,
+  generateSecretsKey,
   runMigrations,
 } from './impl/index.js';

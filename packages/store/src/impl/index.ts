@@ -65,4 +65,5 @@ export { DbScheduleStore } from './schedule-store.js';
 export { DbMcpServerStore } from './mcp-server-store.js';
 export { DbAgentConfigStore } from './agent-config-store.js';
 export { FileSecretStore, type ConfigDirResolver } from './file-secret-store.js';
+export { DbSecretStore, generateSecretsKey } from './db-secret-store.js';
 export { runMigrations } from './migrator.js';

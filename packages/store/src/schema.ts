@@ -65,6 +65,22 @@ export const sessionEvents = pgTable('session_events', {
   index('idx_session_events_type').on(table.agentId, table.sessionId, table.eventType, table.id),
 ]);
 
+/**
+ * Per-agent secrets, encrypted at rest with AES-256-GCM. The wire format
+ * stored in `value_ciphertext` is `iv:authTag:ciphertext` (base64), and
+ * the encryption key comes from the OPENHERMIT_SECRETS_KEY env var (32
+ * bytes after base64 decoding).
+ */
+export const agentSecrets = pgTable('agent_secrets', {
+  agentId: text('agent_id').notNull(),
+  name: text('name').notNull(),
+  valueCiphertext: text('value_ciphertext').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.agentId, table.name] }),
+]);
+
 export const memories = pgTable('memories', {
   agentId: text('agent_id').notNull(),
   memoryKey: text('memory_key').notNull(),
