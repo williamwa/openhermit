@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from '../api';
 import { SecretsDialog } from './SecretsDialog';
 import { ConfigDialog } from './ConfigDialog';
@@ -53,7 +54,7 @@ export function FleetPanel() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
-  const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [openMenu, setOpenMenu] = useState<{ agentId: string; top: number; right: number } | null>(null);
   const [secretsAgent, setSecretsAgent] = useState<string | null>(null);
   const [configAgent, setConfigAgent] = useState<string | null>(null);
   const [skillsAgent, setSkillsAgent] = useState<string | null>(null);
@@ -81,15 +82,24 @@ export function FleetPanel() {
     else dialogRef.current?.close();
   }, [bulkOpen]);
 
-  // Click outside to close the action menu.
+  // Click outside / scroll / resize closes the action menu.
   useEffect(() => {
     if (!openMenu) return;
     const onClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null;
-      if (!target?.closest('.fleet-actions')) setOpenMenu(null);
+      if (!target?.closest('.fleet-actions') && !target?.closest('.fleet-actions__menu')) {
+        setOpenMenu(null);
+      }
     };
+    const close = () => setOpenMenu(null);
     document.addEventListener('click', onClick);
-    return () => document.removeEventListener('click', onClick);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      document.removeEventListener('click', onClick);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
   }, [openMenu]);
 
   const allSelected = fleet.length > 0 && selected.size === fleet.length;
@@ -174,9 +184,6 @@ export function FleetPanel() {
               <th>Last activity</th>
               <th className="fleet-table__num">Sessions 24h</th>
               <th className="fleet-table__num">Errors 24h</th>
-              <th>Channels</th>
-              <th className="fleet-table__num">Skills</th>
-              <th className="fleet-table__num">MCP</th>
               <th className="fleet-table__actions"></th>
             </tr>
           </thead>
@@ -205,49 +212,28 @@ export function FleetPanel() {
                 <td className={`fleet-table__num${a.errors24h > 0 ? ' fleet-cell-error' : ''}`}>
                   {a.errors24h}
                 </td>
-                <td>
-                  {a.channels.length === 0 ? (
-                    <span className="fleet-cell-muted">—</span>
-                  ) : (
-                    <div className="fleet-chips">
-                      {a.channels.map((c) => (
-                        <span className="fleet-chip" key={c}>{c}</span>
-                      ))}
-                    </div>
-                  )}
-                </td>
-                <td className="fleet-table__num">{a.skillsCount}</td>
-                <td className="fleet-table__num">{a.mcpCount}</td>
                 <td className="fleet-table__actions">
                   <div className="fleet-actions">
                     <button
                       className="btn btn--ghost btn--sm fleet-actions__trigger"
                       aria-label={`Manage ${a.agentId}`}
-                      aria-expanded={openMenu === a.agentId}
+                      aria-expanded={openMenu?.agentId === a.agentId}
                       onClick={(e) => {
                         e.stopPropagation();
-                        setOpenMenu(openMenu === a.agentId ? null : a.agentId);
+                        if (openMenu?.agentId === a.agentId) {
+                          setOpenMenu(null);
+                          return;
+                        }
+                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setOpenMenu({
+                          agentId: a.agentId,
+                          top: rect.bottom + 4,
+                          right: window.innerWidth - rect.right,
+                        });
                       }}
                     >
                       ⋮
                     </button>
-                    {openMenu === a.agentId && (
-                      <div className="fleet-actions__menu" role="menu">
-                        {a.status === 'stopped' ? (
-                          <button role="menuitem" onClick={() => handleAction(a.agentId, 'start')}>Start</button>
-                        ) : (
-                          <>
-                            <button role="menuitem" onClick={() => handleAction(a.agentId, 'restart')}>Restart</button>
-                            <button role="menuitem" onClick={() => handleAction(a.agentId, 'stop')}>Stop</button>
-                          </>
-                        )}
-                        <div className="fleet-actions__divider" />
-                        <button role="menuitem" onClick={() => { setOpenMenu(null); setConfigAgent(a.agentId); }}>Config</button>
-                        <button role="menuitem" onClick={() => { setOpenMenu(null); setSkillsAgent(a.agentId); }}>Skills</button>
-                        <button role="menuitem" onClick={() => { setOpenMenu(null); setMcpAgent(a.agentId); }}>MCP</button>
-                        <button role="menuitem" onClick={() => { setOpenMenu(null); setSecretsAgent(a.agentId); }}>Secrets</button>
-                      </div>
-                    )}
                   </div>
                 </td>
               </tr>
@@ -269,11 +255,69 @@ export function FleetPanel() {
         />
       </dialog>
 
+      {openMenu && createPortal(
+        <FleetActionsMenu
+          agent={fleet.find((a) => a.agentId === openMenu.agentId)}
+          top={openMenu.top}
+          right={openMenu.right}
+          onAction={handleAction}
+          onConfig={(id) => { setOpenMenu(null); setConfigAgent(id); }}
+          onSkills={(id) => { setOpenMenu(null); setSkillsAgent(id); }}
+          onMcp={(id) => { setOpenMenu(null); setMcpAgent(id); }}
+          onSecrets={(id) => { setOpenMenu(null); setSecretsAgent(id); }}
+        />,
+        document.body,
+      )}
+
       {showCreate && <CreateAgentDialog onClose={() => setShowCreate(false)} onCreated={load} />}
       {secretsAgent && <SecretsDialog agentId={secretsAgent} onClose={() => setSecretsAgent(null)} />}
       {configAgent && <ConfigDialog agentId={configAgent} onClose={() => setConfigAgent(null)} />}
       {skillsAgent && <AgentSkillsDialog agentId={skillsAgent} onClose={() => setSkillsAgent(null)} />}
       {mcpAgent && <AgentMcpDialog agentId={mcpAgent} onClose={() => setMcpAgent(null)} />}
+    </div>
+  );
+}
+
+function FleetActionsMenu({
+  agent,
+  top,
+  right,
+  onAction,
+  onConfig,
+  onSkills,
+  onMcp,
+  onSecrets,
+}: {
+  agent: FleetAgent | undefined;
+  top: number;
+  right: number;
+  onAction: (agentId: string, action: string) => void;
+  onConfig: (agentId: string) => void;
+  onSkills: (agentId: string) => void;
+  onMcp: (agentId: string) => void;
+  onSecrets: (agentId: string) => void;
+}) {
+  if (!agent) return null;
+  return (
+    <div
+      className="fleet-actions__menu"
+      role="menu"
+      style={{ position: 'fixed', top, right }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {agent.status === 'stopped' ? (
+        <button role="menuitem" onClick={() => onAction(agent.agentId, 'start')}>Start</button>
+      ) : (
+        <>
+          <button role="menuitem" onClick={() => onAction(agent.agentId, 'restart')}>Restart</button>
+          <button role="menuitem" onClick={() => onAction(agent.agentId, 'stop')}>Stop</button>
+        </>
+      )}
+      <div className="fleet-actions__divider" />
+      <button role="menuitem" onClick={() => onConfig(agent.agentId)}>Config</button>
+      <button role="menuitem" onClick={() => onSkills(agent.agentId)}>Skills</button>
+      <button role="menuitem" onClick={() => onMcp(agent.agentId)}>MCP</button>
+      <button role="menuitem" onClick={() => onSecrets(agent.agentId)}>Secrets</button>
     </div>
   );
 }
