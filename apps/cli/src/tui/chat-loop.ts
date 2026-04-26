@@ -16,6 +16,7 @@ import {
 } from '../sessions.js';
 import { streamAssistantTurn } from '../sse.js';
 import type { StartupSessionSelection } from '../types.js';
+import { renderSessionHistory } from './history.js';
 import { createTuiLayout } from './layout.js';
 import { bold, cyan, dim, gray, green, red, yellow } from './theme.js';
 
@@ -72,6 +73,16 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
   // ── open initial session ──────────────────────────────────────────────────
 
   await client.openSession(createCliSessionSpec(currentSessionId));
+
+  if (startupSession.resumed) {
+    try {
+      const history = await client.listSessionMessages(currentSessionId);
+      renderSessionHistory(layout, history);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      addText(`${red('[history]')} failed to load past messages: ${message}`);
+    }
+  }
 
   // ── start TUI ─────────────────────────────────────────────────────────────
 
@@ -218,6 +229,13 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
         );
         updateHeader();
         addText(gray(`[session] Resumed ${currentSessionId}`));
+        try {
+          const history = await client.listSessionMessages(currentSessionId);
+          renderSessionHistory(layout, history);
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          addText(`${red('[history]')} failed to load past messages: ${message}`);
+        }
         return;
       }
     }
