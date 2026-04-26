@@ -558,8 +558,18 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     // Channel tokens can only create sessions within their namespace.
     enforceSessionNamespace(auth, payload.sessionId);
 
-    // Inject authenticated user identity into session metadata
-    if (auth.mode === 'user' && auth.channelUserId) {
+    // Inject authenticated user identity into session metadata. Only do
+    // this when the auth channel matches the session's declared source —
+    // otherwise a token issued for one channel (e.g. web) leaks its
+    // channel-specific identifier (a SHA-256 fingerprint) into a session
+    // declared as a different channel (e.g. cli), creating a stray
+    // identity row keyed under the wrong channel.
+    const sourceKind = (payload.source as { kind?: string } | undefined)?.kind;
+    if (
+      auth.mode === 'user'
+      && auth.channelUserId
+      && sourceKind === auth.channel
+    ) {
       payload.metadata = {
         ...payload.metadata,
         username: auth.channelUserId,
