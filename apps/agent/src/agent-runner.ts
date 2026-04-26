@@ -370,10 +370,12 @@ export class AgentRunner implements SessionRuntime {
         // Preserve the original source — reopening from a different channel
         // (e.g. viewing a telegram session in the web UI) must not change it.
         source: existing.spec.source,
-        ...(Object.keys(mergedMetadata).length > 0
-          ? { metadata: mergedMetadata }
-          : {}),
+        // Always overwrite metadata with the merged (and channel-filtered)
+        // value; otherwise a raw spec.metadata with username would slip
+        // through via `...spec` when mergedMetadata is empty.
+        metadata: mergedMetadata,
       };
+      if (Object.keys(mergedMetadata).length === 0) delete existing.spec.metadata;
       existing.status = 'idle';
 
       // Re-resolve user identity every time the session opens.
@@ -423,10 +425,12 @@ export class AgentRunner implements SessionRuntime {
     const effectiveSpec: SessionSpec = {
       ...spec,
       source: persisted?.source ?? spec.source,
-      ...(Object.keys(mergedMetadata).length > 0
-        ? { metadata: mergedMetadata }
-        : {}),
+      // Always overwrite metadata with the merged (and channel-filtered)
+      // value; otherwise spec.metadata.username slips through via `...spec`
+      // when mergedMetadata is empty.
+      metadata: mergedMetadata,
     };
+    if (Object.keys(mergedMetadata).length === 0) delete effectiveSpec.metadata;
     const createdAt = persisted?.createdAt ?? now;
 
     const config = await this.options.security.readConfig();
