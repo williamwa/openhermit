@@ -98,6 +98,7 @@ function ToolCard({ item }: { item: Extract<ChatItem, { type: 'tool' }> }) {
     <details className={`tool-card ${doneClass}`} open={item.phase !== 'done'}>
       <summary className="tool-card__header">
         <span className="tool-card__icon">{icon}</span>
+        <span className="tool-card__label">Tool:</span>
         <span className="tool-card__name">{item.tool}</span>
         <span className={`tool-card__status${item.phase === 'done' ? (item.isError ? ' tool-card__status--error' : ' tool-card__status--done') : ''}`}>
           {statusText}

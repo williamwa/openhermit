@@ -618,7 +618,8 @@ h2 { font-size: 14px; font-weight: 600; }
 .tool-card--done .tool-card__icon { color: var(--success); }
 .tool-card--error .tool-card__icon { color: var(--danger); }
 
-.tool-card__name { font-weight: 500; color: var(--text); }
+.tool-card__label { font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.tool-card__name { font-weight: 500; color: var(--text); font-family: var(--mono, monospace); }
 
 .tool-card__status { margin-left: auto; color: var(--muted); font-size: 10px; }
 .tool-card__status--done { color: var(--success); }
