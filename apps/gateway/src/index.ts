@@ -237,7 +237,14 @@ export const main = async (): Promise<void> => {
     logStartup('autoStartAgents disabled — agents will not be started automatically');
   }
 
+  // Re-entrancy guard: SIGINT + SIGTERM can both fire in quick succession
+  // (e.g. supervisor sends TERM, then user presses Ctrl-C). Calling
+  // pool.end() twice throws, and the unhandledRejection safety net below
+  // would then keep a zombie gateway alive with closed DB pools.
+  let shuttingDown = false;
   const shutdownHandler = async (): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     logStartup('shutting down...');
 
     await instances.stopAll();
