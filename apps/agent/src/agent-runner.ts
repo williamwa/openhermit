@@ -717,6 +717,14 @@ export class AgentRunner implements SessionRuntime {
       );
 
       const config = await this.options.security.readConfig();
+      // Skip introspection silently if the configured provider has no
+      // API key available — pi-agent-core's stream loop runs in an
+      // un-awaited IIFE, so a thrown "No API key" rejects nowhere and
+      // would crash the process.
+      if (!this.resolveApiKey(config.model.provider)) {
+        this.logRuntime(`introspection skipped: no API key for provider "${config.model.provider}"`);
+        return false;
+      }
       return await this.runIntrospection(session, reason, config, latestEventId, unsummarized);
     } finally {
       session.checkpointInProgress = false;
