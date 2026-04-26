@@ -1,4 +1,5 @@
 import type { AddressInfo } from 'node:net';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { stderr } from 'node:process';
@@ -133,7 +134,16 @@ export const main = async (): Promise<void> => {
   }
 
   const gatewayDir = path.dirname(fileURLToPath(import.meta.url));
-  const publicDir = config.ui ? path.resolve(gatewayDir, '../ui/dist') : undefined;
+  // Admin UI lives at apps/gateway/ui/dist in the dev tree, but is copied to
+  // <package>/public/admin in the published npm bundle. Pick whichever exists.
+  const publicDir = (() => {
+    if (!config.ui) return undefined;
+    const candidates = [
+      path.resolve(gatewayDir, '../ui/dist'),     // dev (apps/gateway/dist → apps/gateway/ui/dist)
+      path.resolve(gatewayDir, '../public/admin'), // bundled (<pkg>/dist → <pkg>/public/admin)
+    ];
+    return candidates.find((p) => existsSync(p)) ?? candidates[0];
+  })();
 
   // Pass skill store to instances so agent runners can access DB skills.
   if (mcpServerStore) {

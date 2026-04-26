@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { drizzle } from 'drizzle-orm/node-postgres';
@@ -5,16 +6,31 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import pg from 'pg';
 
 /**
- * Drizzle migrations live at `packages/store/drizzle/`, alongside both
- * `src/` (dev/tsx) and `dist/` (built output). Resolve from this module's URL
- * so the path works regardless of which one is loaded.
+ * Resolve the drizzle migrations folder for both layouts:
+ *   - dev/tsx: file is at `packages/store/src/impl/migrator.ts`,
+ *     migrations at `packages/store/drizzle/` (two levels up).
+ *   - npm-bundled (apps/cli/dist/*.js or sub-chunks): migrations are
+ *     copied into `<package-root>/drizzle/` by prepublishOnly, sitting
+ *     alongside `dist/` (one or two levels up depending on the chunk).
+ * Probe candidates in order and pick the first that has a journal file.
  */
-const migrationsFolder = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '..',
-  '..',
-  'drizzle',
-);
+const resolveMigrationsFolder = (): string => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    path.resolve(here, '..', '..', 'drizzle'), // dev
+    path.resolve(here, '..', 'drizzle'),       // bundled at <pkg>/dist/*.js
+    path.resolve(here, '..', '..', 'drizzle'), // bundled at <pkg>/dist/sub/*.js
+  ];
+  const found = candidates.find((p) =>
+    existsSync(path.join(p, 'meta', '_journal.json')),
+  );
+  if (!found) {
+    throw new Error(
+      `drizzle migrations folder not found; searched: ${candidates.join(', ')}`,
+    );
+  }
+  return found;
+};
 
 let runOnce: Promise<void> | null = null;
 
@@ -30,7 +46,7 @@ export const runMigrations = async (databaseUrl?: string): Promise<void> => {
     const pool = new pg.Pool({ connectionString: url });
     try {
       const db = drizzle(pool);
-      await migrate(db, { migrationsFolder });
+      await migrate(db, { migrationsFolder: resolveMigrationsFolder() });
     } finally {
       await pool.end();
     }

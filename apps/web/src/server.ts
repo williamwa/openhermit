@@ -1,4 +1,4 @@
-import { createReadStream } from 'node:fs';
+import { createReadStream, existsSync } from 'node:fs';
 import { promises as fs } from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
@@ -6,7 +6,16 @@ import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const publicRoot = path.resolve(__dirname, '../public');
+// Static root layout differs by environment:
+//   - dev: apps/web/dist/server.js → apps/web/public
+//   - bundled npm: <pkg>/dist/web.js → <pkg>/public/web (copied by prepublishOnly)
+const publicRoot: string = (() => {
+  const candidates = [
+    path.resolve(__dirname, '../public'),
+    path.resolve(__dirname, '../public/web'),
+  ];
+  return candidates.find((p) => existsSync(path.join(p, 'index.html'))) ?? candidates[0]!;
+})();
 
 const mimeTypes: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
