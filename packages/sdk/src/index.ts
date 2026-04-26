@@ -371,8 +371,8 @@ export class GatewayClient {
 
   /**
    * Returns an `AgentLocalClient` whose requests are routed through the
-   * gateway at `/agents/:agentId/...`. The agent-local client sees the
-   * same API surface as if it were talking to the agent directly.
+   * gateway at `/api/agents/:agentId/...`. The agent-local client sees
+   * the same API surface as if it were talking to the agent directly.
    */
   async listSchedules(agentId: string): Promise<unknown[]> {
     return this.getJson(`/api/agents/${encodeURIComponent(agentId)}/schedules`);
@@ -405,7 +405,7 @@ export class GatewayClient {
 
   agent(agentId: string): AgentLocalClient {
     return new AgentLocalClient({
-      baseUrl: joinUrl(this.baseUrl, `/agents/${encodeURIComponent(agentId)}`),
+      baseUrl: joinUrl(this.baseUrl, `/api/agents/${encodeURIComponent(agentId)}`),
       token: this.token,
       fetch: this.fetchImpl,
     });

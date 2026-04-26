@@ -49,7 +49,7 @@ export function SchedulesPanel() {
 
   const loadAgents = useCallback(async () => {
     try {
-      const list = await api<AgentInfo[]>('/agents');
+      const list = await api<AgentInfo[]>('/api/agents');
       setAgents(list);
       if (list.length > 0 && !agentId) setAgentId(list[0].agentId);
     } catch (err) {

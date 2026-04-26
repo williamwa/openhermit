@@ -218,32 +218,32 @@ export interface CreateAgentRequest {
 }
 
 export const gatewayRoutes = {
-  agents: '/agents',
+  agents: '/api/agents',
   agentHealth: (agentId: string): string =>
-    `/agents/${encodeURIComponent(agentId)}/health`,
-  agentHealthPattern: '/agents/:agentId/health',
+    `/api/agents/${encodeURIComponent(agentId)}/health`,
+  agentHealthPattern: '/api/agents/:agentId/health',
   agentSessions: (agentId: string): string =>
-    `/agents/${encodeURIComponent(agentId)}/sessions`,
-  agentSessionsPattern: '/agents/:agentId/sessions',
+    `/api/agents/${encodeURIComponent(agentId)}/sessions`,
+  agentSessionsPattern: '/api/agents/:agentId/sessions',
   agentSessionMessages: (agentId: string, sessionId: string): string =>
-    `/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/messages`,
+    `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/messages`,
   agentSessionMessagesPattern:
-    '/agents/:agentId/sessions/:sessionId/messages',
+    '/api/agents/:agentId/sessions/:sessionId/messages',
   agentSessionEvents: (agentId: string, sessionId: string): string =>
-    `/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/events`,
+    `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/events`,
   agentSessionEventsPattern:
-    '/agents/:agentId/sessions/:sessionId/events',
+    '/api/agents/:agentId/sessions/:sessionId/events',
   agentSessionApprove: (agentId: string, sessionId: string): string =>
-    `/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/approve`,
+    `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/approve`,
   agentSessionApprovePattern:
-    '/agents/:agentId/sessions/:sessionId/approve',
+    '/api/agents/:agentId/sessions/:sessionId/approve',
   agentSessionCheckpoint: (agentId: string, sessionId: string): string =>
-    `/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/checkpoint`,
+    `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/checkpoint`,
   agentSessionCheckpointPattern:
-    '/agents/:agentId/sessions/:sessionId/checkpoint',
+    '/api/agents/:agentId/sessions/:sessionId/checkpoint',
   agentManage: (agentId: string, action: string): string =>
-    `/agents/${encodeURIComponent(agentId)}/manage/${encodeURIComponent(action)}`,
-  agentManagePattern: '/agents/:agentId/manage/:action',
+    `/api/agents/${encodeURIComponent(agentId)}/manage/${encodeURIComponent(action)}`,
+  agentManagePattern: '/api/agents/:agentId/manage/:action',
 } as const;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

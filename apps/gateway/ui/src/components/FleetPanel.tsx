@@ -117,7 +117,7 @@ export function FleetPanel() {
   const handleAction = async (agentId: string, action: string) => {
     setOpenMenu(null);
     try {
-      await api(`/agents/${encodeURIComponent(agentId)}/manage/${action}`, { method: 'POST' });
+      await api(`/api/agents/${encodeURIComponent(agentId)}/manage/${action}`, { method: 'POST' });
     } catch (err) {
       alert(`Failed to ${action} ${agentId}: ${(err as Error).message}`);
     }
@@ -484,7 +484,7 @@ function CreateAgentDialog({ onClose, onCreated }: { onClose: () => void; onCrea
     e.preventDefault();
     if (!agentId.trim()) return;
     try {
-      await api('/agents', {
+      await api('/api/agents', {
         method: 'POST',
         body: {
           agentId: agentId.trim(),

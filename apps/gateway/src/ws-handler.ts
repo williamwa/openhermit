@@ -275,7 +275,7 @@ export interface GatewayWsOptions {
 /**
  * Attach a WebSocket handler to the gateway HTTP server.
  *
- * Handles `upgrade` requests on `/agents/:agentId/ws`. Resolves the
+ * Handles `upgrade` requests on `/api/agents/:agentId/ws`. Resolves the
  * AgentRunner from AgentInstanceManager and runs the WS RPC protocol
  * directly in-process (no proxy).
  */
@@ -290,8 +290,8 @@ export const attachGatewayWs = (
   httpServer.on('upgrade', async (request: IncomingMessage, socket, head) => {
     const url = new URL(request.url ?? '/', `http://${request.headers.host}`);
 
-    // Match /agents/:agentId/ws
-    const match = url.pathname.match(/^\/agents\/([^/]+)\/ws$/);
+    // Match /api/agents/:agentId/ws
+    const match = url.pathname.match(/^\/api\/agents\/([^/]+)\/ws$/);
     if (!match) {
       socket.destroy();
       return;

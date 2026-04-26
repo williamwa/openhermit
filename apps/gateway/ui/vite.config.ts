@@ -7,7 +7,6 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': 'http://localhost:4080',
-      '/agents': 'http://localhost:4080',
     },
   },
   build: {

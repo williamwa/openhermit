@@ -155,7 +155,7 @@ export const setConnection = (conn: Connection): void => {
   const base = conn.gatewayUrl.replace(/\/+$/, '');
   gatewayBase = base;
   currentAgentId = conn.agentId;
-  apiBase = `${base}/agents/${encodeURIComponent(conn.agentId)}`;
+  apiBase = `${base}/api/agents/${encodeURIComponent(conn.agentId)}`;
 };
 
 export const getApiBase = (): string => apiBase;

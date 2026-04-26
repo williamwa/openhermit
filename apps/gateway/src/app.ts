@@ -256,7 +256,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const authOptions = options.auth;
 
     // Auth token exchange — before the general auth middleware
-    app.post('/agents/:agentId/auth/token', async (c) => {
+    app.post('/api/agents/:agentId/auth/token', async (c) => {
       const agentId = c.req.param('agentId') ?? '';
       const instance = instances.getRunner(agentId);
       if (!instance) {
@@ -335,7 +335,6 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
       }
       await next();
     };
-    app.use('/agents/*', agentAuthMiddleware);
     app.use('/api/agents/*', agentAuthMiddleware);
     // Global (non-agent-scoped) /api/* endpoints reuse the same auth
     // resolver so they accept either an admin token or any valid user
@@ -900,7 +899,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
 
   // --- delete session ---
 
-  app.delete('/agents/:agentId/sessions/:sessionId', async (c) => {
+  app.delete('/api/agents/:agentId/sessions/:sessionId', async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     const sessionId = c.req.param('sessionId') ?? '';
     const auth = requireAuth(c, agentId);
