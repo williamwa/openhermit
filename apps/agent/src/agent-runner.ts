@@ -87,23 +87,17 @@ const addUserIdToList = (existing: string[], userId: string | undefined): string
 };
 
 /**
- * Build the userId for the bootstrap owner user. For CLI sessions we
- * use the OS username (or whatever deriveChannelUserId returned),
- * sanitized to a safe slug. Falls back to 'usr-owner' when no usable
- * slug is available — keeps backward compatibility for API bootstraps.
+ * Build the userId for a CLI user from their channelUserId (typically
+ * the OS username). Sanitizes to lowercase [a-z0-9-]. Returns
+ * undefined when no usable slug can be derived.
  */
-const buildOwnerUserId = (
-  kind: string,
-  channelUserId: string | undefined,
-): string => {
-  if (kind === 'cli' && channelUserId) {
-    const slug = channelUserId
-      .toLowerCase()
-      .replace(/[^a-z0-9-]+/g, '-')
-      .replace(/^-+|-+$/g, '');
-    if (slug) return `usr-${slug}`;
-  }
-  return 'usr-owner';
+const buildCliUserId = (channelUserId: string | undefined): string | undefined => {
+  if (!channelUserId) return undefined;
+  const slug = channelUserId
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug ? `usr-${slug}` : undefined;
 };
 
 export class AgentRunner implements SessionRuntime {
@@ -375,7 +369,7 @@ export class AgentRunner implements SessionRuntime {
       // Re-resolve user identity every time the session opens.
       // This picks up merges (e.g. guest merged into owner) that happened
       // since the session was first created.
-      await this.ensureOwnerBootstrap(existing.spec, now);
+      await this.ensureCliUser(existing.spec, now);
       const { userId, role, userName } = await this.resolveSessionUser(existing.spec, now);
 
       // Access control: only allow reopen if the resolved user is already
@@ -415,7 +409,7 @@ export class AgentRunner implements SessionRuntime {
     const config = await this.options.security.readConfig();
 
     // Bootstrap owner on first connection from CLI or web
-    await this.ensureOwnerBootstrap(effectiveSpec, now);
+    await this.ensureCliUser(effectiveSpec, now);
 
     // Resolve user identity for this session
     const { userId: resolvedUserId, role: resolvedUserRole, userName: resolvedUserName } =
@@ -1038,44 +1032,54 @@ export class AgentRunner implements SessionRuntime {
   }
 
   /**
-   * Bootstrap the owner user on first connection.
-   * If no users exist yet and the session is from the CLI (the local
-   * operator), promote that first user to owner. Other entry points
-   * (api, telegram, web, etc.) must NOT auto-promote — they fall
-   * through to resolveMessageSender which creates a guest.
+   * Ensure the CLI caller has a user record on this agent.
+   *
+   * Unified user model:
+   *   - First CLI user on an agent (no prior users) → owner
+   *   - Any subsequent CLI user → guest
+   *   - All other channels (api / web / telegram / discord / slack) →
+   *     handled by resolveMessageSender, always created as guest.
+   *
+   * Re-running for the same OS user is a no-op aside from making sure
+   * an agent role exists.
    */
-  private async ensureOwnerBootstrap(spec: SessionSpec, now: string): Promise<void> {
-    const kind = spec.source.kind;
-    if (kind !== 'cli') return;
-
-    const agentUsers = await this.store.users.listByAgent(this.scope);
-    if (agentUsers.length > 0) return;
+  private async ensureCliUser(spec: SessionSpec, now: string): Promise<void> {
+    if (spec.source.kind !== 'cli') return;
 
     const channelUserId = this.deriveChannelUserId(spec);
-    // Prefer a stable, human-readable id derived from the OS username.
-    // Falls back to 'usr-owner' when no slug can be derived.
-    const userId = buildOwnerUserId(kind, channelUserId);
-    const name = channelUserId ?? undefined;
+    if (!channelUserId) return;
 
+    const agentUsers = await this.store.users.listByAgent(this.scope);
+    const role: UserRole = agentUsers.length === 0 ? 'owner' : 'guest';
+
+    // If this CLI identity is already linked, just make sure the role
+    // assignment for this agent exists. Don't downgrade an existing
+    // role to guest.
+    const existingUserId = await this.store.users.resolve('cli', channelUserId);
+    if (existingUserId) {
+      const existingRole = await this.store.users.getAgentRole(this.scope, existingUserId);
+      if (!existingRole) {
+        await this.store.users.assignAgent(this.scope, existingUserId, role, now);
+        this.logRuntime(`cli user ${existingUserId} assigned role ${role} on agent ${this.scope.agentId}`);
+      }
+      return;
+    }
+
+    const userId = buildCliUserId(channelUserId) ?? `usr-cli-${channelUserId}`;
     await this.store.users.upsert({
       userId,
-      ...(name ? { name } : {}),
+      name: channelUserId,
       createdAt: now,
       updatedAt: now,
     });
-    await this.store.users.assignAgent(this.scope, userId, 'owner', now);
-
-    // Link the channel identity if we can derive one
-    if (channelUserId) {
-      await this.store.users.linkIdentity({
-        userId,
-        channel: kind,
-        channelUserId,
-        createdAt: now,
-      });
-    }
-
-    this.logRuntime(`owner user bootstrapped: ${userId}${channelUserId ? ` (${kind}:${channelUserId})` : ''}`);
+    await this.store.users.assignAgent(this.scope, userId, role, now);
+    await this.store.users.linkIdentity({
+      userId,
+      channel: 'cli',
+      channelUserId,
+      createdAt: now,
+    });
+    this.logRuntime(`cli user created: ${userId} (${role}) cli:${channelUserId}`);
   }
 
   /**
