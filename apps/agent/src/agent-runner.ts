@@ -1,4 +1,5 @@
 import { userInfo } from 'node:os';
+import { randomBytes } from 'node:crypto';
 
 import { Agent, type AgentEvent, type AgentMessage } from '@mariozechner/pi-agent-core';
 import type { MessageSender, SessionHistoryMessage, SessionListQuery, SessionMessage, SessionSpec, SessionSummary } from '@openhermit/protocol';
@@ -1115,7 +1116,7 @@ export class AgentRunner implements SessionRuntime {
     }
 
     // Unknown identity: auto-create as guest
-    const guestId = `usr-${Date.now().toString(36)}`;
+    const guestId = await this.generateGuestUserId();
     const meta = spec.metadata;
     const name = meta?.telegram_first_name
       ? String(meta.telegram_first_name)
@@ -1148,6 +1149,19 @@ export class AgentRunner implements SessionRuntime {
    * Resolve a per-message sender to a user identity.
    * Used in group sessions where each message may come from a different user.
    */
+  /**
+   * Generate a userId for a newly auto-created guest. Prefers the bare
+   * ms timestamp (clean, sortable) and only appends 24 random bits
+   * when that id already exists — covering the same-millisecond
+   * collision case without polluting every id with random noise.
+   */
+  private async generateGuestUserId(): Promise<string> {
+    const base = `usr-${Date.now().toString(36)}`;
+    const existing = await this.store.users.get(base);
+    if (!existing) return base;
+    return `${base}-${randomBytes(3).toString('hex')}`;
+  }
+
   private async resolveMessageSender(
     sender: MessageSender,
     now: string,
@@ -1163,8 +1177,11 @@ export class AgentRunner implements SessionRuntime {
       }
     }
 
-    // Auto-create guest for unknown sender
-    const guestId = `usr-${Date.now().toString(36)}`;
+    // Auto-create guest for unknown sender. Use the ms timestamp as the
+    // base id and only fall back to a random suffix if it collides with
+    // an existing row, so ids stay clean and time-sortable for the
+    // common case.
+    const guestId = await this.generateGuestUserId();
     await this.store.users.upsert({
       userId: guestId,
       ...(sender.displayName ? { name: sender.displayName } : {}),
