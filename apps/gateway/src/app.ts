@@ -1058,22 +1058,32 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const agentId = c.req.param('agentId') ?? '';
     await requireOwnerOrAdmin(c, agentId);
     const runner = instances.getRunner(agentId);
-    if (!runner) {
-      throw new NotFoundError(`Agent ${agentId} is not running. Start the agent to read its config.`);
+    if (runner) {
+      return c.json(await runner.security.readRawConfig());
     }
-    const config = await runner.security.readRawConfig();
+    // Stopped agent — read directly from the config store so admin UI can
+    // inspect/edit before the agent has ever been started.
+    if (!configStore) {
+      throw new NotFoundError(`Agent ${agentId} is not running and no config store is available.`);
+    }
+    const config = await configStore.getConfig(agentId);
+    if (!config) throw new NotFoundError(`Agent ${agentId} not found.`);
     return c.json(config);
   });
 
   app.put('/api/agents/:agentId/config', async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     await requireOwnerOrAdmin(c, agentId);
-    const runner = instances.getRunner(agentId);
-    if (!runner) {
-      throw new NotFoundError(`Agent ${agentId} is not running. Start the agent to update its config.`);
-    }
     const body = await c.req.json();
-    await runner.security.writeConfig(body);
+    const runner = instances.getRunner(agentId);
+    if (runner) {
+      await runner.security.writeConfig(body);
+      return c.json({ ok: true });
+    }
+    if (!configStore) {
+      throw new NotFoundError(`Agent ${agentId} is not running and no config store is available.`);
+    }
+    await configStore.setConfig(agentId, body);
     return c.json({ ok: true });
   });
 
@@ -1348,11 +1358,22 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const agentId = c.req.param('agentId') ?? '';
     await requireOwnerOrAdmin(c, agentId);
     const runner = instances.getRunner(agentId);
-    if (!runner) throw new NotFoundError(`Agent ${agentId} is not running.`);
 
-    const config = await runner.security.readRawConfig();
+    let config: Record<string, unknown>;
+    let secretNames: string[];
+    if (runner) {
+      config = await runner.security.readRawConfig();
+      secretNames = await runner.security.listSecretNames();
+    } else {
+      // Stopped agent — fall back to the stores. Channel enable/disable still
+      // requires a running agent (runtime side-effects), but listing is fine.
+      if (!configStore) throw new NotFoundError(`Agent ${agentId} is not running and no config store is available.`);
+      const stored = await configStore.getConfig(agentId);
+      if (!stored) throw new NotFoundError(`Agent ${agentId} not found.`);
+      config = stored;
+      secretNames = []; // Without a runner we can't read the secret store; secretsSet will read as false.
+    }
     const channels = (config.channels ?? {}) as Record<string, { enabled?: boolean }>;
-    const secretNames = await runner.security.listSecretNames();
     const runtimeStatuses = instances.getChannelStatuses(agentId);
 
     const result = Object.entries(CHANNEL_DEFS).map(([id, def]) => {
