@@ -760,10 +760,12 @@ dialog::backdrop { background: rgba(9, 9, 11, 0.4); }
   body { font-size: 14px; }
 
   .panel {
-    padding: 1rem 0.75rem;
+    padding: 1rem;
     max-width: 100%;
     overflow-wrap: anywhere;
   }
+
+  .fleet-table-wrap { margin: 0; }
 
   .panel__header {
     flex-direction: column;
@@ -872,7 +874,7 @@ dialog::backdrop { background: rgba(9, 9, 11, 0.4); }
 }
 
 @media (max-width: 420px) {
-  .topbar { padding: 0 0.5rem; }
+  .topbar { padding: 0 0.75rem; }
   .topbar__brand { font-size: 0.9rem; }
-  .panel { padding: 0.75rem 0.5rem; }
+  .panel { padding: 0.75rem; }
 }
