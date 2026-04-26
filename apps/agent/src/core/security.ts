@@ -11,6 +11,7 @@ import type { ResolvePathOptions } from './workspace.js';
 import { AgentWorkspace } from './workspace.js';
 import {
   DEFAULT_SECURITY_POLICY,
+  buildDefaultAgentConfig,
   type AgentRuntimeConfig,
   type AutonomyLevel,
   type ChannelTokenEntry,
@@ -23,16 +24,6 @@ export interface AgentSecurityOptions {
   workspace: AgentWorkspace;
   openHermitHome?: string;
 }
-
-const DEFAULT_RUNTIME_CONFIG: AgentRuntimeConfig = {
-  workspace_root: '',
-  model: {
-    provider: 'anthropic',
-    model: 'claude-opus-4-5',
-    max_tokens: 8192,
-  },
-  memory: {},
-};
 
 const ensureJsonFile = async (
   filePath: string,
@@ -65,10 +56,6 @@ const ModelConfigSchema = z.object({
   base_url: z.string().optional(),
   api: z.string().optional(),
   thinking: z.enum(['off', 'minimal', 'low', 'medium', 'high']).optional(),
-});
-
-const HttpApiConfigSchema = z.object({
-  preferred_port: z.number(),
 });
 
 const IntrospectionConfigSchema = z.object({
@@ -156,7 +143,6 @@ const ChannelsConfigSchema = z.object({
 const AgentRuntimeConfigSchema = z.object({
   workspace_root: z.string(),
   model: ModelConfigSchema,
-  http_api: HttpApiConfigSchema.optional(),
   memory: MemoryConfigSchema,
   exec: ExecConfigSchema.optional(),
   web: WebConfigSchema.optional(),
@@ -212,10 +198,10 @@ export class AgentSecurity {
     await fs.mkdir(this.rootDir, { recursive: true });
     await ensureJsonFile(this.securityFilePath, DEFAULT_SECURITY_POLICY);
     await ensureJsonFile(this.secretsFilePath, {});
-    await ensureJsonFile(this.configFilePath, {
-      ...DEFAULT_RUNTIME_CONFIG,
-      workspace_root: this.options.workspace.root,
-    });
+    await ensureJsonFile(
+      this.configFilePath,
+      buildDefaultAgentConfig(this.options.workspace.root),
+    );
   }
 
   async load(): Promise<void> {

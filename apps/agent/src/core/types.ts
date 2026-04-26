@@ -30,10 +30,6 @@ export interface ContainerDefaultsConfig {
   network: string;
 }
 
-export interface HttpApiConfig {
-  preferred_port: number;
-}
-
 export interface IntrospectionConfig {
   enabled: boolean;
   turn_interval: number;
@@ -132,7 +128,6 @@ export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high';
 export interface AgentRuntimeConfig {
   workspace_root: string;
   model: AgentModelConfig;
-  http_api?: HttpApiConfig | undefined;
   memory: MemoryConfig;
   exec?: import('./exec-backend.js').ExecConfig;
   web?: WebConfig;
@@ -140,6 +135,34 @@ export interface AgentRuntimeConfig {
 }
 
 export type AgentConfig = AgentRuntimeConfig;
+
+/**
+ * Build the default config.json content for a freshly-created agent.
+ * Used by both the gateway's POST /agents endpoint and the agent's
+ * security init fallback so a new agent is never written with a
+ * minimal stub.
+ */
+export const buildDefaultAgentConfig = (workspaceRoot: string): AgentRuntimeConfig => ({
+  workspace_root: workspaceRoot,
+  model: {
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-6',
+    max_tokens: 8192,
+  },
+  exec: {
+    backends: [{ type: 'docker', image: 'ubuntu:24.04' }],
+    lifecycle: {
+      start: 'ondemand',
+      stop: 'idle',
+      idle_timeout_minutes: 30,
+    },
+  },
+  web: { provider: 'defuddle' },
+  channels: {},
+  memory: {
+    introspection: { ...DEFAULT_INTROSPECTION_CONFIG },
+  },
+});
 
 export type AgentAccessLevel = 'public' | 'protected';
 

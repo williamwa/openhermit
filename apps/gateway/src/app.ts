@@ -31,6 +31,7 @@ import {
 
 import type { AgentRunner, SessionEventEnvelope } from '@openhermit/agent/agent-runner';
 import { metricsRegistry, startDefaultMetrics } from '@openhermit/agent/metrics';
+import { buildDefaultAgentConfig } from '@openhermit/agent/core';
 
 import type { AgentInstanceManager } from './agent-instance.js';
 import type { LogBuffer } from './log-buffer.js';
@@ -406,37 +407,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const configDir = record.configDir;
     await fs.mkdir(configDir, { recursive: true });
 
-    const templateConfig = {
-      workspace_root: record.workspaceDir,
-      model: {
-        provider: 'anthropic',
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 8192,
-      },
-      exec: {
-        backends: [
-          { type: 'docker', image: 'ubuntu:24.04' },
-        ],
-        lifecycle: {
-          start: 'ondemand',
-          stop: 'idle',
-          idle_timeout_minutes: 30,
-        },
-      },
-      web: {
-        provider: 'defuddle',
-      },
-      channels: {},
-      memory: {
-        introspection: {
-          enabled: true,
-          turn_interval: 5,
-          idle_timeout_minutes: 10,
-          max_tool_calls: 10,
-          model: null,
-        },
-      },
-    };
+    const templateConfig = buildDefaultAgentConfig(record.workspaceDir);
 
     const templateSecurity = {
       autonomy_level: 'full',

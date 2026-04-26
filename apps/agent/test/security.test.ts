@@ -89,5 +89,7 @@ test('AgentSecurity scaffolds and reads the default runtime config', async (t) =
 
   assert.equal(config.workspace_root, root);
   assert.equal(config.model.provider, 'anthropic');
-  assert.equal(config.http_api.preferred_port, 3000);
+  assert.ok(config.exec, 'exec config should be populated by default');
+  assert.equal(config.web?.provider, 'defuddle');
+  assert.equal(config.memory.introspection?.enabled, true);
 });

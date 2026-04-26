@@ -86,7 +86,6 @@ const makeToolResultMessage = (toolName: string, text: string, ts = Date.now()):
 const stubConfig: AgentConfig = {
   workspace_root: '/workspace',
   model: { provider: 'anthropic', model: 'claude-sonnet-4-20250514', max_tokens: 4096 },
-  http_api: { preferred_port: 3000 },
   memory: {},
 };
 
