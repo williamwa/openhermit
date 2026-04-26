@@ -420,8 +420,22 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
   const isWebSession = !currentSession || currentSession.source?.kind === 'api' && currentSession.source?.platform === 'web';
   const readOnly = currentSession != null && !isWebSession;
 
+  // On mobile, only one of sidebar / detail shows at a time. "List" mode
+  // is when the user is in chat view but hasn't selected a session yet;
+  // any other state (a session is open, or manage panel is up) counts as
+  // "detail" mode.
+  const mobileMode: 'list' | 'detail' =
+    view === 'chat' && !currentSessionId ? 'list' : 'detail';
+  const handleMobileBack = () => {
+    if (view === 'manage') {
+      setView('chat');
+    } else {
+      setCurrentSessionId(null);
+    }
+  };
+
   return (
-    <div className="shell">
+    <div className={`shell shell--${mobileMode}`}>
       <aside className="sidebar">
         <div className="sidebar__top">
           <div className="sidebar__brand">
@@ -461,6 +475,13 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
         {view === 'manage' ? (
           <>
             <header className="chat__header">
+              <button
+                className="chat__back"
+                aria-label="Back to sessions"
+                onClick={handleMobileBack}
+              >
+                ←
+              </button>
               <div>
                 <p className="eyebrow">Agent Management</p>
                 <h2>{connection.agentId}</h2>
@@ -473,6 +494,13 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
         ) : (
           <>
             <header className="chat__header">
+              <button
+                className="chat__back"
+                aria-label="Back to sessions"
+                onClick={handleMobileBack}
+              >
+                ←
+              </button>
               <div>
                 <p className="eyebrow">Current Session</p>
                 <h2>{sessionTitle}</h2>

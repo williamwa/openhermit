@@ -1032,12 +1032,42 @@ h2 { font-size: 14px; font-weight: 600; }
   gap: 8px;
 }
 
+/* Back arrow in chat header — only visible on mobile */
+.chat__back {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin-right: 8px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  font-size: 18px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.chat__back:hover { background: var(--bg-soft, #fafafa); }
+
 @media (max-width: 768px) {
   .shell {
     grid-template-columns: 1fr;
-    height: auto;
-    min-height: 100vh;
+    height: 100vh;
   }
 
-  .sidebar { min-height: 200px; border-right: none; border-bottom: 1px solid var(--line); }
+  .sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    height: 100vh;
+  }
+
+  /* List mode: only sidebar; detail mode: only main */
+  .shell--list .chat { display: none; }
+  .shell--detail .sidebar { display: none; }
+  .shell--detail .chat { height: 100vh; }
+
+  .chat__back { display: inline-flex; }
+  .chat__header { gap: 4px; }
 }
