@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
-import { readFile, writeFile, access } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import readline from 'node:readline';
 import crypto from 'node:crypto';
@@ -35,9 +35,6 @@ const commandExists = (cmd: string): Promise<boolean> =>
   new Promise((resolve) => {
     execFile('which', [cmd], (error) => resolve(!error));
   });
-
-const fileExists = (filePath: string): Promise<boolean> =>
-  access(filePath).then(() => true, () => false);
 
 const generateToken = (): string => crypto.randomBytes(24).toString('base64url');
 
@@ -83,49 +80,86 @@ const writeEnvFile = async (envPath: string, env: Map<string, string>): Promise<
   await writeFile(envPath, lines.join('\n') + '\n', 'utf8');
 };
 
-// ── Docker Compose ─────────────────────────────────────────────────────
+// ── Local Postgres via docker run ──────────────────────────────────────
 
-const DOCKER_COMPOSE_DB_URL = 'postgresql://openhermit:dev@localhost:5433/openhermit';
+const DOCKER_CONTAINER_NAME = 'openhermit-postgres';
+const DOCKER_VOLUME_NAME = 'openhermit-pgdata';
+const DOCKER_HOST_PORT = '5433';
+const DOCKER_DB_URL = `postgresql://openhermit:dev@localhost:${DOCKER_HOST_PORT}/openhermit`;
 
-const isComposeRunning = (): Promise<boolean> =>
+const dockerContainerState = (): Promise<'running' | 'stopped' | 'absent'> =>
   new Promise((resolve) => {
-    execFile('docker', ['compose', 'ps', '--format', 'json', '--filter', 'status=running'], (error, stdout) => {
-      if (error) { resolve(false); return; }
-      resolve(stdout.includes('postgres'));
-    });
-  });
-
-const startCompose = (): Promise<void> =>
-  new Promise((resolve, reject) => {
-    console.log('\nStarting PostgreSQL via docker compose...');
-    const child = spawn('docker', ['compose', 'up', '-d', 'postgres'], {
-      stdio: 'inherit',
-    });
-    child.on('error', reject);
-    child.on('exit', (code) =>
-      code === 0 ? resolve() : reject(new Error(`docker compose exited with code ${code}`)),
+    execFile(
+      'docker',
+      ['inspect', '-f', '{{.State.Status}}', DOCKER_CONTAINER_NAME],
+      (error, stdout) => {
+        if (error) { resolve('absent'); return; }
+        const status = stdout.trim();
+        resolve(status === 'running' ? 'running' : 'stopped');
+      },
     );
   });
 
-const runMigrations = async (databaseUrl: string): Promise<void> => {
-  console.log('\nRunning database migrations...');
+const startExistingContainer = (): Promise<void> =>
+  new Promise((resolve, reject) => {
+    console.log(`\nStarting existing container ${DOCKER_CONTAINER_NAME}...`);
+    const child = spawn('docker', ['start', DOCKER_CONTAINER_NAME], { stdio: 'inherit' });
+    child.on('error', reject);
+    child.on('exit', (code) =>
+      code === 0 ? resolve() : reject(new Error(`docker start exited with code ${code}`)),
+    );
+  });
+
+const runNewContainer = (): Promise<void> =>
+  new Promise((resolve, reject) => {
+    console.log('\nLaunching PostgreSQL via docker run...');
+    const args = [
+      'run', '-d',
+      '--name', DOCKER_CONTAINER_NAME,
+      '-e', 'POSTGRES_USER=openhermit',
+      '-e', 'POSTGRES_PASSWORD=dev',
+      '-e', 'POSTGRES_DB=openhermit',
+      '-p', `127.0.0.1:${DOCKER_HOST_PORT}:5432`,
+      '-v', `${DOCKER_VOLUME_NAME}:/var/lib/postgresql/data`,
+      'postgres:16-alpine',
+    ];
+    const child = spawn('docker', args, { stdio: 'inherit' });
+    child.on('error', reject);
+    child.on('exit', (code) =>
+      code === 0 ? resolve() : reject(new Error(`docker run exited with code ${code}`)),
+    );
+  });
+
+const waitForPostgresReady = async (databaseUrl: string, timeoutMs = 30000): Promise<void> => {
   const pg = await import('pg');
-  const client = new pg.default.Client({ connectionString: databaseUrl });
-  await client.connect();
-  try {
-    const { readFile: rf, readdir } = await import('node:fs/promises');
-    const migrationDir = path.resolve(process.cwd(), 'packages/store/drizzle');
-    const files = (await readdir(migrationDir))
-      .filter((f) => f.endsWith('.sql'))
-      .sort();
-    for (const file of files) {
-      const sql = await rf(path.join(migrationDir, file), 'utf8');
-      console.log(`  applying ${file}`);
-      await client.query(sql);
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const client = new pg.default.Client({ connectionString: databaseUrl });
+    try {
+      await client.connect();
+      await client.query('SELECT 1');
+      await client.end();
+      return;
+    } catch {
+      try { await client.end(); } catch { /* */ }
+      await new Promise((r) => setTimeout(r, 1000));
     }
-  } finally {
-    await client.end();
   }
+  throw new Error('PostgreSQL did not become ready within 30s');
+};
+
+const ensureDockerPostgres = async (): Promise<void> => {
+  const state = await dockerContainerState();
+  if (state === 'running') {
+    console.log(`  → ${DOCKER_CONTAINER_NAME} is already running`);
+  } else if (state === 'stopped') {
+    await startExistingContainer();
+  } else {
+    await runNewContainer();
+  }
+  console.log('  → waiting for PostgreSQL to accept connections...');
+  await waitForPostgresReady(DOCKER_DB_URL);
+  console.log('  → PostgreSQL is ready');
 };
 
 // ── Setup command ──────────────────────────────────────────────────────
@@ -155,49 +189,36 @@ export const registerSetupCommand = (program: Command): void => {
       }
 
       if (!env.has('DATABASE_URL')) {
-        const hasDocker = await commandExists('docker');
-        const options = hasDocker
-          ? [
-              'Start a local PostgreSQL with docker compose (recommended)',
-              'Enter a DATABASE_URL manually',
-              'Skip (agent persistence will be disabled)',
-            ]
-          : [
-              'Enter a DATABASE_URL manually',
-              'Skip (agent persistence will be disabled)',
-            ];
+        console.log('OpenHermit requires a PostgreSQL database for agents,');
+        console.log('sessions, schedules, and skills. Migrations run automatically');
+        console.log('on gateway startup; you only need to point it at a server.\n');
 
+        const options = [
+          'Enter a DATABASE_URL manually',
+          'Start a local PostgreSQL with Docker (postgres:16-alpine)',
+        ];
         const choice = await choose('How would you like to set up the database?', options);
-        const label = options[choice]!;
 
-        if (label.startsWith('Start a local')) {
-          const running = await isComposeRunning();
-          if (!running) {
-            await startCompose();
-          } else {
-            console.log('  → PostgreSQL container is already running');
-          }
-          env.set('DATABASE_URL', DOCKER_COMPOSE_DB_URL);
-          changed = true;
-          console.log(`  → DATABASE_URL=${DOCKER_COMPOSE_DB_URL}`);
-        } else if (label.startsWith('Enter')) {
+        if (choice === 0) {
           const url = await ask('DATABASE_URL');
           if (url) {
             env.set('DATABASE_URL', url);
             changed = true;
+          } else {
+            console.log('  ✗ no DATABASE_URL provided — aborting setup.');
+            process.exit(1);
           }
         } else {
-          console.log('  → skipping database setup');
-        }
-      }
-
-      // Run migrations if we have a DATABASE_URL and the migrations directory exists.
-      if (env.has('DATABASE_URL') && await fileExists(path.resolve(process.cwd(), 'packages/store/drizzle'))) {
-        try {
-          await runMigrations(env.get('DATABASE_URL')!);
-          console.log('  → migrations applied');
-        } catch (error) {
-          console.error(`  ✗ migration failed: ${error instanceof Error ? error.message : String(error)}`);
+          if (!(await commandExists('docker'))) {
+            console.error('  ✗ docker is not installed or not on PATH.');
+            console.error('    Install Docker (https://docs.docker.com/get-docker/) and re-run \`openhermit setup\`,');
+            console.error('    or pick option 1 to point at an existing PostgreSQL.');
+            process.exit(1);
+          }
+          await ensureDockerPostgres();
+          env.set('DATABASE_URL', DOCKER_DB_URL);
+          changed = true;
+          console.log(`  → DATABASE_URL=${DOCKER_DB_URL}`);
         }
       }
 
