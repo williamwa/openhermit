@@ -42,6 +42,7 @@ import { buildDefaultAgentConfig, listAllOpenHermitContainers } from '@openhermi
 import { listProviderCatalog } from '@openhermit/agent/model-catalog';
 
 import type { AgentInstanceManager } from './agent-instance.js';
+import { listSessionsForCaller } from './session-listing.js';
 import type { LogBuffer } from './log-buffer.js';
 import {
   type AuthContext,
@@ -616,28 +617,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const auth = requireAuth(c, agentId);
     const runtime = resolveRunner(instances, agentId);
     const query = parseSessionListQuery(c.req.raw);
-
-    if (auth.mode === 'admin') {
-      const sessions = await runtime.listSessions(query);
-      return c.json(sessions);
-    }
-
-    if (auth.mode === 'channel') {
-      if (auth.channelNamespace && !query.channel) {
-        query.channel = auth.channelNamespace;
-      }
-      const sessions = await runtime.listSessions(query);
-      return c.json(sessions);
-    }
-
-    const callerUserId = await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId });
-    if (!callerUserId) return c.json([]);
-
-    // Every user — including owner — only sees sessions they
-    // participate in. Whole-agent visibility is reserved for admin
-    // mode (handled above) and the /api/admin/* endpoints.
-    const sessions = await runtime.listSessions(query, callerUserId);
-    return c.json(sessions);
+    return c.json(await listSessionsForCaller(runtime, auth, query));
   });
 
   // --- messages ---

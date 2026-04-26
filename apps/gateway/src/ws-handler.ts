@@ -23,6 +23,7 @@ import type { AgentRunner, SessionEventEnvelope } from '@openhermit/agent/agent-
 import type { AgentInstanceManager } from './agent-instance.js';
 import type { AuthContext, AuthResolverOptions } from './auth.js';
 import { resolveAuth } from './auth.js';
+import { listSessionsForCaller } from './session-listing.js';
 
 const WS_PING_INTERVAL_MS = 30_000;
 
@@ -195,11 +196,10 @@ const handleRequest = async (
         if (typeof p.limit === 'number') query.limit = p.limit;
         if (typeof p.channel === 'string') query.channel = p.channel;
         if (p.metadata && typeof p.metadata === 'object') query.metadata = p.metadata as Record<string, string>;
-        if (!callerUserId) { sendResult(ws, id, []); return; }
-        // Owner doesn't see everything by default — they list their
-        // own participation just like any other user. Whole-agent
-        // visibility is reserved for admin endpoints.
-        sendResult(ws, id, await runtime.listSessions(query, callerUserId));
+        // Routes through the same helper as the HTTP endpoint so any
+        // future change to the auth-mode → visibility rules takes
+        // effect on both transports at once.
+        sendResult(ws, id, await listSessionsForCaller(runtime, conn.auth, query));
         return;
       }
 
