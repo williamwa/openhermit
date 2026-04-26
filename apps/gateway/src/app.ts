@@ -1359,10 +1359,10 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     await requireOwnerOrAdmin(c, agentId);
     const runner = instances.getRunner(agentId);
 
-    let config: Record<string, unknown>;
+    let rawConfig: Record<string, unknown>;
     let secretNames: string[];
     if (runner) {
-      config = await runner.security.readRawConfig();
+      rawConfig = (await runner.security.readRawConfig()) as unknown as Record<string, unknown>;
       secretNames = await runner.security.listSecretNames();
     } else {
       // Stopped agent — fall back to the stores. Channel enable/disable still
@@ -1370,10 +1370,10 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
       if (!configStore) throw new NotFoundError(`Agent ${agentId} is not running and no config store is available.`);
       const stored = await configStore.getConfig(agentId);
       if (!stored) throw new NotFoundError(`Agent ${agentId} not found.`);
-      config = stored;
+      rawConfig = stored;
       secretNames = []; // Without a runner we can't read the secret store; secretsSet will read as false.
     }
-    const channels = (config.channels ?? {}) as Record<string, { enabled?: boolean }>;
+    const channels = (rawConfig.channels ?? {}) as Record<string, { enabled?: boolean }>;
     const runtimeStatuses = instances.getChannelStatuses(agentId);
 
     const result = Object.entries(CHANNEL_DEFS).map(([id, def]) => {
