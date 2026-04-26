@@ -20,7 +20,7 @@ import {
 } from '@openhermit/store';
 import { scanSkillDirectory } from '@openhermit/agent/skills';
 
-import { loadEnv, resolveOpenHermitHome } from '@openhermit/shared';
+import { loadEnv, resolveAgentDataDir, resolveOpenHermitHome } from '@openhermit/shared';
 
 import { AgentInstanceManager } from './agent-instance.js';
 import { syncSkillMounts } from './skill-mounts.js';
@@ -168,14 +168,15 @@ export const main = async (): Promise<void> => {
           const agents = await agentStore.list();
           for (const agent of agents) {
             try {
-              const fileStore = new FileSecretStore(async () => agent.configDir);
+              const dataDir = resolveAgentDataDir(agent.agentId);
+              const fileStore = new FileSecretStore(async () => dataDir);
               const fileSecrets = await fileStore.list(agent.agentId);
               const dbSecrets = await dbSecretStore.list(agent.agentId);
               if (Object.keys(fileSecrets).length > 0 && Object.keys(dbSecrets).length === 0) {
                 await dbSecretStore.setAll(agent.agentId, fileSecrets);
                 logStartup(`migrated ${Object.keys(fileSecrets).length} secret(s) from file to DB for agent ${agent.agentId}`);
                 const fs = await import('node:fs/promises');
-                const oldPath = `${agent.configDir}/secrets.json`;
+                const oldPath = `${dataDir}/secrets.json`;
                 await fs.rename(oldPath, `${oldPath}.imported`).catch(() => undefined);
               }
             } catch (e) {
@@ -191,11 +192,7 @@ export const main = async (): Promise<void> => {
       }
     } else {
       logStartup('OPENHERMIT_SECRETS_KEY not set — falling back to FileSecretStore (plaintext on disk). Run `hermit setup` to enable encrypted DB-backed secrets.');
-      const secretStore = new FileSecretStore(async (agentId: string) => {
-        const record = await agentStore?.get(agentId);
-        if (!record) throw new Error(`Agent not found: ${agentId}`);
-        return record.configDir;
-      });
+      const secretStore = new FileSecretStore(async (agentId: string) => resolveAgentDataDir(agentId));
       instances.setSecretStore(secretStore);
     }
   }
@@ -270,7 +267,7 @@ export const main = async (): Promise<void> => {
     const dbAgents = await agentStore.list();
     for (const agent of dbAgents) {
       try {
-        await instances.start(agent.agentId, agent.configDir, agent.workspaceDir);
+        await instances.start(agent.agentId, agent.workspaceDir);
         logStartup(`started agent: ${agent.agentId}`);
       } catch (error) {
         logStartup(`failed to start agent ${agent.agentId}: ${error instanceof Error ? error.message : String(error)}`);
@@ -279,7 +276,7 @@ export const main = async (): Promise<void> => {
     // Sync skill-mounts symlinks for all agents.
     if (skillStore) {
       for (const agent of dbAgents) {
-        const skillMountsDir = `${agent.configDir}/skill-mounts`;
+        const skillMountsDir = `${resolveAgentDataDir(agent.agentId)}/skill-mounts`;
         await syncSkillMounts(agent.agentId, skillMountsDir, skillStore);
       }
     }

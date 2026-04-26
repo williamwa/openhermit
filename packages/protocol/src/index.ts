@@ -205,7 +205,6 @@ export interface AgentInfo {
   agentId: string;
   status: AgentStatus;
   name?: string;
-  configDir?: string;
   workspaceDir?: string;
   port?: number;
   error?: string;
@@ -214,7 +213,6 @@ export interface AgentInfo {
 export interface CreateAgentRequest {
   agentId: string;
   name?: string;
-  configDir?: string;
   workspaceDir?: string;
   ownerUserId?: string;
 }

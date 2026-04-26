@@ -85,7 +85,6 @@ export class AgentInstanceManager {
    */
   async start(
     agentId: string,
-    configDir: string,
     workspaceDir: string,
   ): Promise<AgentRunner> {
     if (this.runners.has(agentId)) {
@@ -103,13 +102,13 @@ export class AgentInstanceManager {
       );
     }
 
-    // 2. Security (config dir is the parent of the per-agent directory)
+    // 2. Security — local data dir (skill-mounts, runtime.json) lives at
+    //    OPENHERMIT_HOME/agents/<agentId>; AgentSecurity derives it.
     const security = new AgentSecurity({
       agentId,
       workspace,
       configStore: this.configStore,
       secretStore: this.secretStore,
-      openHermitHome: path.dirname(configDir),
     });
     await security.init();
     await security.load();

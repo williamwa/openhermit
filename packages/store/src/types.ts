@@ -14,7 +14,6 @@ export interface StoreScope {
 export interface AgentRecord {
   agentId: string;
   name?: string;
-  configDir: string;
   workspaceDir: string;
   createdAt: string;
   updatedAt: string;

@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import type { Command } from 'commander';
 
+import { resolveAgentDataDir } from '@openhermit/shared';
 import { DbAgentStore, DbAgentConfigStore } from '@openhermit/store';
 
 import { handleError } from './shared.js';
@@ -38,8 +39,9 @@ export const registerMigrateAgentConfigCommand = (program: Command): void => {
         let missing = 0;
 
         for (const agent of agents) {
-          const configPath = path.join(agent.configDir, 'config.json');
-          const securityPath = path.join(agent.configDir, 'security.json');
+          const dataDir = resolveAgentDataDir(agent.agentId);
+          const configPath = path.join(dataDir, 'config.json');
+          const securityPath = path.join(dataDir, 'security.json');
 
           const existingConfig = await configStore.getConfig(agent.agentId);
           const existingSecurity = await configStore.getSecurity(agent.agentId);

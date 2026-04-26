@@ -145,7 +145,7 @@ export interface AgentStore {
   create(agent: AgentRecord): Promise<AgentRecord>;
   get(agentId: string): Promise<AgentRecord | undefined>;
   list(): Promise<AgentRecord[]>;
-  update(agentId: string, patch: Partial<Pick<AgentRecord, 'name' | 'configDir' | 'workspaceDir'>>): Promise<AgentRecord | undefined>;
+  update(agentId: string, patch: Partial<Pick<AgentRecord, 'name' | 'workspaceDir'>>): Promise<AgentRecord | undefined>;
   delete(agentId: string): Promise<void>;
 }
 

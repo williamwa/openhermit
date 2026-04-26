@@ -15,6 +15,13 @@
       "when": 1777220935347,
       "tag": "0001_agent_secrets",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1777243862133,
+      "tag": "0002_drop_config_dir",
+      "breakpoints": true
     }
   ]
 }

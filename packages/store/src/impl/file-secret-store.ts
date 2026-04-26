@@ -5,11 +5,12 @@ import type { SecretStore } from '../interfaces.js';
 
 /**
  * File-backed implementation of SecretStore. Each agent has a
- * `<configDir>/secrets.json` containing a flat string→string map.
+ * `<dataDir>/secrets.json` containing a flat string→string map. This is
+ * the legacy fallback when OPENHERMIT_SECRETS_KEY is unset; the
+ * preferred path is DbSecretStore (encrypted, in postgres).
  *
  * Lookups are by `agentId`; the file path is resolved through a
- * caller-supplied resolver so the gateway can pass in DbAgentStore's
- * record.configDir without this module taking a DB dependency.
+ * caller-supplied resolver — typically `resolveAgentDataDir(agentId)`.
  */
 export type ConfigDirResolver = (agentId: string) => Promise<string>;
 

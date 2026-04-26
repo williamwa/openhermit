@@ -43,7 +43,6 @@ export class DbAgentStore implements AgentStore {
     const [row] = await this.db.insert(agents).values({
       agentId: agent.agentId,
       name: agent.name ?? null,
-      configDir: agent.configDir,
       workspaceDir: agent.workspaceDir,
       createdAt: agent.createdAt,
       updatedAt: agent.updatedAt,
@@ -63,11 +62,10 @@ export class DbAgentStore implements AgentStore {
 
   async update(
     agentId: string,
-    patch: Partial<Pick<AgentRecord, 'name' | 'configDir' | 'workspaceDir'>>,
+    patch: Partial<Pick<AgentRecord, 'name' | 'workspaceDir'>>,
   ): Promise<AgentRecord | undefined> {
     const data: Record<string, unknown> = { updatedAt: new Date().toISOString() };
     if (patch.name !== undefined) data.name = patch.name ?? null;
-    if (patch.configDir !== undefined) data.configDir = patch.configDir;
     if (patch.workspaceDir !== undefined) data.workspaceDir = patch.workspaceDir;
 
     const rows = await this.db.update(agents).set(data).where(eq(agents.agentId, agentId)).returning();
@@ -240,7 +238,6 @@ export class DbAgentStore implements AgentStore {
     return {
       agentId: row.agentId,
       ...(row.name ? { name: row.name } : {}),
-      configDir: row.configDir,
       workspaceDir: row.workspaceDir,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,

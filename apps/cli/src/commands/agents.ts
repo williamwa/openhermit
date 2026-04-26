@@ -45,12 +45,10 @@ export const registerAgentsCommand = (program: Command): void => {
     .command('create <agentId>')
     .description('Create a new agent')
     .option('--name <name>', 'Display name for the agent')
-    .option('--config-dir <path>', 'Custom config directory')
     .option('--workspace-dir <path>', 'Custom workspace directory')
     .option('--owner <userId>', 'Owner user ID')
     .action(async (agentId: string, opts: {
       name?: string;
-      configDir?: string;
       workspaceDir?: string;
       owner?: string;
     }) => {
@@ -59,7 +57,6 @@ export const registerAgentsCommand = (program: Command): void => {
         const result = await gateway.createAgent({
           agentId,
           ...(opts.name ? { name: opts.name } : {}),
-          ...(opts.configDir ? { configDir: opts.configDir } : {}),
           ...(opts.workspaceDir ? { workspaceDir: opts.workspaceDir } : {}),
           ...(opts.owner ? { ownerUserId: opts.owner } : {}),
         });

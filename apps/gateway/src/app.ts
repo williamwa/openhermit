@@ -34,6 +34,7 @@ import {
   ValidationError,
   getErrorMessage,
   jsonError,
+  resolveAgentDataDir,
   resolveOpenHermitHome,
 } from '@openhermit/shared';
 
@@ -394,7 +395,6 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
         agentId: record.agentId,
         status: instances.getRunner(record.agentId) ? 'running' as const : 'stopped' as const,
         ...(record.name ? { name: record.name } : {}),
-        configDir: record.configDir,
         workspaceDir: record.workspaceDir,
       }));
       return c.json(agents);
@@ -430,15 +430,12 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const record = await agentStore.create({
       agentId: body.agentId,
       ...(body.name ? { name: body.name } : {}),
-      configDir: body.configDir ?? `${homeDir}/agents/${body.agentId}`,
       workspaceDir: body.workspaceDir ?? `${homeDir}/workspaces/${body.agentId}`,
       createdAt: now,
       updatedAt: now,
     });
 
-    // Persist canonical agent config + security policy to the DB; the
-    // local config dir holds runtime.json, skill-mounts, and (for now)
-    // secrets.json — config.json / security.json are no longer files.
+    // Canonical agent config + security policy live in the DB.
     if (!configStore) {
       throw new OpenHermitError(
         'Agent config store is not configured (missing DATABASE_URL?).',
@@ -446,8 +443,9 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
         500,
       );
     }
-    const configDir = record.configDir;
-    await fs.mkdir(configDir, { recursive: true });
+    // Make sure the per-agent local data dir (skill-mounts, runtime.json)
+    // exists. Path is derived from OPENHERMIT_HOME + agentId.
+    await fs.mkdir(resolveAgentDataDir(record.agentId), { recursive: true });
 
     const templateConfig = buildDefaultAgentConfig(record.workspaceDir);
     const templateSecurity = {
@@ -457,13 +455,6 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
 
     await configStore.setConfig(record.agentId, templateConfig as unknown as Record<string, unknown>);
     await configStore.setSecurity(record.agentId, templateSecurity);
-
-    // Initialize an empty secrets.json. SecretStore is the only writer
-    // going forward; this just gives the file something to read.
-    const secretsPath = path.join(configDir, 'secrets.json');
-    try { await fs.access(secretsPath); } catch {
-      await fs.writeFile(secretsPath, '{}\n', 'utf8');
-    }
 
     // Seed default instructions
     const agentName = record.name ?? record.agentId;
@@ -509,7 +500,6 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
       agentId: record.agentId,
       status: 'stopped' as const,
       ...(record.name ? { name: record.name } : {}),
-      configDir: record.configDir,
       workspaceDir: record.workspaceDir,
     }, 201);
   });
@@ -550,7 +540,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
         if (instances.getRunner(agentId)) {
           throw new ValidationError(`Agent ${agentId} is already running.`);
         }
-        await instances.start(agentId, record.configDir, record.workspaceDir);
+        await instances.start(agentId, record.workspaceDir);
         return c.json({ agentId, status: 'running' });
       }
 
@@ -561,7 +551,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
 
       case 'restart': {
         await instances.stop(agentId);
-        await instances.start(agentId, record.configDir, record.workspaceDir);
+        await instances.start(agentId, record.workspaceDir);
         return c.json({ agentId, status: 'running' });
       }
 

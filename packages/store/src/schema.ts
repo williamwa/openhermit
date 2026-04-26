@@ -17,7 +17,6 @@ export const meta = pgTable('meta', {
 export const agents = pgTable('agents', {
   agentId: text('agent_id').primaryKey(),
   name: text('name'),
-  configDir: text('config_dir').notNull(),
   workspaceDir: text('workspace_dir').notNull(),
   /** Canonical agent runtime config (JSON-stringified). Replaces config.json. */
   configJson: text('config_json'),
