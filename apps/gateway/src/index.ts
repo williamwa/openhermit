@@ -252,6 +252,17 @@ export const main = async (): Promise<void> => {
   process.on('SIGINT', () => void shutdownHandler());
   process.on('SIGTERM', () => void shutdownHandler());
 
+  // Don't let a single agent's runtime error take down the entire
+  // gateway — log loudly and keep running. Real fixes belong at the
+  // throw site; these handlers are operational safety nets so other
+  // agents stay online.
+  process.on('uncaughtException', (err) => {
+    console.error('[openhermit-gateway] uncaughtException — keeping gateway alive', err);
+  });
+  process.on('unhandledRejection', (reason) => {
+    console.error('[openhermit-gateway] unhandledRejection — keeping gateway alive', reason);
+  });
+
   logStartup(`listening on http://localhost:${info.port}`);
 };
 
