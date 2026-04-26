@@ -633,8 +633,10 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const callerUserId = await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId });
     if (!callerUserId) return c.json([]);
 
-    const role = await runtime.resolveCallerRole({ channel: auth.channel, channelUserId: auth.channelUserId });
-    const sessions = await runtime.listSessions(query, role === 'owner' ? undefined : callerUserId);
+    // Every user — including owner — only sees sessions they
+    // participate in. Whole-agent visibility is reserved for admin
+    // mode (handled above) and the /api/admin/* endpoints.
+    const sessions = await runtime.listSessions(query, callerUserId);
     return c.json(sessions);
   });
 
