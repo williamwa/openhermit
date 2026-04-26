@@ -3,9 +3,28 @@ import {
   fetchAgentConfig,
   putAgentConfig,
   fetchProviderCatalog,
+  fetchAgentSecrets,
   type AgentConfig,
   type ProviderCatalogEntry,
 } from '../api';
+
+/**
+ * Convention pi-ai uses to look up an API key for a provider:
+ * `<UPPERCASE_NAME>_API_KEY`, with non-alphanumerics replaced by `_`.
+ * A few providers have curated alternate names (e.g. google).
+ */
+const candidateSecretNames = (provider: string): string[] => {
+  const upper = provider.toUpperCase().replace(/[^A-Z0-9]+/g, '_') + '_API_KEY';
+  const extras: Record<string, string[]> = {
+    google: ['GOOGLE_API_KEY', 'GEMINI_API_KEY'],
+  };
+  return extras[provider] ?? [upper];
+};
+
+const providerHasKey = (
+  provider: string,
+  secrets: Record<string, string>,
+): boolean => candidateSecretNames(provider).some((name) => Boolean(secrets[name]));
 
 type Thinking = 'off' | 'minimal' | 'low' | 'medium' | 'high';
 
@@ -15,6 +34,7 @@ const CUSTOM = '__custom__';
 export function BasicPanel() {
   const [config, setConfig] = useState<AgentConfig | null>(null);
   const [catalog, setCatalog] = useState<ProviderCatalogEntry[]>([]);
+  const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [provider, setProvider] = useState('');
   const [providerMode, setProviderMode] = useState<'preset' | 'custom'>('preset');
   const [model, setModel] = useState('');
@@ -26,10 +46,15 @@ export function BasicPanel() {
   const [savedAt, setSavedAt] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([fetchAgentConfig(), fetchProviderCatalog()])
-      .then(([c, cat]) => {
+    Promise.all([
+      fetchAgentConfig(),
+      fetchProviderCatalog(),
+      fetchAgentSecrets().catch(() => ({} as Record<string, string>)),
+    ])
+      .then(([c, cat, sec]) => {
         setConfig(c);
         setCatalog(cat);
+        setSecrets(sec);
         const initialProvider = c.model?.provider ?? '';
         setProvider(initialProvider);
         // If the existing provider isn't in the catalog, drop the user
@@ -124,7 +149,7 @@ export function BasicPanel() {
             <option value="">— pick a provider —</option>
             {catalog.map((e) => (
               <option key={e.provider} value={e.provider}>
-                {e.provider} ({e.models.length})
+                {providerHasKey(e.provider, secrets) ? '✓' : '✗'} {e.provider} ({e.models.length})
               </option>
             ))}
             <option value={CUSTOM}>Custom…</option>
@@ -153,6 +178,17 @@ export function BasicPanel() {
               Pick from list
             </button>
           </div>
+        )}
+        {provider && (
+          providerHasKey(provider, secrets) ? (
+            <p className="basic-panel__hint basic-panel__hint--ok">
+              ✓ API key set: {candidateSecretNames(provider).find((n) => secrets[n]) ?? ''}
+            </p>
+          ) : (
+            <p className="basic-panel__hint basic-panel__hint--warn">
+              ✗ No API key. Add <code>{candidateSecretNames(provider)[0]}</code> in the Secrets tab.
+            </p>
+          )
         )}
       </div>
 

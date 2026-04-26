@@ -1136,3 +1136,84 @@ h2 { font-size: 14px; font-weight: 600; }
 
 .basic-panel__custom-row { display: flex; gap: 8px; align-items: center; }
 .basic-panel__custom-row input { flex: 1; }
+
+/* Basic panel hint variants */
+.basic-panel__hint--ok { color: var(--success); }
+.basic-panel__hint--warn { color: var(--warning); }
+.basic-panel__hint code { font-family: var(--mono); font-size: 11px; padding: 1px 4px; background: var(--panel-muted); border-radius: 3px; }
+
+/* Secrets panel */
+.secrets-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 640px;
+  padding: 16px 20px;
+}
+
+.secrets-panel__intro { display: flex; flex-direction: column; gap: 4px; margin-bottom: 4px; }
+.secrets-panel__hint { color: var(--muted); font-size: 12px; line-height: 1.4; margin: 0; }
+
+.secrets-panel__list { display: flex; flex-direction: column; gap: 6px; }
+
+.secrets-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.secrets-row--deleted { opacity: 0.5; }
+.secrets-row--deleted .secrets-row__value { text-decoration: line-through; }
+
+.secrets-row__key { font-family: var(--mono); font-size: 12px; font-weight: 600; word-break: break-all; }
+
+.secrets-row__value {
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+}
+.secrets-row__value:focus { outline: none; border-color: var(--accent); }
+.secrets-row__value:disabled { background: var(--panel-muted); color: var(--muted); }
+
+.secrets-row__actions { display: flex; gap: 4px; flex-shrink: 0; }
+.secrets-row__delete { color: var(--danger); }
+.secrets-row__delete:hover { background: rgba(220, 38, 38, 0.08); }
+
+.secrets-panel__add {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+}
+
+.secrets-panel__add input {
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+}
+.secrets-panel__add input:focus { outline: none; border-color: var(--accent); }
+
+@media (max-width: 720px) {
+  .secrets-row, .secrets-panel__add {
+    grid-template-columns: 1fr;
+  }
+  .secrets-row__actions { justify-content: flex-end; flex-wrap: wrap; }
+}

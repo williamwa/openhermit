@@ -1,13 +1,15 @@
 import { BasicPanel } from './BasicPanel';
+import { SecretsPanel } from './SecretsPanel';
 import { SkillsPanel } from './SkillsPanel';
 import { McpPanel } from './McpPanel';
 import { SchedulesPanel } from './SchedulesPanel';
 import { ChannelsPanel } from './ChannelsPanel';
 
-export type ManageTab = 'basic' | 'skills' | 'mcp' | 'schedules' | 'channels';
+export type ManageTab = 'basic' | 'secrets' | 'skills' | 'mcp' | 'schedules' | 'channels';
 
 const tabs: { id: ManageTab; label: string }[] = [
   { id: 'basic', label: 'Basic' },
+  { id: 'secrets', label: 'Secrets' },
   { id: 'skills', label: 'Skills' },
   { id: 'mcp', label: 'MCP Servers' },
   { id: 'schedules', label: 'Schedules' },
@@ -35,6 +37,7 @@ export function ManagePanel({ tab, onTabChange }: Props) {
       </div>
       <div className="manage__content">
         {tab === 'basic' && <BasicPanel />}
+        {tab === 'secrets' && <SecretsPanel />}
         {tab === 'skills' && <SkillsPanel />}
         {tab === 'mcp' && <McpPanel />}
         {tab === 'schedules' && <SchedulesPanel />}
