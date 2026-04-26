@@ -18,6 +18,7 @@ export function BasicPanel() {
   const [provider, setProvider] = useState('');
   const [providerMode, setProviderMode] = useState<'preset' | 'custom'>('preset');
   const [model, setModel] = useState('');
+  const [modelMode, setModelMode] = useState<'preset' | 'custom'>('preset');
   const [thinking, setThinking] = useState<Thinking | ''>('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -33,9 +34,13 @@ export function BasicPanel() {
         setProvider(initialProvider);
         // If the existing provider isn't in the catalog, drop the user
         // straight into custom mode so they can edit the free-text value.
-        const isKnown = cat.some((e) => e.provider === initialProvider);
-        setProviderMode(isKnown || !initialProvider ? 'preset' : 'custom');
-        setModel(c.model?.model ?? '');
+        const isKnownProvider = cat.some((e) => e.provider === initialProvider);
+        setProviderMode(isKnownProvider || !initialProvider ? 'preset' : 'custom');
+        const initialModel = c.model?.model ?? '';
+        setModel(initialModel);
+        const knownModelsForProvider = cat.find((e) => e.provider === initialProvider)?.models ?? [];
+        const isKnownModel = knownModelsForProvider.some((m) => m.id === initialModel);
+        setModelMode(isKnownModel || !initialModel ? 'preset' : 'custom');
         setThinking((c.model?.thinking as Thinking) ?? '');
       })
       .catch((err) => setError((err as Error).message))
@@ -83,8 +88,6 @@ export function BasicPanel() {
   if (error && !config) return <p className="manage__empty">{error}</p>;
   if (!config) return null;
 
-  const datalistId = 'basic-model-catalog';
-
   return (
     <div className="basic-panel">
       <div className="basic-panel__intro">
@@ -109,8 +112,13 @@ export function BasicPanel() {
               }
               setProvider(value);
               // When switching provider via the dropdown, clear the model
-              // so the user picks one from the new provider's list.
-              if (value !== provider) setModel('');
+              // so the user picks one from the new provider's list, and
+              // return the model field to preset mode in case they were
+              // previously in custom mode.
+              if (value !== provider) {
+                setModel('');
+                setModelMode('preset');
+              }
             }}
           >
             <option value="">— pick a provider —</option>
@@ -150,26 +158,48 @@ export function BasicPanel() {
 
       <div className="basic-panel__field">
         <label htmlFor="basic-model">Model</label>
-        <input
-          id="basic-model"
-          type="text"
-          value={model}
-          onChange={(e) => setModel(e.target.value)}
-          placeholder={modelsForProvider.length > 0 ? modelsForProvider[0]?.id : 'e.g. claude-sonnet-4-6'}
-          autoComplete="off"
-          list={modelsForProvider.length > 0 ? datalistId : undefined}
-        />
-        {modelsForProvider.length > 0 && (
-          <datalist id={datalistId}>
+        {modelMode === 'preset' && modelsForProvider.length > 0 ? (
+          <select
+            id="basic-model"
+            value={modelsForProvider.some((m) => m.id === model) ? model : ''}
+            onChange={(e) => {
+              const value = e.target.value;
+              if (value === CUSTOM) {
+                setModelMode('custom');
+                return;
+              }
+              setModel(value);
+            }}
+          >
+            <option value="">— pick a model —</option>
             {modelsForProvider.map((m) => (
-              <option key={m.id} value={m.id} />
+              <option key={m.id} value={m.id}>{m.id}</option>
             ))}
-          </datalist>
-        )}
-        {modelsForProvider.length > 0 && (
-          <p className="basic-panel__hint" style={{ marginTop: 4 }}>
-            {modelsForProvider.length} known models for {provider}. You can also enter a custom id.
-          </p>
+            <option value={CUSTOM}>Custom…</option>
+          </select>
+        ) : (
+          <div className="basic-panel__custom-row">
+            <input
+              id="basic-model"
+              type="text"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder={modelsForProvider[0]?.id ?? 'e.g. claude-sonnet-4-6'}
+              autoComplete="off"
+            />
+            {modelsForProvider.length > 0 && (
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => {
+                  setModelMode('preset');
+                  if (!modelsForProvider.some((m) => m.id === model)) setModel('');
+                }}
+              >
+                Pick from list
+              </button>
+            )}
+          </div>
         )}
       </div>
 
