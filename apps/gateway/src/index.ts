@@ -6,7 +6,15 @@ import { LogBuffer } from './log-buffer.js';
 
 import { createAdaptorServer } from '@hono/node-server';
 
-import { DbAgentStore, DbMcpServerStore, DbScheduleStore, DbSkillStore, DbUserStore } from '@openhermit/store';
+import {
+  DbAgentStore,
+  DbAgentConfigStore,
+  DbMcpServerStore,
+  DbScheduleStore,
+  DbSkillStore,
+  DbUserStore,
+  FileSecretStore,
+} from '@openhermit/store';
 import { scanSkillDirectory } from '@openhermit/agent/skills';
 
 import { loadEnv, resolveOpenHermitHome } from '@openhermit/shared';
@@ -88,6 +96,7 @@ export const main = async (): Promise<void> => {
   let scheduleStore: DbScheduleStore | undefined;
   let mcpServerStore: DbMcpServerStore | undefined;
   let userStore: DbUserStore | undefined;
+  let configStore: DbAgentConfigStore | undefined;
   if (process.env.DATABASE_URL) {
     try {
       agentStore = await DbAgentStore.open();
@@ -95,6 +104,7 @@ export const main = async (): Promise<void> => {
       scheduleStore = await DbScheduleStore.open();
       mcpServerStore = await DbMcpServerStore.open();
       userStore = await DbUserStore.open();
+      configStore = await DbAgentConfigStore.open();
       logStartup('agent store connected');
     } catch (error) {
       logStartup(`agent store unavailable: ${error instanceof Error ? error.message : String(error)}`);
@@ -127,6 +137,18 @@ export const main = async (): Promise<void> => {
     instances.setMcpServerStore(mcpServerStore);
   }
 
+  if (configStore) {
+    instances.setConfigStore(configStore);
+    // FileSecretStore needs to know each agent's configDir; resolve via
+    // the agentStore so we don't take a hard dep on filesystem layout.
+    const secretStore = new FileSecretStore(async (agentId: string) => {
+      const record = await agentStore?.get(agentId);
+      if (!record) throw new Error(`Agent not found: ${agentId}`);
+      return record.configDir;
+    });
+    instances.setSecretStore(secretStore);
+  }
+
   if (skillStore) {
     instances.setSkillStore(skillStore);
 
@@ -156,6 +178,7 @@ export const main = async (): Promise<void> => {
     ...(scheduleStore ? { scheduleStore } : {}),
     ...(mcpServerStore ? { mcpServerStore } : {}),
     ...(userStore ? { userStore } : {}),
+    ...(configStore ? { configStore } : {}),
     auth,
     adminToken,
     logger: logStartup,

@@ -149,6 +149,43 @@ export interface AgentStore {
   delete(agentId: string): Promise<void>;
 }
 
+/**
+ * Canonical store for an agent's runtime config (config.json) and
+ * security policy (security.json). Implemented over the agents table.
+ *
+ * `path` is dot-notation against the parsed JSON document, e.g.
+ * `model.provider`. When omitted, the whole document is read or
+ * replaced.
+ */
+export interface AgentConfigStore {
+  getConfig(agentId: string): Promise<Record<string, unknown> | null>;
+  setConfig(agentId: string, config: Record<string, unknown>): Promise<void>;
+  getSecurity(agentId: string): Promise<Record<string, unknown> | null>;
+  setSecurity(agentId: string, policy: Record<string, unknown>): Promise<void>;
+  /** Read a single nested value from the config document. */
+  getConfigPath(agentId: string, path: string): Promise<unknown>;
+  /** Write a single nested value into the config document, preserving the rest. */
+  setConfigPath(agentId: string, path: string, value: unknown): Promise<void>;
+  /** Read a single nested value from the security document. */
+  getSecurityPath(agentId: string, path: string): Promise<unknown>;
+  /** Write a single nested value into the security document, preserving the rest. */
+  setSecurityPath(agentId: string, path: string, value: unknown): Promise<void>;
+}
+
+/**
+ * Per-agent secret storage. Today implemented as a file (secrets.json),
+ * tomorrow may be DB-backed; either way callers go through this
+ * interface and never read the file directly.
+ */
+export interface SecretStore {
+  list(agentId: string): Promise<Record<string, string>>;
+  get(agentId: string, name: string): Promise<string | undefined>;
+  set(agentId: string, name: string, value: string): Promise<void>;
+  delete(agentId: string, name: string): Promise<void>;
+  /** Bulk replacement — used by PUT /api/agents/:id/secrets. */
+  setAll(agentId: string, secrets: Record<string, string>): Promise<void>;
+}
+
 export interface ScheduleStore {
   create(scope: StoreScope, input: ScheduleCreateInput): Promise<ScheduleRecord>;
   get(scope: StoreScope, scheduleId: string): Promise<ScheduleRecord | undefined>;

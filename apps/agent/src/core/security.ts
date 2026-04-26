@@ -6,12 +6,12 @@ import { z } from 'zod';
 
 import { internalStateFiles } from '@openhermit/shared';
 import { NotFoundError, ValidationError } from '@openhermit/shared';
+import type { AgentConfigStore, SecretStore } from '@openhermit/store';
 
 import type { ResolvePathOptions } from './workspace.js';
 import { AgentWorkspace } from './workspace.js';
 import {
   DEFAULT_SECURITY_POLICY,
-  buildDefaultAgentConfig,
   type AgentRuntimeConfig,
   type AutonomyLevel,
   type ChannelTokenEntry,
@@ -22,30 +22,10 @@ import {
 export interface AgentSecurityOptions {
   agentId: string;
   workspace: AgentWorkspace;
+  configStore: AgentConfigStore;
+  secretStore: SecretStore;
   openHermitHome?: string;
 }
-
-const ensureJsonFile = async (
-  filePath: string,
-  defaultContent: unknown,
-): Promise<void> => {
-  try {
-    await fs.access(filePath);
-  } catch {
-    await fs.writeFile(filePath, `${JSON.stringify(defaultContent, null, 2)}\n`, 'utf8');
-  }
-};
-
-const parseJsonFile = <T>(content: string, filePath: string): T => {
-  try {
-    return JSON.parse(content) as T;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new ValidationError(
-      `Invalid JSON in ${filePath}: ${message}`,
-    );
-  }
-};
 
 // ── Config schema (Zod) ───────────────────────────────────────────────────
 
@@ -166,27 +146,25 @@ export class AgentSecurity {
 
   readonly rootDir: string;
 
-  readonly securityFilePath: string;
-
-  readonly secretsFilePath: string;
-
-  readonly configFilePath: string;
-
+  /** Skill mounts and runtime.json still live on disk under this dir. */
   readonly runtimeFilePath: string;
 
   readonly agentId: string;
 
+  private readonly configStore: AgentConfigStore;
+
+  private readonly secretStore: SecretStore;
+
   constructor(private readonly options: AgentSecurityOptions) {
     this.agentId = options.agentId;
+    this.configStore = options.configStore;
+    this.secretStore = options.secretStore;
     const baseDir =
       options.openHermitHome ??
       process.env.OPENHERMIT_HOME ??
       path.join(os.homedir(), '.openhermit');
 
     this.rootDir = path.join(baseDir, options.agentId);
-    this.securityFilePath = path.join(this.rootDir, 'security.json');
-    this.secretsFilePath = path.join(this.rootDir, 'secrets.json');
-    this.configFilePath = path.join(this.rootDir, internalStateFiles.config);
     this.runtimeFilePath = path.join(this.rootDir, internalStateFiles.runtime);
   }
 
@@ -194,44 +172,36 @@ export class AgentSecurity {
     return path.join(this.rootDir, 'skill-mounts');
   }
 
+  /**
+   * Ensure the agent's local directory exists for runtime.json and
+   * skill-mounts. Config and security policy live in the DB and are
+   * seeded by the gateway's create-agent flow; secrets live in
+   * SecretStore (currently file-backed at <rootDir>/secrets.json).
+   */
   async init(): Promise<void> {
     await fs.mkdir(this.rootDir, { recursive: true });
-    await ensureJsonFile(this.securityFilePath, DEFAULT_SECURITY_POLICY);
-    await ensureJsonFile(this.secretsFilePath, {});
-    await ensureJsonFile(
-      this.configFilePath,
-      buildDefaultAgentConfig(this.options.workspace.root),
-    );
   }
 
   async load(): Promise<void> {
-    const [securityContent, secretsContent] = await Promise.all([
-      fs.readFile(this.securityFilePath, 'utf8'),
-      fs.readFile(this.secretsFilePath, 'utf8'),
+    const [policyDoc, secretsMap] = await Promise.all([
+      this.configStore.getSecurity(this.agentId),
+      this.secretStore.list(this.agentId),
     ]);
 
-    const parsedPolicy = parseJsonFile<SecurityPolicy>(
-      securityContent,
-      this.securityFilePath,
-    );
-    const parsedSecrets = parseJsonFile<SecretsMap>(
-      secretsContent,
-      this.secretsFilePath,
-    );
+    const parsedPolicy = (policyDoc ?? DEFAULT_SECURITY_POLICY) as SecurityPolicy;
 
     if (
       parsedPolicy.autonomy_level !== 'readonly' &&
       parsedPolicy.autonomy_level !== 'supervised' &&
       parsedPolicy.autonomy_level !== 'full'
     ) {
-      throw new ValidationError('Invalid autonomy_level in security.json');
+      throw new ValidationError(`Invalid autonomy_level for agent ${this.agentId}`);
     }
 
     if (!Array.isArray(parsedPolicy.require_approval_for)) {
-      throw new ValidationError('Invalid require_approval_for in security.json');
+      throw new ValidationError(`Invalid require_approval_for for agent ${this.agentId}`);
     }
 
-    // Validate channel_tokens if present
     const channelTokens: ChannelTokenEntry[] = [];
     if (Array.isArray(parsedPolicy.channel_tokens)) {
       for (const entry of parsedPolicy.channel_tokens) {
@@ -260,15 +230,12 @@ export class AgentSecurity {
     };
 
     const sanitizedSecrets: SecretsMap = {};
-
-    for (const [key, value] of Object.entries(parsedSecrets)) {
+    for (const [key, value] of Object.entries(secretsMap)) {
       if (typeof value !== 'string') {
         throw new ValidationError(`Secret value must be a string: ${key}`);
       }
-
       sanitizedSecrets[key] = value;
     }
-
     this.secrets = sanitizedSecrets;
   }
 
@@ -317,32 +284,50 @@ export class AgentSecurity {
   }
 
   /** Return the full secrets map (admin use only). */
-  readSecrets(): SecretsMap {
-    return { ...this.secrets };
+  async readSecrets(): Promise<SecretsMap> {
+    return this.secretStore.list(this.agentId);
   }
 
-  /** Overwrite the entire secrets file and reload. */
+  /** Overwrite the entire secrets store and reload local cache. */
   async writeSecrets(secrets: SecretsMap): Promise<void> {
-    await fs.writeFile(this.secretsFilePath, JSON.stringify(secrets, null, 2) + '\n', 'utf8');
+    await this.secretStore.setAll(this.agentId, secrets);
     await this.load();
   }
 
   async readConfig(): Promise<AgentRuntimeConfig> {
-    // Reload security policy and secrets from disk on every config read,
-    // so changes to security.json and secrets.json take effect without restart.
+    // Reload policy + secrets on every config read so changes take
+    // effect without an agent restart.
     await this.load();
-    const content = await fs.readFile(this.configFilePath, 'utf8');
-    const raw = parseJsonFile<unknown>(content, this.configFilePath);
-    validateConfig(raw, this.configFilePath);
+    const raw = await this.requireConfigDoc();
+    validateConfig(raw, `agents.${this.agentId}.config`);
     return this.interpolateSecrets(raw);
   }
 
   /** Read config without resolving ${{SECRET}} placeholders. */
   async readRawConfig(): Promise<AgentRuntimeConfig> {
-    const content = await fs.readFile(this.configFilePath, 'utf8');
-    const raw = parseJsonFile<unknown>(content, this.configFilePath);
-    validateConfig(raw, this.configFilePath);
+    const raw = await this.requireConfigDoc();
+    validateConfig(raw, `agents.${this.agentId}.config`);
     return raw;
+  }
+
+  async readSecurityPolicy(): Promise<SecurityPolicy> {
+    await this.load();
+    return { ...this.policy };
+  }
+
+  async writeSecurityPolicy(policy: SecurityPolicy): Promise<void> {
+    await this.configStore.setSecurity(this.agentId, policy as unknown as Record<string, unknown>);
+    await this.load();
+  }
+
+  private async requireConfigDoc(): Promise<unknown> {
+    const doc = await this.configStore.getConfig(this.agentId);
+    if (!doc) {
+      throw new ValidationError(
+        `Agent config missing for ${this.agentId}. Run hermit migrate-agent-config to import legacy files.`,
+      );
+    }
+    return doc;
   }
 
   /**
@@ -369,10 +354,6 @@ export class AgentSecurity {
   }
 
   async writeConfig(config: AgentRuntimeConfig): Promise<void> {
-    await fs.writeFile(
-      this.configFilePath,
-      `${JSON.stringify(config, null, 2)}\n`,
-      'utf8',
-    );
+    await this.configStore.setConfig(this.agentId, config as unknown as Record<string, unknown>);
   }
 }

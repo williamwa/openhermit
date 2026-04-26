@@ -1,5 +1,7 @@
 export type {
   AgentStore,
+  AgentConfigStore,
+  SecretStore,
   SessionStore,
   MessageStore,
   MemoryProvider,
@@ -50,7 +52,9 @@ export {
   DbInstructionStore,
   DbUserStore,
   DbAgentStore,
+  DbAgentConfigStore,
   DbSkillStore,
   DbScheduleStore,
   DbMcpServerStore,
+  FileSecretStore,
 } from './impl/index.js';

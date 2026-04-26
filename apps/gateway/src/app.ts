@@ -18,7 +18,14 @@ import {
   type SyncResponse,
   type SyncToolCall,
 } from '@openhermit/protocol';
-import type { DbAgentStore, DbMcpServerStore, DbScheduleStore, DbSkillStore, DbUserStore } from '@openhermit/store';
+import type {
+  DbAgentStore,
+  DbAgentConfigStore,
+  DbMcpServerStore,
+  DbScheduleStore,
+  DbSkillStore,
+  DbUserStore,
+} from '@openhermit/store';
 import {
   NotFoundError,
   OpenHermitError,
@@ -161,6 +168,7 @@ export interface GatewayAppOptions {
   scheduleStore?: DbScheduleStore | undefined;
   mcpServerStore?: DbMcpServerStore | undefined;
   userStore?: DbUserStore | undefined;
+  configStore?: DbAgentConfigStore | undefined;
   auth?: AuthResolverOptions | undefined;
   adminToken?: string | undefined;
   logger?: ((message: string) => void) | undefined;
@@ -187,7 +195,7 @@ const resolveRunner = (
 // ─── App factory ──────────────────────────────────────────────────────────────
 
 export const createGatewayApp = (options: GatewayAppOptions): Hono => {
-  const { instances, agentStore, adminToken, userStore } = options;
+  const { instances, agentStore, adminToken, userStore, configStore } = options;
   const log = options.logger ?? ((msg: string) => console.log(msg));
   const app = new Hono();
 
@@ -404,28 +412,34 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
       updatedAt: now,
     });
 
-    // Write template config, security, and secrets files
+    // Persist canonical agent config + security policy to the DB; the
+    // local config dir holds runtime.json, skill-mounts, and (for now)
+    // secrets.json — config.json / security.json are no longer files.
+    if (!configStore) {
+      throw new OpenHermitError(
+        'Agent config store is not configured (missing DATABASE_URL?).',
+        'not_configured',
+        500,
+      );
+    }
     const configDir = record.configDir;
     await fs.mkdir(configDir, { recursive: true });
 
     const templateConfig = buildDefaultAgentConfig(record.workspaceDir);
-
     const templateSecurity = {
       autonomy_level: 'full',
       require_approval_for: [],
     };
 
-    const writeIfMissing = async (filePath: string, content: unknown) => {
-      try { await fs.access(filePath); } catch {
-        await fs.writeFile(filePath, JSON.stringify(content, null, 2) + '\n', 'utf8');
-      }
-    };
+    await configStore.setConfig(record.agentId, templateConfig as unknown as Record<string, unknown>);
+    await configStore.setSecurity(record.agentId, templateSecurity);
 
-    await Promise.all([
-      writeIfMissing(path.join(configDir, 'config.json'), templateConfig),
-      writeIfMissing(path.join(configDir, 'security.json'), templateSecurity),
-      writeIfMissing(path.join(configDir, 'secrets.json'), {}),
-    ]);
+    // Initialize an empty secrets.json. SecretStore is the only writer
+    // going forward; this just gives the file something to read.
+    const secretsPath = path.join(configDir, 'secrets.json');
+    try { await fs.access(secretsPath); } catch {
+      await fs.writeFile(secretsPath, '{}\n', 'utf8');
+    }
 
     // Seed default instructions
     const agentName = record.name ?? record.agentId;
@@ -1086,7 +1100,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
       throw new NotFoundError(`Agent ${agentId} is not running.`);
     }
     await runner.security.load();
-    return c.json(runner.security.readSecrets());
+    return c.json(await runner.security.readSecrets());
   });
 
   app.put('/api/agents/:agentId/secrets', async (c) => {

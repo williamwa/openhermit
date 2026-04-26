@@ -113,10 +113,16 @@ const runMigrations = async (databaseUrl: string): Promise<void> => {
   const client = new pg.default.Client({ connectionString: databaseUrl });
   await client.connect();
   try {
-    const { readFile: rf } = await import('node:fs/promises');
+    const { readFile: rf, readdir } = await import('node:fs/promises');
     const migrationDir = path.resolve(process.cwd(), 'packages/store/drizzle');
-    const initSql = await rf(path.join(migrationDir, '0000_init.sql'), 'utf8');
-    await client.query(initSql);
+    const files = (await readdir(migrationDir))
+      .filter((f) => f.endsWith('.sql'))
+      .sort();
+    for (const file of files) {
+      const sql = await rf(path.join(migrationDir, file), 'utf8');
+      console.log(`  applying ${file}`);
+      await client.query(sql);
+    }
   } finally {
     await client.end();
   }

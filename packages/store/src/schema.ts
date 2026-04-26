@@ -18,6 +18,10 @@ export const agents = pgTable('agents', {
   name: text('name'),
   configDir: text('config_dir').notNull(),
   workspaceDir: text('workspace_dir').notNull(),
+  /** Canonical agent runtime config (JSON-stringified). Replaces config.json. */
+  configJson: text('config_json'),
+  /** Canonical agent security policy (JSON-stringified). Replaces security.json. */
+  securityJson: text('security_json'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });

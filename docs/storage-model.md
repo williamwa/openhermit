@@ -32,7 +32,7 @@ Agent-scoped tables:
 
 | Table | Purpose |
 |-------|---------|
-| `agents` | Registered agents with config and workspace directories |
+| `agents` | Registered agents — runtime config, security policy, config & workspace directories |
 | `sessions` | Durable session index: source, metadata, status, participants, descriptions, working memory |
 | `session_events` | Full persisted event log for messages, tool calls/results, errors, and introspection |
 | `memories` | Long-term memories keyed by `memory_key` |
@@ -90,18 +90,49 @@ per-agent ownership (schedules).
 1. `plainto_tsquery('english', query)` ranked with `ts_rank`
 2. per-word `ILIKE` fallback across memory keys and content for partial matches and non-English/CJK content
 
+## Agent config & security policy
+
+The canonical source for an agent's runtime config and security policy
+is the `agents` table:
+
+| Column | Replaces |
+|--------|----------|
+| `agents.config_json` | the legacy per-agent `config.json` file |
+| `agents.security_json` | the legacy per-agent `security.json` file |
+
+All reads and writes go through the `AgentConfigStore` interface
+(`packages/store`), implemented by `DbAgentConfigStore`. The
+gateway's `POST /agents` flow seeds these columns with the default
+template; `PUT /api/agents/:id/config` and `PUT /api/agents/:id/secrets`
+also write through the stores.
+
+To import a freshly-checked-out repo whose agents predate this change,
+run the one-shot CLI:
+
+```bash
+hermit migrate-agent-config       # imports config.json + security.json into the DB
+hermit migrate-agent-config --force  # overwrite even if columns are populated
+```
+
+After migration the legacy files can be deleted.
+
 ## Per-Agent Files
 
-Files under `~/.openhermit/agents/{agentId}/` are configuration, not conversation storage:
+Files under `~/.openhermit/agents/{agentId}/` are runtime/local state, not
+configuration:
 
-| File | Purpose |
-|------|---------|
-| `config.json` | model, exec backend, web provider, channel config, memory/introspection config |
-| `security.json` | autonomy, approvals, access token, channel tokens |
-| `secrets.json` | provider/channel/MCP secrets |
+| File / Dir | Purpose |
+|------------|---------|
+| `runtime.json` | runtime port + token written by the running agent process |
+| `secrets.json` | provider/channel/MCP secrets (still file-backed via `FileSecretStore`; future work may move this into the DB through the same `SecretStore` interface) |
 | `skill-mounts/` | generated symlinks to enabled DB-managed skills |
 
-Workspace files under `~/.openhermit/workspaces/{agentId}/` are external task state.
+Secrets are accessed exclusively through the `SecretStore` interface;
+gateway endpoints, config interpolation (`${{SECRET_NAME}}`), and
+admin/owner APIs never read `secrets.json` directly.
+
+Workspace files under `~/.openhermit/workspaces/{agentId}/` are external
+task state, unchanged.
 
 ## Migrations
 

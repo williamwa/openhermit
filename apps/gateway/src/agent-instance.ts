@@ -9,7 +9,7 @@ import {
   type LangfuseClientLike,
 } from '@openhermit/agent/langfuse';
 import { startChannels, startSingleChannel, stopChannels, type ChannelStatus } from '@openhermit/agent/channels';
-import type { McpServerStore, SkillStore } from '@openhermit/store';
+import type { AgentConfigStore, McpServerStore, SecretStore, SkillStore } from '@openhermit/store';
 
 import type { ChannelRegistry } from './auth.js';
 
@@ -38,6 +38,10 @@ export class AgentInstanceManager {
   private skillStore: SkillStore | undefined;
   /** Shared MCP server store for DB-managed MCP servers. */
   private mcpServerStore: McpServerStore | undefined;
+  /** DB-backed agent config + security policy store. */
+  private configStore: AgentConfigStore | undefined;
+  /** File-backed (today) secret store. */
+  private secretStore: SecretStore | undefined;
 
   setGatewayBaseUrl(url: string): void {
     this.gatewayBaseUrl = url;
@@ -59,6 +63,22 @@ export class AgentInstanceManager {
     this.mcpServerStore = store;
   }
 
+  setConfigStore(store: AgentConfigStore): void {
+    this.configStore = store;
+  }
+
+  setSecretStore(store: SecretStore): void {
+    this.secretStore = store;
+  }
+
+  getConfigStore(): AgentConfigStore | undefined {
+    return this.configStore;
+  }
+
+  getSecretStore(): SecretStore | undefined {
+    return this.secretStore;
+  }
+
 
   /**
    * Create and start an in-process AgentRunner for the given agent.
@@ -77,10 +97,18 @@ export class AgentInstanceManager {
     log(`[${agentId}] initialising workspace: ${workspaceDir}`);
     await workspace.init({ agentId });
 
+    if (!this.configStore || !this.secretStore) {
+      throw new Error(
+        'AgentInstanceManager requires configStore and secretStore (call setConfigStore/setSecretStore at startup).',
+      );
+    }
+
     // 2. Security (config dir is the parent of the per-agent directory)
     const security = new AgentSecurity({
       agentId,
       workspace,
+      configStore: this.configStore,
+      secretStore: this.secretStore,
       openHermitHome: path.dirname(configDir),
     });
     await security.init();

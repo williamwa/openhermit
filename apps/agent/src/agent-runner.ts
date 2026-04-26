@@ -1743,7 +1743,7 @@ export class AgentRunner implements SessionRuntime {
     throw new ValidationError(
       formatMissingApiKeyMessage(
         provider,
-        this.options.security.secretsFilePath,
+        `agent ${this.scope.agentId} secrets`,
       ),
     );
   }
