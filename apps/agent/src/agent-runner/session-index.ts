@@ -1,4 +1,4 @@
-import type { SessionListQuery, SessionSummary } from '@openhermit/protocol';
+import type { SessionListQuery, SessionStatus, SessionSummary } from '@openhermit/protocol';
 
 import type { PersistedSessionIndexEntry } from '@openhermit/store';
 import { matchesSessionListQuery, sortSessionSummaries } from '../session-utils.js';
@@ -25,73 +25,34 @@ export const createPersistedSessionIndexEntry = (
   ...(session.userIds.length > 0 ? { userIds: session.userIds } : {}),
 });
 
-const createSessionSummary = (
-  session: RunnerSession,
-  lastEventId: number,
-): SessionSummary => ({
-  sessionId: session.spec.sessionId,
-  source: session.spec.source,
-  createdAt: session.createdAt,
-  lastActivityAt: session.updatedAt,
-  lastEventId,
-  messageCount: session.messageCount,
-  ...(session.description ? { description: session.description } : {}),
-  ...(session.lastMessagePreview
-    ? { lastMessagePreview: session.lastMessagePreview }
-    : {}),
-  status: session.status,
-  ...(session.spec.metadata ? { metadata: session.spec.metadata } : {}),
-});
-
+/**
+ * Build session summaries directly from the persisted DB rows. The
+ * runtime in-memory map (`AgentRunner.sessions`) is intentionally NOT
+ * consulted: the DB is the source of truth for source / metadata /
+ * counters / description / preview. Runtime status transitions
+ * (running ↔ idle) are persisted on every event so the DB row is
+ * fresh enough for listing.
+ */
 export const buildSessionSummaries = (
   persistedSessions: PersistedSessionIndexEntry[],
-  activeSessions: Iterable<RunnerSession>,
   query: SessionListQuery,
   getLastEventId: (sessionId: string) => number,
 ): SessionSummary[] => {
-  const activeById = new Map(
-    [...activeSessions].map((session) => [session.spec.sessionId, session]),
-  );
-
-  const persistedSummaries = persistedSessions.map((session) => {
-    const activeSession = activeById.get(session.sessionId);
-
-    if (activeSession) {
-      return createSessionSummary(
-        activeSession,
-        getLastEventId(activeSession.spec.sessionId),
-      );
-    }
-
-    return {
+  return persistedSessions
+    .map((session) => ({
       sessionId: session.sessionId,
       source: session.source,
       createdAt: session.createdAt,
       lastActivityAt: session.lastActivityAt,
-      lastEventId: 0,
+      lastEventId: getLastEventId(session.sessionId),
       messageCount: session.messageCount,
       ...(session.description ? { description: session.description } : {}),
       ...(session.lastMessagePreview
         ? { lastMessagePreview: session.lastMessagePreview }
         : {}),
-      status: 'idle' as const,
+      status: (session.status as SessionStatus) ?? 'idle',
       ...(session.metadata ? { metadata: session.metadata } : {}),
-    };
-  });
-
-  const runtimeOnlySummaries = [...activeSessions]
-    .filter(
-      (session) =>
-        !persistedSessions.some(
-          (entry) => entry.sessionId === session.spec.sessionId,
-        ),
-    )
-    .map((session) =>
-      createSessionSummary(session, getLastEventId(session.spec.sessionId)),
-    );
-
-  return persistedSummaries
-    .concat(runtimeOnlySummaries)
+    }))
     .filter((summary) => matchesSessionListQuery(summary, query))
     .sort(sortSessionSummaries);
 };

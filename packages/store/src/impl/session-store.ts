@@ -35,11 +35,19 @@ export class DbSessionStore implements SessionStore {
   }
 
   async upsert(scope: StoreScope, entry: PersistedSessionIndexEntry): Promise<void> {
-    const data = {
+    // Identity / classification fields are written ONCE at session creation
+    // and must never be overwritten by later runtime updates — runtime
+    // memory caches them, and a stale cache (e.g. a session reopened from
+    // a different channel) used to corrupt DB on conflict.
+    const immutable = {
       sourceKind: entry.source.kind,
       sourcePlatform: entry.source.platform ?? null,
       interactive: entry.source.interactive ? 1 : 0,
       createdAt: entry.createdAt,
+      type: entry.type ?? entry.source.type ?? 'direct',
+    };
+    // Runtime-mutable fields — re-written every persistSessionIndex.
+    const runtime = {
       lastActivityAt: entry.lastActivityAt,
       description: entry.description ?? null,
       descriptionSource: entry.descriptionSource ?? null,
@@ -48,17 +56,17 @@ export class DbSessionStore implements SessionStore {
       lastMessagePreview: entry.lastMessagePreview ?? null,
       metadataJson: JSON.stringify(entry.metadata ?? {}),
       status: entry.status ?? 'idle',
-      type: entry.type ?? entry.source.type ?? 'direct',
       userIdsJson: JSON.stringify(entry.userIds ?? []),
     };
 
     await this.db.insert(sessions).values({
       agentId: scope.agentId,
       sessionId: entry.sessionId,
-      ...data,
+      ...immutable,
+      ...runtime,
     }).onConflictDoUpdate({
       target: [sessions.agentId, sessions.sessionId],
-      set: data,
+      set: runtime,
     });
   }
 

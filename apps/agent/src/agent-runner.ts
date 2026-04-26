@@ -527,11 +527,12 @@ export class AgentRunner implements SessionRuntime {
       },
     );
     const limit = query.limit;
+    // DB is the single source of truth for the session list. The
+    // in-memory map only holds runtime handles (Agent instance, queue,
+    // timers); summary fields (source, metadata, counters, status,
+    // description, preview) all come from the persisted row.
     const summaries = buildSessionSummaries(
       persistedSessions,
-      callerUserId
-        ? [...this.sessions.values()].filter((s) => s.userIds.includes(callerUserId))
-        : this.sessions.values(),
       query,
       (sessionId) => this.events.getBacklog(sessionId).at(-1)?.id ?? 0,
     );
