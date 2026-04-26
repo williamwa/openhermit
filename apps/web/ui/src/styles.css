@@ -624,7 +624,7 @@ h2 { font-size: 14px; font-weight: 600; }
 .tool-card__icon--done { color: var(--success); }
 .tool-card__icon--error { color: var(--danger); }
 
-.tool-card__label { font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.tool-card__label { font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: 0.01em; }
 .tool-card__name { font-weight: 500; color: var(--text); font-family: var(--mono, monospace); }
 
 .tool-card__args, .tool-card__result {
