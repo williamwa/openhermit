@@ -1,10 +1,11 @@
 import { execFile, spawn } from 'node:child_process';
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, access } from 'node:fs/promises';
 import path from 'node:path';
 import readline from 'node:readline';
 import crypto from 'node:crypto';
 
 import type { Command } from 'commander';
+import { resolveOpenHermitHome } from '@openhermit/shared';
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -40,10 +41,28 @@ const generateToken = (): string => crypto.randomBytes(24).toString('base64url')
 
 // ── .env helpers ───────────────────────────────────────────────────────
 
-const resolveEnvPath = (): string => {
-  // The gateway loads .env from the project root (3 levels up from gateway/src/index.ts).
-  // In the monorepo that's the repo root.  For standalone installs we use cwd.
-  return path.resolve(process.cwd(), '.env');
+const resolveEnvPath = (): string =>
+  // Persisted env lives in the user's OpenHermit home, never in cwd. The
+  // shared loadEnv() reads from this path on every CLI invocation, so all
+  // \`hermit ...\` commands and the gateway/web they spawn pick it up.
+  path.join(resolveOpenHermitHome(), '.env');
+
+const fileExists = (p: string): Promise<boolean> =>
+  access(p).then(() => true, () => false);
+
+const DEFAULT_GATEWAY_CONFIG = {
+  ui: true,
+  cors: { origin: '*' },
+  autoStartAgents: true,
+};
+
+const ensureGatewayConfig = async (): Promise<{ created: boolean; path: string }> => {
+  const home = resolveOpenHermitHome();
+  const configPath = path.join(home, 'gateway.json');
+  if (await fileExists(configPath)) return { created: false, path: configPath };
+  await mkdir(home, { recursive: true });
+  await writeFile(configPath, JSON.stringify(DEFAULT_GATEWAY_CONFIG, null, 2) + '\n', 'utf8');
+  return { created: true, path: configPath };
 };
 
 const readEnvFile = async (envPath: string): Promise<Map<string, string>> => {
@@ -71,6 +90,7 @@ const readEnvFile = async (envPath: string): Promise<Map<string, string>> => {
 };
 
 const writeEnvFile = async (envPath: string, env: Map<string, string>): Promise<void> => {
+  await mkdir(path.dirname(envPath), { recursive: true });
   const lines: string[] = [];
   for (const [key, value] of env) {
     // Quote values that contain spaces or special chars.
@@ -280,6 +300,15 @@ export const registerSetupCommand = (program: Command): void => {
         console.log(`\n✓ Saved to ${envPath}`);
       } else {
         console.log('\nNo changes made.');
+      }
+
+      // ── Step 4: gateway.json (minimal default if missing) ─────────
+
+      const cfg = await ensureGatewayConfig();
+      if (cfg.created) {
+        console.log(`✓ Wrote default gateway config: ${cfg.path}`);
+      } else {
+        console.log(`  Gateway config already present: ${cfg.path}`);
       }
 
       console.log('\nNext steps:');
