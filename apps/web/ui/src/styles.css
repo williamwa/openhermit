@@ -1122,3 +1122,6 @@ h2 { font-size: 14px; font-weight: 600; }
 }
 
 .basic-panel__saved { color: var(--muted); font-size: 12px; }
+
+.basic-panel__custom-row { display: flex; gap: 8px; align-items: center; }
+.basic-panel__custom-row input { flex: 1; }

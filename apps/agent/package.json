@@ -27,6 +27,10 @@
     "./metrics": {
       "development": "./src/metrics.ts",
       "default": "./dist/metrics.js"
+    },
+    "./model-catalog": {
+      "development": "./src/model-catalog.ts",
+      "default": "./dist/model-catalog.js"
     }
   },
   "scripts": {

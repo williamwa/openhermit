@@ -39,6 +39,7 @@ import {
 import type { AgentRunner, SessionEventEnvelope } from '@openhermit/agent/agent-runner';
 import { metricsRegistry, startDefaultMetrics } from '@openhermit/agent/metrics';
 import { buildDefaultAgentConfig, listAllOpenHermitContainers } from '@openhermit/agent/core';
+import { listProviderCatalog } from '@openhermit/agent/model-catalog';
 
 import type { AgentInstanceManager } from './agent-instance.js';
 import type { LogBuffer } from './log-buffer.js';
@@ -1090,6 +1091,15 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const body = await c.req.json();
     await runner.security.writeConfig(body);
     return c.json({ ok: true });
+  });
+
+  // Static catalog of providers + models supported by the agent runtime
+  // (sourced from @mariozechner/pi-ai). Auth is owner-or-admin since
+  // this is only useful in the management UI.
+  app.get('/api/agents/:agentId/providers', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    await requireOwnerOrAdmin(c, agentId);
+    return c.json(listProviderCatalog());
   });
 
   app.get('/api/agents/:agentId/secrets', async (c) => {

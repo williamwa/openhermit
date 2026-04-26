@@ -499,3 +499,7 @@ export interface AgentConfig {
 }
 export const fetchAgentConfig = () => apiFetch<AgentConfig>('/config');
 export const putAgentConfig = (config: AgentConfig) => apiFetch<{ ok: boolean }>('/config', { method: 'PUT', body: config });
+
+// Provider catalog (static — sourced from pi-ai's model registry)
+export interface ProviderCatalogEntry { provider: string; models: { id: string }[] }
+export const fetchProviderCatalog = () => apiFetch<ProviderCatalogEntry[]>('/providers');

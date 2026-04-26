@@ -1,13 +1,22 @@
-import { useEffect, useState } from 'react';
-import { fetchAgentConfig, putAgentConfig, type AgentConfig } from '../api';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  fetchAgentConfig,
+  putAgentConfig,
+  fetchProviderCatalog,
+  type AgentConfig,
+  type ProviderCatalogEntry,
+} from '../api';
 
 type Thinking = 'off' | 'minimal' | 'low' | 'medium' | 'high';
 
 const THINKING_LEVELS: Thinking[] = ['off', 'minimal', 'low', 'medium', 'high'];
+const CUSTOM = '__custom__';
 
 export function BasicPanel() {
   const [config, setConfig] = useState<AgentConfig | null>(null);
+  const [catalog, setCatalog] = useState<ProviderCatalogEntry[]>([]);
   const [provider, setProvider] = useState('');
+  const [providerMode, setProviderMode] = useState<'preset' | 'custom'>('preset');
   const [model, setModel] = useState('');
   const [thinking, setThinking] = useState<Thinking | ''>('');
   const [loading, setLoading] = useState(true);
@@ -16,16 +25,26 @@ export function BasicPanel() {
   const [savedAt, setSavedAt] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchAgentConfig()
-      .then((c) => {
+    Promise.all([fetchAgentConfig(), fetchProviderCatalog()])
+      .then(([c, cat]) => {
         setConfig(c);
-        setProvider(c.model?.provider ?? '');
+        setCatalog(cat);
+        const initialProvider = c.model?.provider ?? '';
+        setProvider(initialProvider);
+        // If the existing provider isn't in the catalog, drop the user
+        // straight into custom mode so they can edit the free-text value.
+        const isKnown = cat.some((e) => e.provider === initialProvider);
+        setProviderMode(isKnown || !initialProvider ? 'preset' : 'custom');
         setModel(c.model?.model ?? '');
         setThinking((c.model?.thinking as Thinking) ?? '');
       })
       .catch((err) => setError((err as Error).message))
       .finally(() => setLoading(false));
   }, []);
+
+  const modelsForProvider = useMemo(() => {
+    return catalog.find((e) => e.provider === provider)?.models ?? [];
+  }, [catalog, provider]);
 
   const dirty = config != null && (
     provider !== (config.model?.provider ?? '')
@@ -47,7 +66,6 @@ export function BasicPanel() {
           ...(thinking ? { thinking } : {}),
         },
       };
-      // If user cleared the thinking dropdown, drop the field.
       if (!thinking && next.model.thinking) {
         delete (next.model as Record<string, unknown>).thinking;
       }
@@ -65,6 +83,8 @@ export function BasicPanel() {
   if (error && !config) return <p className="manage__empty">{error}</p>;
   if (!config) return null;
 
+  const datalistId = 'basic-model-catalog';
+
   return (
     <div className="basic-panel">
       <div className="basic-panel__intro">
@@ -77,14 +97,55 @@ export function BasicPanel() {
 
       <div className="basic-panel__field">
         <label htmlFor="basic-provider">Provider</label>
-        <input
-          id="basic-provider"
-          type="text"
-          value={provider}
-          onChange={(e) => setProvider(e.target.value)}
-          placeholder="e.g. anthropic, openai, openrouter"
-          autoComplete="off"
-        />
+        {providerMode === 'preset' ? (
+          <select
+            id="basic-provider"
+            value={catalog.some((e) => e.provider === provider) ? provider : ''}
+            onChange={(e) => {
+              const value = e.target.value;
+              if (value === CUSTOM) {
+                setProviderMode('custom');
+                return;
+              }
+              setProvider(value);
+              // When switching provider via the dropdown, clear the model
+              // so the user picks one from the new provider's list.
+              if (value !== provider) setModel('');
+            }}
+          >
+            <option value="">— pick a provider —</option>
+            {catalog.map((e) => (
+              <option key={e.provider} value={e.provider}>
+                {e.provider} ({e.models.length})
+              </option>
+            ))}
+            <option value={CUSTOM}>Custom…</option>
+          </select>
+        ) : (
+          <div className="basic-panel__custom-row">
+            <input
+              id="basic-provider"
+              type="text"
+              value={provider}
+              onChange={(e) => setProvider(e.target.value)}
+              placeholder="e.g. my-self-hosted-provider"
+              autoComplete="off"
+            />
+            <button
+              type="button"
+              className="btn btn--ghost"
+              onClick={() => {
+                setProviderMode('preset');
+                if (!catalog.some((e) => e.provider === provider)) {
+                  setProvider('');
+                  setModel('');
+                }
+              }}
+            >
+              Pick from list
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="basic-panel__field">
@@ -94,9 +155,22 @@ export function BasicPanel() {
           type="text"
           value={model}
           onChange={(e) => setModel(e.target.value)}
-          placeholder="e.g. claude-sonnet-4-6, moonshotai/kimi-k2.6"
+          placeholder={modelsForProvider.length > 0 ? modelsForProvider[0]?.id : 'e.g. claude-sonnet-4-6'}
           autoComplete="off"
+          list={modelsForProvider.length > 0 ? datalistId : undefined}
         />
+        {modelsForProvider.length > 0 && (
+          <datalist id={datalistId}>
+            {modelsForProvider.map((m) => (
+              <option key={m.id} value={m.id} />
+            ))}
+          </datalist>
+        )}
+        {modelsForProvider.length > 0 && (
+          <p className="basic-panel__hint" style={{ marginTop: 4 }}>
+            {modelsForProvider.length} known models for {provider}. You can also enter a custom id.
+          </p>
+        )}
       </div>
 
       <div className="basic-panel__field">
