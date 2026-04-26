@@ -1,4 +1,4 @@
-import { eq, and, ne, lt, desc } from 'drizzle-orm';
+import { eq, and, ne, lt, desc, sql } from 'drizzle-orm';
 import type { MetadataValue, SessionStatus, SessionType } from '@openhermit/protocol';
 
 import type { SessionStore } from '../interfaces.js';
@@ -16,16 +16,17 @@ export class DbSessionStore implements SessionStore {
     if (!options?.includeInactive) {
       conditions.push(ne(sessions.status, 'inactive'));
     }
+    if (options?.userId) {
+      // jsonb @> jsonb : "user_ids contains [userId]". Backed by the
+      // gin index on sessions.user_ids — no client-side filter.
+      conditions.push(sql`${sessions.userIds} @> ${JSON.stringify([options.userId])}::jsonb`);
+    }
 
     const rows = await this.db.select().from(sessions)
       .where(and(...conditions))
       .orderBy(desc(sessions.lastActivityAt));
 
-    let entries = rows.map((row) => this.rowToEntry(row));
-    if (options?.userId) {
-      entries = entries.filter((e) => e.userIds?.includes(options.userId!));
-    }
-    return entries;
+    return rows.map((row) => this.rowToEntry(row));
   }
 
   async get(scope: StoreScope, sessionId: string): Promise<PersistedSessionIndexEntry | undefined> {
@@ -56,7 +57,7 @@ export class DbSessionStore implements SessionStore {
       lastMessagePreview: entry.lastMessagePreview ?? null,
       metadataJson: JSON.stringify(entry.metadata ?? {}),
       status: entry.status ?? 'idle',
-      userIdsJson: JSON.stringify(entry.userIds ?? []),
+      userIds: entry.userIds ?? [],
     };
 
     await this.db.insert(sessions).values({
@@ -123,7 +124,7 @@ export class DbSessionStore implements SessionStore {
     if (row.lastMessagePreview !== null) entry.lastMessagePreview = row.lastMessagePreview;
     if (Object.keys(metadata).length > 0) entry.metadata = metadata as Record<string, MetadataValue>;
 
-    const userIds = JSON.parse(row.userIdsJson || '[]') as string[];
+    const userIds = (row.userIds ?? []) as string[];
     if (userIds.length > 0) entry.userIds = userIds;
 
     return entry;

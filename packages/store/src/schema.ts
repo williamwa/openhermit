@@ -2,6 +2,7 @@ import {
   pgTable,
   text,
   integer,
+  jsonb,
   serial,
   boolean,
   index,
@@ -44,7 +45,7 @@ export const sessions = pgTable('sessions', {
   metadataJson: text('metadata_json').default('{}').notNull(),
   status: text('status').default('idle').notNull(),
   type: text('type').default('direct').notNull(),
-  userIdsJson: text('user_ids_json').default('[]').notNull(),
+  userIds: jsonb('user_ids').$type<string[]>().default([]).notNull(),
 }, (table) => [
   primaryKey({ columns: [table.agentId, table.sessionId] }),
   index('idx_sessions_agent').on(table.agentId, table.lastActivityAt),
