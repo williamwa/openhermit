@@ -9,9 +9,9 @@ const createSessionId = () =>
   `web:${new Date().toISOString().slice(0, 10)}-${crypto.randomUUID().slice(0, 8)}`;
 
 type View = 'chat' | 'manage';
-type ManageTab = 'skills' | 'mcp' | 'schedules' | 'channels';
+type ManageTab = 'basic' | 'skills' | 'mcp' | 'schedules' | 'channels';
 
-const MANAGE_TABS: ManageTab[] = ['skills', 'mcp', 'schedules', 'channels'];
+const MANAGE_TABS: ManageTab[] = ['basic', 'skills', 'mcp', 'schedules', 'channels'];
 
 type Route =
   | { view: 'chat'; sessionId: string | null }

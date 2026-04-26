@@ -490,3 +490,12 @@ export const enableChannel = (id: string) => apiFetch<{ ok: boolean }>(`/channel
 export const disableChannel = (id: string) => apiFetch<{ ok: boolean }>(`/channels/${encodeURIComponent(id)}/disable`, { method: 'POST' });
 export const configureChannel = (id: string, secrets: Record<string, string>) => apiFetch<{ ok: boolean }>(`/channels/${encodeURIComponent(id)}`, { method: 'PUT', body: { secrets } });
 export const removeChannel = (id: string) => apiFetch<{ ok: boolean }>(`/channels/${encodeURIComponent(id)}`, { method: 'DELETE' });
+
+// Agent config (basic settings)
+export interface AgentConfig {
+  workspace_root?: string;
+  model: { provider: string; model: string; max_tokens?: number; thinking?: 'off' | 'minimal' | 'low' | 'medium' | 'high'; base_url?: string; api?: string };
+  [key: string]: unknown;
+}
+export const fetchAgentConfig = () => apiFetch<AgentConfig>('/config');
+export const putAgentConfig = (config: AgentConfig) => apiFetch<{ ok: boolean }>('/config', { method: 'PUT', body: config });
