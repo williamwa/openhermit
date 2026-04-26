@@ -1095,15 +1095,23 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     return `${value.slice(0, 4)}${'*'.repeat(8)}${value.slice(-4)}`;
   };
 
+  // Admin/owner endpoints below operate directly on the underlying stores
+  // — they don't need a live runner. When a runner happens to be running,
+  // we tell its security adapter to reload so its in-memory cache stays
+  // consistent with what we just wrote.
+  const reloadRunnerSecurity = async (agentId: string): Promise<void> => {
+    const runner = instances.getRunner(agentId);
+    if (runner) await runner.security.load();
+  };
+
   app.get('/api/agents/:agentId/secrets', async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     await requireOwnerOrAdmin(c, agentId);
-    const runner = instances.getRunner(agentId);
-    if (!runner) {
-      throw new NotFoundError(`Agent ${agentId} is not running.`);
+    const secretStore = instances.getSecretStore();
+    if (!secretStore) {
+      throw new OpenHermitError('Secret store is not configured.', 'not_configured', 500);
     }
-    await runner.security.load();
-    const all = await runner.security.readSecrets();
+    const all = await secretStore.list(agentId);
     const masked: Record<string, string> = {};
     for (const [k, v] of Object.entries(all)) masked[k] = maskSecret(v);
     return c.json(masked);
@@ -1112,10 +1120,6 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   app.put('/api/agents/:agentId/secrets', async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     await requireOwnerOrAdmin(c, agentId);
-    const runner = instances.getRunner(agentId);
-    if (!runner) {
-      throw new NotFoundError(`Agent ${agentId} is not running.`);
-    }
     const body = await c.req.json();
     if (typeof body !== 'object' || body === null || Array.isArray(body)) {
       throw new ValidationError('Secrets must be a JSON object of string key-value pairs.');
@@ -1125,7 +1129,12 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
         throw new ValidationError(`Secret value for "${k}" must be a string.`);
       }
     }
-    await runner.security.writeSecrets(body as Record<string, string>);
+    const secretStore = instances.getSecretStore();
+    if (!secretStore) {
+      throw new OpenHermitError('Secret store is not configured.', 'not_configured', 500);
+    }
+    await secretStore.setAll(agentId, body as Record<string, string>);
+    await reloadRunnerSecurity(agentId);
     return c.json({ ok: true });
   });
 
@@ -1133,10 +1142,6 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const agentId = c.req.param('agentId') ?? '';
     const name = c.req.param('name') ?? '';
     await requireOwnerOrAdmin(c, agentId);
-    const runner = instances.getRunner(agentId);
-    if (!runner) {
-      throw new NotFoundError(`Agent ${agentId} is not running.`);
-    }
     if (!name) throw new ValidationError('Secret name required.');
     const body = await c.req.json() as Record<string, unknown>;
     const value = body.value;
@@ -1148,7 +1153,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
       throw new OpenHermitError('Secret store is not configured.', 'not_configured', 500);
     }
     await secretStore.set(agentId, name, value);
-    await runner.security.load();
+    await reloadRunnerSecurity(agentId);
     return c.json({ ok: true });
   });
 
@@ -1156,17 +1161,13 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const agentId = c.req.param('agentId') ?? '';
     const name = c.req.param('name') ?? '';
     await requireOwnerOrAdmin(c, agentId);
-    const runner = instances.getRunner(agentId);
-    if (!runner) {
-      throw new NotFoundError(`Agent ${agentId} is not running.`);
-    }
     if (!name) throw new ValidationError('Secret name required.');
     const secretStore = instances.getSecretStore();
     if (!secretStore) {
       throw new OpenHermitError('Secret store is not configured.', 'not_configured', 500);
     }
     await secretStore.delete(agentId, name);
-    await runner.security.load();
+    await reloadRunnerSecurity(agentId);
     return c.json({ ok: true });
   });
 
@@ -1272,23 +1273,37 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
 
   app.get('/api/agents/:agentId/skills', async (c) => {
     const agentId = c.req.param('agentId') ?? '';
-    const runner = instances.getRunner(agentId);
-    if (!runner) {
-      throw new NotFoundError(`Agent ${agentId} is not running.`);
-    }
     const store = requireSkillStore();
+    const runner = instances.getRunner(agentId);
 
-    // Merge DB-enabled skills with workspace-scanned skills
-    const { loadSkillIndex } = await import('@openhermit/agent/skills');
-    const skills = await loadSkillIndex(agentId, runner.workspace.root, store);
-    return c.json(skills);
+    // Workspace path comes from the runner when up, otherwise from the
+    // agent record. loadSkillIndex merges DB-enabled skills with what's
+    // scanned from the workspace skill mounts.
+    let workspaceRoot: string | undefined;
+    if (runner) {
+      workspaceRoot = runner.workspace.root;
+    } else if (options.agentStore) {
+      const record = await options.agentStore.get(agentId);
+      workspaceRoot = record?.workspaceDir;
+    }
+
+    if (workspaceRoot) {
+      const { loadSkillIndex } = await import('@openhermit/agent/skills');
+      const skills = await loadSkillIndex(agentId, workspaceRoot, store);
+      return c.json(skills);
+    }
+
+    // No workspace info available — return DB-enabled skills only.
+    const dbSkills = await store.listEnabled(agentId);
+    return c.json(dbSkills.map((s) => ({
+      id: s.id, name: s.name, description: s.description,
+      path: `/skills/${s.id}`, source: 'system' as const,
+    })));
   });
 
   app.get('/api/agents/:agentId/mcp-servers', async (c) => {
     const agentId = c.req.param('agentId') ?? '';
-    if (!instances.getRunner(agentId)) {
-      throw new NotFoundError(`Agent ${agentId} is not running.`);
-    }
+    // Pure DB read — no runner needed. Lets admin inspect a stopped agent.
     const store = requireMcpServerStore();
     const servers = await store.listEnabled(agentId);
     return c.json(servers);

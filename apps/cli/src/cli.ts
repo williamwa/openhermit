@@ -24,7 +24,7 @@ const program = new Command();
 program
   .name('hermit')
   .description('OpenHermit — multi-agent platform CLI')
-  .version('0.3.4');
+  .version('0.3.5');
 
 registerSetupCommand(program);
 registerChatCommand(program);
