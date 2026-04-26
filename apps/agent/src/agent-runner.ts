@@ -1039,26 +1039,23 @@ export class AgentRunner implements SessionRuntime {
 
   /**
    * Bootstrap the owner user on first connection.
-   * If no users exist and the session is from CLI or web, create the owner
-   * and link the channel identity.
+   * If no users exist yet and the session is from the CLI (the local
+   * operator), promote that first user to owner. Other entry points
+   * (api, telegram, web, etc.) must NOT auto-promote — they fall
+   * through to resolveMessageSender which creates a guest.
    */
   private async ensureOwnerBootstrap(spec: SessionSpec, now: string): Promise<void> {
     const kind = spec.source.kind;
-    if (kind !== 'cli' && kind !== 'api') return;
+    if (kind !== 'cli') return;
 
     const agentUsers = await this.store.users.listByAgent(this.scope);
     if (agentUsers.length > 0) return;
 
     const channelUserId = this.deriveChannelUserId(spec);
-    // Prefer a stable, human-readable id derived from the channel user
-    // (e.g. OS username for CLI). Falls back to 'usr-owner' when the
-    // source can't supply a sensible slug.
+    // Prefer a stable, human-readable id derived from the OS username.
+    // Falls back to 'usr-owner' when no slug can be derived.
     const userId = buildOwnerUserId(kind, channelUserId);
-    const name = spec.metadata?.telegram_first_name
-      ? String(spec.metadata.telegram_first_name)
-      : kind === 'cli' && channelUserId
-        ? channelUserId
-        : undefined;
+    const name = channelUserId ?? undefined;
 
     await this.store.users.upsert({
       userId,
