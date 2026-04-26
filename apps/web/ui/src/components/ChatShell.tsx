@@ -446,13 +446,21 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
             </div>
           </div>
           <div className="sidebar__buttons">
-            {view === 'manage' ? (
-              <button className="btn btn--primary" onClick={() => { setView('chat'); }}>Back to Chat</button>
-            ) : (
-              <button className="btn btn--primary" onClick={() => void createNewSession()}>New Session</button>
-            )}
-            {isOwner && view === 'chat' && (
-              <button className="btn btn--ghost" onClick={() => { setView('manage'); setManageTab('basic'); }}>Manage</button>
+            <button
+              className="btn btn--primary"
+              onClick={() => {
+                if (view === 'manage') setView('chat');
+                void createNewSession();
+              }}
+            >
+              New Session
+            </button>
+            {isOwner && (
+              view === 'manage' ? (
+                <button className="btn btn--ghost" onClick={() => { setView('chat'); }}>Back to Chat</button>
+              ) : (
+                <button className="btn btn--ghost" onClick={() => { setView('manage'); setManageTab('basic'); }}>Manage</button>
+              )
             )}
           </div>
         </div>
