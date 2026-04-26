@@ -337,15 +337,21 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     };
     app.use('/agents/*', agentAuthMiddleware);
     app.use('/api/agents/*', agentAuthMiddleware);
+    // Global (non-agent-scoped) /api/* endpoints reuse the same auth
+    // resolver so they accept either an admin token or any valid user
+    // JWT. Endpoints that need agent-scoping enforce it themselves.
+    app.use('/api/providers', agentAuthMiddleware);
   } else if (adminToken) {
     // No JWT auth configured, but admin token exists — resolve admin auth for per-agent management routes
-    app.use('/api/agents/*', async (c, next) => {
+    const adminMiddleware = async (c: any, next: any) => {
       const authorization = c.req.header('authorization');
       if (authorization?.startsWith('Bearer ') && authorization.slice(7) === adminToken) {
         c.set('auth' as never, { mode: 'admin', channel: 'admin', channelUserId: 'admin' } as never);
       }
       await next();
-    });
+    };
+    app.use('/api/agents/*', adminMiddleware);
+    app.use('/api/providers', adminMiddleware);
   }
 
   // --- gateway health ---
@@ -359,6 +365,15 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   app.get('/metrics', async (c) => {
     const body = await metricsRegistry.metrics();
     return c.text(body, 200, { 'content-type': metricsRegistry.contentType });
+  });
+
+  // Static catalog of providers + models supported by the agent runtime
+  // (sourced from @mariozechner/pi-ai). Global, not per-agent — the
+  // catalog is identical for every agent. Any authenticated caller
+  // (admin token or user JWT) can read it.
+  app.get('/api/providers', (c) => {
+    requireAuth(c);
+    return c.json(listProviderCatalog());
   });
 
   // --- agent CRUD (admin-only) ---
@@ -1091,15 +1106,6 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const body = await c.req.json();
     await runner.security.writeConfig(body);
     return c.json({ ok: true });
-  });
-
-  // Static catalog of providers + models supported by the agent runtime
-  // (sourced from @mariozechner/pi-ai). Auth is owner-or-admin since
-  // this is only useful in the management UI.
-  app.get('/api/agents/:agentId/providers', async (c) => {
-    const agentId = c.req.param('agentId') ?? '';
-    await requireOwnerOrAdmin(c, agentId);
-    return c.json(listProviderCatalog());
   });
 
   app.get('/api/agents/:agentId/secrets', async (c) => {

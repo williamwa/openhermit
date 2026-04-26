@@ -427,7 +427,7 @@ export const getUserRole = (): string | null => userRole;
 
 // ─── REST API helpers for management ──────────────────────────────────────
 
-export async function apiFetch<T>(path: string, options?: { method?: string; body?: unknown }): Promise<T> {
+async function rawFetch<T>(url: string, options?: { method?: string; body?: unknown }): Promise<T> {
   const token = await getJwt();
   const headers: Record<string, string> = { authorization: `Bearer ${token}` };
   let bodyStr: string | undefined;
@@ -435,7 +435,6 @@ export async function apiFetch<T>(path: string, options?: { method?: string; bod
     headers['content-type'] = 'application/json';
     bodyStr = JSON.stringify(options.body);
   }
-  const url = `${gatewayBase}/api/agents/${encodeURIComponent(currentAgentId)}${path}`;
   const res = await fetch(url, {
     method: options?.method ?? 'GET',
     headers,
@@ -446,6 +445,15 @@ export async function apiFetch<T>(path: string, options?: { method?: string; bod
     throw new Error((err as { error?: { message?: string } }).error?.message || `Request failed (${res.status})`);
   }
   return res.json() as Promise<T>;
+}
+
+export async function apiFetch<T>(path: string, options?: { method?: string; body?: unknown }): Promise<T> {
+  return rawFetch<T>(`${gatewayBase}/api/agents/${encodeURIComponent(currentAgentId)}${path}`, options);
+}
+
+/** Call a non-agent-scoped gateway endpoint (e.g. /api/providers). */
+export async function apiFetchGlobal<T>(path: string, options?: { method?: string; body?: unknown }): Promise<T> {
+  return rawFetch<T>(`${gatewayBase}${path}`, options);
 }
 
 // Agent info
@@ -500,6 +508,6 @@ export interface AgentConfig {
 export const fetchAgentConfig = () => apiFetch<AgentConfig>('/config');
 export const putAgentConfig = (config: AgentConfig) => apiFetch<{ ok: boolean }>('/config', { method: 'PUT', body: config });
 
-// Provider catalog (static — sourced from pi-ai's model registry)
+// Provider catalog (static, global — sourced from pi-ai's model registry)
 export interface ProviderCatalogEntry { provider: string; models: { id: string }[] }
-export const fetchProviderCatalog = () => apiFetch<ProviderCatalogEntry[]>('/providers');
+export const fetchProviderCatalog = () => apiFetchGlobal<ProviderCatalogEntry[]>('/api/providers');
