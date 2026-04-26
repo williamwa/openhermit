@@ -985,15 +985,18 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     requireAdmin(c.req.header('authorization'));
     if (!userStore) return c.json([]);
     const list = await userStore.list();
-    // Annotate with identity count.
     const enriched = await Promise.all(list.map(async (u) => {
-      const identities = await userStore.listIdentities(u.userId);
+      const [identities, agents] = await Promise.all([
+        userStore.listIdentities(u.userId),
+        userStore.listAgentRoles(u.userId),
+      ]);
       return {
         userId: u.userId,
         name: u.name ?? null,
         createdAt: u.createdAt,
         updatedAt: u.updatedAt,
         identityCount: identities.length,
+        agentCount: agents.length,
       };
     }));
     return c.json(enriched);
@@ -1004,6 +1007,13 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     if (!userStore) return c.json([]);
     const identities = await userStore.listIdentities(c.req.param('userId'));
     return c.json(identities);
+  });
+
+  app.get('/api/admin/users/:userId/agents', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    if (!userStore) return c.json([]);
+    const records = await userStore.listAgentRoles(c.req.param('userId'));
+    return c.json(records);
   });
 
   app.get('/api/admin/stats', async (c) => {

@@ -7,12 +7,20 @@ interface UserSummary {
   createdAt: string;
   updatedAt: string;
   identityCount: number;
+  agentCount: number;
 }
 
 interface UserIdentity {
   userId: string;
   channel: string;
   channelUserId: string;
+  createdAt: string;
+}
+
+interface UserAgentBinding {
+  userId: string;
+  agentId: string;
+  role: 'owner' | 'user' | 'guest';
   createdAt: string;
 }
 
@@ -31,7 +39,8 @@ export function UsersPanel() {
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [identities, setIdentities] = useState<Record<string, UserIdentity[]>>({});
-  const [identitiesLoading, setIdentitiesLoading] = useState<Record<string, boolean>>({});
+  const [agents, setAgents] = useState<Record<string, UserAgentBinding[]>>({});
+  const [detailLoading, setDetailLoading] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async () => {
     try {
@@ -57,17 +66,19 @@ export function UsersPanel() {
       return;
     }
     setExpanded(userId);
-    if (!identities[userId]) {
-      setIdentitiesLoading((prev) => ({ ...prev, [userId]: true }));
+    if (!identities[userId] || !agents[userId]) {
+      setDetailLoading((prev) => ({ ...prev, [userId]: true }));
       try {
-        const data = await api<UserIdentity[]>(
-          `/api/admin/users/${encodeURIComponent(userId)}/identities`,
-        );
-        setIdentities((prev) => ({ ...prev, [userId]: data }));
+        const [ids, ags] = await Promise.all([
+          api<UserIdentity[]>(`/api/admin/users/${encodeURIComponent(userId)}/identities`),
+          api<UserAgentBinding[]>(`/api/admin/users/${encodeURIComponent(userId)}/agents`),
+        ]);
+        setIdentities((prev) => ({ ...prev, [userId]: ids }));
+        setAgents((prev) => ({ ...prev, [userId]: ags }));
       } catch (err) {
         setError((err as Error).message);
       } finally {
-        setIdentitiesLoading((prev) => ({ ...prev, [userId]: false }));
+        setDetailLoading((prev) => ({ ...prev, [userId]: false }));
       }
     }
   };
@@ -104,6 +115,7 @@ export function UsersPanel() {
                 <tr>
                   <th>User</th>
                   <th className="fleet-table__num">Identities</th>
+                  <th className="fleet-table__num">Agents</th>
                   <th>Created</th>
                   <th>Updated</th>
                   <th className="fleet-table__actions"></th>
@@ -124,6 +136,7 @@ export function UsersPanel() {
                         </div>
                       </td>
                       <td className="fleet-table__num">{u.identityCount}</td>
+                      <td className="fleet-table__num">{u.agentCount}</td>
                       <td className="fleet-cell-relative">{formatDate(u.createdAt)}</td>
                       <td className="fleet-cell-relative">{formatDate(u.updatedAt)}</td>
                       <td className="fleet-table__actions">
@@ -138,10 +151,11 @@ export function UsersPanel() {
                     </tr>
                     {expanded === u.userId && (
                       <tr>
-                        <td colSpan={5} className="users-identities">
-                          <IdentitiesView
-                            loading={identitiesLoading[u.userId] ?? false}
-                            list={identities[u.userId] ?? []}
+                        <td colSpan={6} className="users-identities">
+                          <UserDetail
+                            loading={detailLoading[u.userId] ?? false}
+                            identities={identities[u.userId] ?? []}
+                            agents={agents[u.userId] ?? []}
                           />
                         </td>
                       </tr>
@@ -174,19 +188,20 @@ export function UsersPanel() {
                     <dd>{u.identityCount}</dd>
                   </div>
                   <div>
-                    <dt>Created</dt>
-                    <dd style={{ fontSize: '0.75rem' }}>{formatDate(u.createdAt)}</dd>
+                    <dt>Agents</dt>
+                    <dd>{u.agentCount}</dd>
                   </div>
                   <div>
-                    <dt>Updated</dt>
-                    <dd style={{ fontSize: '0.75rem' }}>{formatDate(u.updatedAt)}</dd>
+                    <dt>Created</dt>
+                    <dd style={{ fontSize: '0.75rem' }}>{formatDate(u.createdAt)}</dd>
                   </div>
                 </dl>
                 {expanded === u.userId && (
                   <div className="users-identities">
-                    <IdentitiesView
-                      loading={identitiesLoading[u.userId] ?? false}
-                      list={identities[u.userId] ?? []}
+                    <UserDetail
+                      loading={detailLoading[u.userId] ?? false}
+                      identities={identities[u.userId] ?? []}
+                      agents={agents[u.userId] ?? []}
                     />
                   </div>
                 )}
@@ -199,27 +214,71 @@ export function UsersPanel() {
   );
 }
 
-function IdentitiesView({ loading, list }: { loading: boolean; list: UserIdentity[] }) {
-  if (loading) return <p className="users-identities__empty">Loading identities…</p>;
-  if (list.length === 0) return <p className="users-identities__empty">No identities linked.</p>;
+function UserDetail({
+  loading,
+  identities,
+  agents,
+}: {
+  loading: boolean;
+  identities: UserIdentity[];
+  agents: UserAgentBinding[];
+}) {
+  if (loading) return <p className="users-identities__empty">Loading…</p>;
   return (
-    <table className="users-identities__table">
-      <thead>
-        <tr>
-          <th>Channel</th>
-          <th>Channel User ID</th>
-          <th>Linked</th>
-        </tr>
-      </thead>
-      <tbody>
-        {list.map((i) => (
-          <tr key={`${i.channel}:${i.channelUserId}`}>
-            <td><span className="fleet-chip">{i.channel}</span></td>
-            <td style={{ fontFamily: 'var(--mono)', fontSize: '0.78rem' }}>{i.channelUserId}</td>
-            <td className="fleet-cell-relative">{formatDate(i.createdAt)}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="users-detail">
+      <div className="users-detail__section">
+        <div className="users-detail__title">Agent roles</div>
+        {agents.length === 0 ? (
+          <p className="users-identities__empty">No agent assignments.</p>
+        ) : (
+          <table className="users-identities__table">
+            <thead>
+              <tr>
+                <th>Agent</th>
+                <th>Role</th>
+                <th>Assigned</th>
+              </tr>
+            </thead>
+            <tbody>
+              {agents.map((a) => (
+                <tr key={a.agentId}>
+                  <td style={{ fontFamily: 'var(--mono)', fontSize: '0.82rem' }}>{a.agentId}</td>
+                  <td>
+                    <span className={`badge users-role users-role--${a.role}`}>{a.role}</span>
+                  </td>
+                  <td className="fleet-cell-relative">{formatDate(a.createdAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div className="users-detail__section">
+        <div className="users-detail__title">Identities</div>
+        {identities.length === 0 ? (
+          <p className="users-identities__empty">No identities linked.</p>
+        ) : (
+          <table className="users-identities__table">
+            <thead>
+              <tr>
+                <th>Channel</th>
+                <th>Channel User ID</th>
+                <th>Linked</th>
+              </tr>
+            </thead>
+            <tbody>
+              {identities.map((i) => (
+                <tr key={`${i.channel}:${i.channelUserId}`}>
+                  <td><span className="fleet-chip">{i.channel}</span></td>
+                  <td style={{ fontFamily: 'var(--mono)', fontSize: '0.78rem' }}>{i.channelUserId}</td>
+                  <td className="fleet-cell-relative">{formatDate(i.createdAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
   );
 }

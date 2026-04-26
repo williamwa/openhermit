@@ -175,6 +175,19 @@ export class DbUserStore implements UserStore {
     }));
   }
 
+  /** All (agentId, role) bindings for a single user. */
+  async listAgentRoles(userId: string): Promise<UserAgentRecord[]> {
+    const rows = await this.db.select().from(userAgents)
+      .where(eq(userAgents.userId, userId))
+      .orderBy(asc(userAgents.createdAt));
+    return rows.map((row) => ({
+      userId: row.userId,
+      agentId: row.agentId,
+      role: row.role as UserRole,
+      createdAt: row.createdAt,
+    }));
+  }
+
   private async cleanupOrphanedUser(orphanUserId: string, newUserId: string): Promise<void> {
     const [row] = await this.db.select({ count: sql<number>`count(*)::int` }).from(userIdentities)
       .where(eq(userIdentities.userId, orphanUserId));
