@@ -65,7 +65,12 @@ body {
   align-items: center;
   gap: 10px;
   margin-bottom: 12px;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
 }
+
+.sidebar__brand:hover .sidebar__brand-name { color: var(--accent); }
 
 .sidebar__logo {
   width: 48px;
@@ -131,6 +136,12 @@ h2 { font-size: 14px; font-weight: 600; }
   color: var(--text-secondary);
   background: var(--panel-muted);
   border: 1px solid var(--line);
+}
+
+.btn--ghost.is-active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .btn--full { width: 100%; }

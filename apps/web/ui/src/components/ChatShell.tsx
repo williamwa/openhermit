@@ -438,13 +438,25 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
     <div className={`shell shell--${mobileMode}`}>
       <aside className="sidebar">
         <div className="sidebar__top">
-          <div className="sidebar__brand">
+          <a
+            className="sidebar__brand"
+            href="/"
+            aria-label="OpenHermit home"
+            onClick={(e) => {
+              e.preventDefault();
+              setView('chat');
+              setCurrentSessionId(null);
+              if (window.location.pathname !== '/') {
+                history.pushState(null, '', '/');
+              }
+            }}
+          >
             <img src="/logo.png" alt="" className="sidebar__logo" />
             <div>
               <h1 className="sidebar__brand-name">OpenHermit</h1>
               <p className="sidebar__meta">Agent: {agentName || connection.agentId}</p>
             </div>
-          </div>
+          </a>
           <div className="sidebar__buttons">
             <button
               className="btn btn--primary"
@@ -456,11 +468,19 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
               New Session
             </button>
             {isOwner && (
-              view === 'manage' ? (
-                <button className="btn btn--ghost" onClick={() => { setView('chat'); }}>Back to Chat</button>
-              ) : (
-                <button className="btn btn--ghost" onClick={() => { setView('manage'); setManageTab('basic'); }}>Manage</button>
-              )
+              <button
+                className={`btn btn--ghost${view === 'manage' ? ' is-active' : ''}`}
+                onClick={() => {
+                  if (view === 'manage') {
+                    setView('chat');
+                  } else {
+                    setView('manage');
+                    setManageTab('basic');
+                  }
+                }}
+              >
+                Manage
+              </button>
             )}
           </div>
         </div>
