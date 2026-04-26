@@ -1,0 +1,8 @@
+# prepublishOnly artifacts (copied from packages/store/drizzle and the
+# admin/web build outputs) — regenerated on every publish, not source.
+drizzle/
+public/admin/
+public/web/
+
+# npm pack output
+openhermit-*.tgz
