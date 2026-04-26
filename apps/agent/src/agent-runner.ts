@@ -85,6 +85,26 @@ const addUserIdToList = (existing: string[], userId: string | undefined): string
   return existing.includes(userId) ? existing : [...existing, userId];
 };
 
+/**
+ * Build the userId for the bootstrap owner user. For CLI sessions we
+ * use the OS username (or whatever deriveChannelUserId returned),
+ * sanitized to a safe slug. Falls back to 'usr-owner' when no usable
+ * slug is available — keeps backward compatibility for API bootstraps.
+ */
+const buildOwnerUserId = (
+  kind: string,
+  channelUserId: string | undefined,
+): string => {
+  if (kind === 'cli' && channelUserId) {
+    const slug = channelUserId
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    if (slug) return `usr-${slug}`;
+  }
+  return 'usr-owner';
+};
+
 export class AgentRunner implements SessionRuntime {
   readonly events = new SessionEventBroker();
   readonly security: import('./core/index.js').AgentSecurity;
@@ -1028,8 +1048,11 @@ export class AgentRunner implements SessionRuntime {
     const agentUsers = await this.store.users.listByAgent(this.scope);
     if (agentUsers.length > 0) return;
 
-    const userId = `usr-owner`;
     const channelUserId = this.deriveChannelUserId(spec);
+    // Prefer a stable, human-readable id derived from the channel user
+    // (e.g. OS username for CLI). Falls back to 'usr-owner' when the
+    // source can't supply a sensible slug.
+    const userId = buildOwnerUserId(kind, channelUserId);
     const name = spec.metadata?.telegram_first_name
       ? String(spec.metadata.telegram_first_name)
       : kind === 'cli' && channelUserId
