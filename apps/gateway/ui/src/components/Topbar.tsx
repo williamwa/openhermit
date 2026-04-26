@@ -49,7 +49,7 @@ export function Topbar({
           pickTab('fleet');
         }}
       >
-        <img className="topbar__logo" src="/admin/logo.png" alt="" width="22" height="22" />
+        <img className="topbar__logo" src="/admin/logo.svg" alt="" width="22" height="22" />
         <span className="topbar__brand-text">openhermit</span>
       </a>
 
