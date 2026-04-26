@@ -10,10 +10,10 @@ export type ManageTab = 'basic' | 'secrets' | 'skills' | 'mcp' | 'schedules' | '
 const tabs: { id: ManageTab; label: string }[] = [
   { id: 'basic', label: 'Basic' },
   { id: 'secrets', label: 'Secrets' },
+  { id: 'channels', label: 'Channels' },
   { id: 'skills', label: 'Skills' },
   { id: 'mcp', label: 'MCP Servers' },
   { id: 'schedules', label: 'Schedules' },
-  { id: 'channels', label: 'Channels' },
 ];
 
 interface Props {

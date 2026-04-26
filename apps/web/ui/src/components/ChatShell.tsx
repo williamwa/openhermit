@@ -11,7 +11,7 @@ const createSessionId = () =>
 type View = 'chat' | 'manage';
 type ManageTab = 'basic' | 'secrets' | 'skills' | 'mcp' | 'schedules' | 'channels';
 
-const MANAGE_TABS: ManageTab[] = ['basic', 'secrets', 'skills', 'mcp', 'schedules', 'channels'];
+const MANAGE_TABS: ManageTab[] = ['basic', 'secrets', 'channels', 'skills', 'mcp', 'schedules'];
 
 type Route =
   | { view: 'chat'; sessionId: string | null }
