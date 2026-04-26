@@ -62,7 +62,7 @@ export type ChatItem =
   | { type: 'user'; text: string; streaming: false; name?: string }
   | { type: 'assistant'; text: string; streaming: boolean; name?: string }
   | { type: 'event'; text: string; isError: boolean }
-  | { type: 'tool'; tool: string; args?: unknown; phase: 'running' | 'done'; isError?: boolean; result?: string }
+  | { type: 'tool'; tool: string; toolCallId?: string; args?: unknown; phase: 'running' | 'done'; isError?: boolean; result?: string }
   | { type: 'approval'; toolName: string; toolCallId: string; args?: unknown; resolved: boolean; approved?: boolean }
   | { type: 'thinking'; text?: string; streaming?: boolean }
   | { type: 'introspection'; tools: Extract<ChatItem, { type: 'tool' }>[]; summary?: string };

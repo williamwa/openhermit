@@ -35,7 +35,7 @@ const mapEventRowToHistoryMessage = (row: {
 
   if (row.eventType === 'tool_call' || row.eventType === 'tool_result') {
     const phase = row.eventType === 'tool_call' ? 'call' as const : 'result' as const;
-    return {
+    const message: SessionHistoryMessage = {
       ts: row.ts,
       role: 'tool' as const,
       content: (payload?.text as string) ?? '',
@@ -44,6 +44,8 @@ const mapEventRowToHistoryMessage = (row: {
       toolIsError: phase === 'result' ? ((payload?.isError as boolean) ?? false) : false,
       toolArgs: payload?.args,
     };
+    if (typeof payload?.toolCallId === 'string') message.toolCallId = payload.toolCallId;
+    return message;
   }
 
   if (row.eventType === 'introspection_start') {

@@ -118,15 +118,34 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
           if (introspectionTools) introspectionTools.push(call);
           else historyItems.push(call);
         };
-        const last = introspectionTools ? introspectionTools[introspectionTools.length - 1] : historyItems[historyItems.length - 1];
-        if (last?.type === 'tool' && last.tool === entry.tool && last.phase !== 'done' && entry.toolPhase === 'result') {
-          last.phase = 'done';
-          last.isError = entry.toolIsError;
-          last.result = entry.content || undefined;
+        // Find the matching pending call. Prefer toolCallId (correct under
+        // parallel calls); fall back to last-running same-named tool for
+        // legacy events that predate toolCallId.
+        const pool = introspectionTools ?? historyItems;
+        const findPending = (): Extract<ChatItem, { type: 'tool' }> | undefined => {
+          if (entry.toolPhase !== 'result') return undefined;
+          if (entry.toolCallId) {
+            for (let i = pool.length - 1; i >= 0; i--) {
+              const it = pool[i];
+              if (it.type === 'tool' && it.toolCallId === entry.toolCallId) return it;
+            }
+            return undefined;
+          }
+          for (let i = pool.length - 1; i >= 0; i--) {
+            const it = pool[i];
+            if (it.type === 'tool' && it.tool === entry.tool && it.phase !== 'done') return it;
+          }
+          return undefined;
+        };
+        const pending = findPending();
+        if (pending) {
+          pending.phase = 'done';
+          pending.isError = entry.toolIsError;
+          pending.result = entry.content || undefined;
         } else if (entry.toolPhase === 'result') {
-          toolItem({ type: 'tool', tool: entry.tool || '', args: entry.toolArgs, phase: 'done', isError: entry.toolIsError, result: entry.content || undefined });
+          toolItem({ type: 'tool', tool: entry.tool || '', toolCallId: entry.toolCallId, args: entry.toolArgs, phase: 'done', isError: entry.toolIsError, result: entry.content || undefined });
         } else {
-          toolItem({ type: 'tool', tool: entry.tool || '', args: entry.toolArgs, phase: 'running' });
+          toolItem({ type: 'tool', tool: entry.tool || '', toolCallId: entry.toolCallId, args: entry.toolArgs, phase: 'running' });
         }
         continue;
       }
@@ -216,12 +235,24 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
       }
 
       case 'tool_call':
-        setItems(prev => [...collapseThinking(dropPlaceholder(prev)), { type: 'tool', tool: event.tool as string, args: event.args, phase: 'running' }]);
+        setItems(prev => [...collapseThinking(dropPlaceholder(prev)), {
+          type: 'tool',
+          tool: event.tool as string,
+          toolCallId: event.toolCallId as string | undefined,
+          args: event.args,
+          phase: 'running',
+        }]);
         break;
 
       case 'tool_result':
         setItems(prev => {
-          const idx = prev.findLastIndex(i => i.type === 'tool' && i.tool === event.tool && i.phase !== 'done');
+          const incomingId = event.toolCallId as string | undefined;
+          // Match by toolCallId first (correct under parallel calls); fall back
+          // to last-running same-named tool only if the call event predates the
+          // toolCallId field.
+          const idx = incomingId
+            ? prev.findLastIndex(i => i.type === 'tool' && i.toolCallId === incomingId)
+            : prev.findLastIndex(i => i.type === 'tool' && i.tool === event.tool && i.phase !== 'done');
           if (idx >= 0) {
             const updated = [...prev];
             updated[idx] = {

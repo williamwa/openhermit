@@ -39,6 +39,7 @@ export interface HistoryMessage {
   name?: string;
   thinking?: string;
   tool?: string;
+  toolCallId?: string;
   toolPhase?: 'call' | 'result';
   toolIsError?: boolean;
   toolArgs?: unknown;

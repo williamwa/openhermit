@@ -967,6 +967,7 @@ export class AgentRunner implements SessionRuntime {
         type: 'tool_call',
         sessionId: session.spec.sessionId,
         tool: toolName,
+        toolCallId,
         ...(args !== undefined ? { args } : {}),
       });
 
@@ -1904,6 +1905,7 @@ export class AgentRunner implements SessionRuntime {
           type: 'tool_result',
           sessionId: session.spec.sessionId,
           tool: event.toolName,
+          toolCallId: event.toolCallId,
           isError: event.isError,
           ...(publishText ? { text: publishText } : {}),
           ...(resultDetails !== undefined ? { details: resultDetails } : {}),

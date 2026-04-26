@@ -57,6 +57,7 @@ export interface SessionHistoryMessage {
   stopReason?: string;
   thinking?: string;
   tool?: string;
+  toolCallId?: string;
   toolPhase?: 'call' | 'result';
   toolIsError?: boolean;
   toolArgs?: unknown;
@@ -113,11 +114,12 @@ export type OutboundEvent =
   | { type: 'thinking_final'; sessionId: string; text: string }
   | { type: 'text_delta'; sessionId: string; text: string }
   | { type: 'text_final'; sessionId: string; text: string }
-  | { type: 'tool_call'; sessionId: string; tool: string; args?: unknown }
+  | { type: 'tool_call'; sessionId: string; tool: string; toolCallId: string; args?: unknown }
   | {
       type: 'tool_result';
       sessionId: string;
       tool: string;
+      toolCallId: string;
       isError: boolean;
       text?: string;
       details?: unknown;
