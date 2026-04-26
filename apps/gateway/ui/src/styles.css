@@ -863,9 +863,12 @@ dialog::backdrop { background: rgba(9, 9, 11, 0.4); }
 
   /* Hamburger drawer */
   .topbar {
-    padding: 0 0.75rem;
+    padding: 0.5rem 0.75rem;
+    height: auto;
+    min-height: 52px;
     flex-wrap: wrap;
     gap: 0.5rem;
+    align-items: center;
   }
 
   .topbar__hamburger { display: flex; }
