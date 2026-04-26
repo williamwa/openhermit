@@ -932,6 +932,32 @@ dialog::backdrop { background: rgba(9, 9, 11, 0.4); }
     overflow-wrap: anywhere;
   }
 
+  /* Secrets dialog: stack each row vertically so Delete stays horizontal */
+  .secret-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.4rem;
+    padding: 0.6rem 0;
+  }
+
+  .secret-row__key {
+    width: auto;
+    overflow-wrap: anywhere;
+  }
+
+  .secret-row .btn {
+    align-self: flex-end;
+    white-space: nowrap;
+  }
+
+  .secrets-add {
+    flex-wrap: wrap;
+  }
+
+  .secrets-add .btn {
+    white-space: nowrap;
+  }
+
   /* Stats grid stacks */
   .stats-grid { grid-template-columns: 1fr; }
   .stats-row { grid-template-columns: 1fr; }
