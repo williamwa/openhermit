@@ -55,7 +55,7 @@ export class DbSessionStore implements SessionStore {
       messageCount: entry.messageCount,
       completedTurnCount: entry.completedTurnCount ?? 0,
       lastMessagePreview: entry.lastMessagePreview ?? null,
-      metadataJson: JSON.stringify(entry.metadata ?? {}),
+      metadata: entry.metadata ?? {},
       status: entry.status ?? 'idle',
       userIds: entry.userIds ?? [],
     };
@@ -100,7 +100,7 @@ export class DbSessionStore implements SessionStore {
   }
 
   private rowToEntry(row: typeof sessions.$inferSelect): PersistedSessionIndexEntry {
-    const metadata = JSON.parse(row.metadataJson || '{}') as Record<string, unknown>;
+    const metadata = (row.metadata ?? {}) as Record<string, unknown>;
     const entry: PersistedSessionIndexEntry = {
       sessionId: row.sessionId,
       source: {

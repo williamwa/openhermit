@@ -33,7 +33,7 @@ export class DbSkillStore implements SkillStore {
       name: skill.name,
       description: skill.description,
       path: skill.path,
-      metadataJson: JSON.stringify(skill.metadata ?? {}),
+      metadata: (skill.metadata ?? {}) as Record<string, unknown>,
       createdAt: skill.createdAt,
       updatedAt: skill.updatedAt,
     };
@@ -79,7 +79,7 @@ export class DbSkillStore implements SkillStore {
       name: skills.name,
       description: skills.description,
       path: skills.path,
-      metadataJson: skills.metadataJson,
+      metadata: skills.metadata,
       createdAt: skills.createdAt,
       updatedAt: skills.updatedAt,
     }).from(agentSkills)
@@ -118,11 +118,11 @@ export class DbSkillStore implements SkillStore {
     name: string;
     description: string;
     path: string;
-    metadataJson: string;
+    metadata: unknown;
     createdAt: string;
     updatedAt: string;
   }): SkillRecord {
-    const metadata = JSON.parse(row.metadataJson || '{}') as Record<string, unknown>;
+    const metadata = (row.metadata ?? {}) as Record<string, unknown>;
     return {
       id: row.id,
       name: row.name,

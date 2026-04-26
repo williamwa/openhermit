@@ -33,8 +33,8 @@ export class DbMcpServerStore implements McpServerStore {
       name: server.name,
       description: server.description,
       url: server.url,
-      headersJson: JSON.stringify(server.headers ?? {}),
-      metadataJson: JSON.stringify(server.metadata ?? {}),
+      headers: (server.headers ?? {}) as Record<string, string>,
+      metadata: (server.metadata ?? {}) as Record<string, unknown>,
       createdAt: server.createdAt,
       updatedAt: server.updatedAt,
     };
@@ -81,8 +81,8 @@ export class DbMcpServerStore implements McpServerStore {
       name: mcpServers.name,
       description: mcpServers.description,
       url: mcpServers.url,
-      headersJson: mcpServers.headersJson,
-      metadataJson: mcpServers.metadataJson,
+      headers: mcpServers.headers,
+      metadata: mcpServers.metadata,
       createdAt: mcpServers.createdAt,
       updatedAt: mcpServers.updatedAt,
     }).from(agentMcpServers)
@@ -121,13 +121,13 @@ export class DbMcpServerStore implements McpServerStore {
     name: string;
     description: string;
     url: string;
-    headersJson: string;
-    metadataJson: string;
+    headers: unknown;
+    metadata: unknown;
     createdAt: string;
     updatedAt: string;
   }): McpServerRecord {
-    const headers = JSON.parse(row.headersJson || '{}') as Record<string, string>;
-    const metadata = JSON.parse(row.metadataJson || '{}') as Record<string, unknown>;
+    const headers = (row.headers ?? {}) as Record<string, string>;
+    const metadata = (row.metadata ?? {}) as Record<string, unknown>;
     return {
       id: row.id,
       name: row.name,

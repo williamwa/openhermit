@@ -1,187 +1,188 @@
--- Consolidated schema: all tables as of v0.2.0
-
-CREATE TABLE IF NOT EXISTS "meta" (
-    "key" TEXT NOT NULL PRIMARY KEY,
-    "value" TEXT NOT NULL
+CREATE TABLE "agent_mcp_servers" (
+	"agent_id" text NOT NULL,
+	"mcp_server_id" text NOT NULL,
+	"enabled" boolean DEFAULT true NOT NULL,
+	"created_at" text NOT NULL,
+	CONSTRAINT "agent_mcp_servers_agent_id_mcp_server_id_pk" PRIMARY KEY("agent_id","mcp_server_id")
 );
-
-CREATE TABLE IF NOT EXISTS "agents" (
-    "agent_id" TEXT NOT NULL PRIMARY KEY,
-    "name" TEXT,
-    "config_dir" TEXT NOT NULL,
-    "workspace_dir" TEXT NOT NULL,
-    "created_at" TEXT NOT NULL,
-    "updated_at" TEXT NOT NULL
+--> statement-breakpoint
+CREATE TABLE "agent_skills" (
+	"agent_id" text NOT NULL,
+	"skill_id" text NOT NULL,
+	"enabled" boolean DEFAULT true NOT NULL,
+	"created_at" text NOT NULL,
+	CONSTRAINT "agent_skills_agent_id_skill_id_pk" PRIMARY KEY("agent_id","skill_id")
 );
-
-CREATE TABLE IF NOT EXISTS "sessions" (
-    "agent_id" TEXT NOT NULL,
-    "session_id" TEXT NOT NULL,
-    "source_kind" TEXT NOT NULL,
-    "source_platform" TEXT,
-    "interactive" INTEGER NOT NULL,
-    "created_at" TEXT NOT NULL,
-    "last_activity_at" TEXT NOT NULL,
-    "description" TEXT,
-    "description_source" TEXT,
-    "message_count" INTEGER NOT NULL DEFAULT 0,
-    "completed_turn_count" INTEGER NOT NULL DEFAULT 0,
-    "last_message_preview" TEXT,
-    "working_memory" TEXT,
-    "working_memory_updated_at" TEXT,
-    "metadata_json" TEXT NOT NULL DEFAULT '{}',
-    "status" TEXT NOT NULL DEFAULT 'idle',
-    "type" TEXT NOT NULL DEFAULT 'direct',
-    "user_ids_json" TEXT NOT NULL DEFAULT '[]',
-    PRIMARY KEY ("agent_id", "session_id")
+--> statement-breakpoint
+CREATE TABLE "agents" (
+	"agent_id" text PRIMARY KEY NOT NULL,
+	"name" text,
+	"config_dir" text NOT NULL,
+	"workspace_dir" text NOT NULL,
+	"config_json" text,
+	"security_json" text,
+	"created_at" text NOT NULL,
+	"updated_at" text NOT NULL
 );
-
-CREATE TABLE IF NOT EXISTS "session_events" (
-    "id" SERIAL PRIMARY KEY,
-    "agent_id" TEXT NOT NULL,
-    "session_id" TEXT NOT NULL,
-    "ts" TEXT NOT NULL,
-    "event_type" TEXT NOT NULL,
-    "payload_json" TEXT NOT NULL,
-    "content" TEXT,
-    "user_id" TEXT,
-    FOREIGN KEY ("agent_id", "session_id") REFERENCES "sessions"("agent_id", "session_id") ON DELETE CASCADE
+--> statement-breakpoint
+CREATE TABLE "containers" (
+	"agent_id" text NOT NULL,
+	"container_name" text NOT NULL,
+	"container_type" text NOT NULL,
+	"image" text NOT NULL,
+	"status" text NOT NULL,
+	"description" text,
+	"metadata" jsonb NOT NULL,
+	"updated_at" text NOT NULL,
+	CONSTRAINT "containers_agent_id_container_name_pk" PRIMARY KEY("agent_id","container_name")
 );
-
-CREATE TABLE IF NOT EXISTS "memories" (
-    "agent_id" TEXT NOT NULL,
-    "memory_key" TEXT NOT NULL,
-    "content" TEXT NOT NULL,
-    "metadata_json" TEXT NOT NULL DEFAULT '{}',
-    "created_at" TEXT NOT NULL DEFAULT '',
-    "updated_at" TEXT NOT NULL,
-    PRIMARY KEY ("agent_id", "memory_key")
+--> statement-breakpoint
+CREATE TABLE "instructions" (
+	"agent_id" text NOT NULL,
+	"key" text NOT NULL,
+	"content" text NOT NULL,
+	"updated_at" text NOT NULL,
+	CONSTRAINT "instructions_agent_id_key_pk" PRIMARY KEY("agent_id","key")
 );
-
-CREATE TABLE IF NOT EXISTS "containers" (
-    "agent_id" TEXT NOT NULL,
-    "container_name" TEXT NOT NULL,
-    "container_type" TEXT NOT NULL,
-    "image" TEXT NOT NULL,
-    "status" TEXT NOT NULL,
-    "description" TEXT,
-    "metadata_json" TEXT NOT NULL,
-    "updated_at" TEXT NOT NULL,
-    PRIMARY KEY ("agent_id", "container_name")
+--> statement-breakpoint
+CREATE TABLE "mcp_servers" (
+	"id" text PRIMARY KEY NOT NULL,
+	"name" text NOT NULL,
+	"description" text NOT NULL,
+	"url" text NOT NULL,
+	"headers" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"metadata" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"created_at" text NOT NULL,
+	"updated_at" text NOT NULL
 );
-
-CREATE TABLE IF NOT EXISTS "instructions" (
-    "agent_id" TEXT NOT NULL,
-    "key" TEXT NOT NULL,
-    "content" TEXT NOT NULL,
-    "updated_at" TEXT NOT NULL,
-    PRIMARY KEY ("agent_id", "key")
+--> statement-breakpoint
+CREATE TABLE "memories" (
+	"agent_id" text NOT NULL,
+	"memory_key" text NOT NULL,
+	"content" text NOT NULL,
+	"metadata" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"created_at" text DEFAULT '' NOT NULL,
+	"updated_at" text NOT NULL,
+	CONSTRAINT "memories_agent_id_memory_key_pk" PRIMARY KEY("agent_id","memory_key")
 );
-
-CREATE TABLE IF NOT EXISTS "users" (
-    "user_id" TEXT NOT NULL PRIMARY KEY,
-    "name" TEXT,
-    "merged_into" TEXT,
-    "created_at" TEXT NOT NULL,
-    "updated_at" TEXT NOT NULL
+--> statement-breakpoint
+CREATE TABLE "meta" (
+	"key" text PRIMARY KEY NOT NULL,
+	"value" text NOT NULL
 );
-
-CREATE TABLE IF NOT EXISTS "user_agents" (
-    "user_id" TEXT NOT NULL,
-    "agent_id" TEXT NOT NULL,
-    "role" TEXT NOT NULL,
-    "created_at" TEXT NOT NULL,
-    PRIMARY KEY ("user_id", "agent_id"),
-    FOREIGN KEY ("user_id") REFERENCES "users"("user_id") ON DELETE CASCADE,
-    FOREIGN KEY ("agent_id") REFERENCES "agents"("agent_id") ON DELETE CASCADE
+--> statement-breakpoint
+CREATE TABLE "schedule_runs" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"agent_id" text NOT NULL,
+	"schedule_id" text NOT NULL,
+	"status" text NOT NULL,
+	"session_id" text,
+	"prompt" text NOT NULL,
+	"started_at" text NOT NULL,
+	"finished_at" text,
+	"duration_ms" integer,
+	"error" text
 );
-
-CREATE TABLE IF NOT EXISTS "user_identities" (
-    "user_id" TEXT NOT NULL,
-    "channel" TEXT NOT NULL,
-    "channel_user_id" TEXT NOT NULL,
-    "created_at" TEXT NOT NULL,
-    PRIMARY KEY ("channel", "channel_user_id"),
-    FOREIGN KEY ("user_id") REFERENCES "users"("user_id") ON DELETE CASCADE
+--> statement-breakpoint
+CREATE TABLE "schedules" (
+	"agent_id" text NOT NULL,
+	"schedule_id" text NOT NULL,
+	"type" text NOT NULL,
+	"status" text DEFAULT 'active' NOT NULL,
+	"cron_expression" text,
+	"run_at" text,
+	"prompt" text NOT NULL,
+	"session_mode" text DEFAULT 'dedicated' NOT NULL,
+	"delivery" jsonb DEFAULT '{"kind":"silent"}'::jsonb NOT NULL,
+	"policy" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"created_by" text,
+	"created_at" text NOT NULL,
+	"updated_at" text NOT NULL,
+	"last_run_at" text,
+	"next_run_at" text,
+	"run_count" integer DEFAULT 0 NOT NULL,
+	"consecutive_errors" integer DEFAULT 0 NOT NULL,
+	"last_error" text,
+	CONSTRAINT "schedules_agent_id_schedule_id_pk" PRIMARY KEY("agent_id","schedule_id")
 );
-
-CREATE TABLE IF NOT EXISTS "skills" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "name" TEXT NOT NULL,
-    "description" TEXT NOT NULL,
-    "path" TEXT NOT NULL,
-    "metadata_json" TEXT NOT NULL DEFAULT '{}',
-    "created_at" TEXT NOT NULL,
-    "updated_at" TEXT NOT NULL
+--> statement-breakpoint
+CREATE TABLE "session_events" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"agent_id" text NOT NULL,
+	"session_id" text NOT NULL,
+	"ts" text NOT NULL,
+	"event_type" text NOT NULL,
+	"payload" jsonb NOT NULL,
+	"content" text,
+	"user_id" text
 );
-
-CREATE TABLE IF NOT EXISTS "agent_skills" (
-    "agent_id" TEXT NOT NULL,
-    "skill_id" TEXT NOT NULL,
-    "enabled" BOOLEAN NOT NULL DEFAULT true,
-    "created_at" TEXT NOT NULL,
-    PRIMARY KEY ("agent_id", "skill_id"),
-    FOREIGN KEY ("skill_id") REFERENCES "skills"("id") ON DELETE CASCADE
+--> statement-breakpoint
+CREATE TABLE "sessions" (
+	"agent_id" text NOT NULL,
+	"session_id" text NOT NULL,
+	"source_kind" text NOT NULL,
+	"source_platform" text,
+	"interactive" integer NOT NULL,
+	"created_at" text NOT NULL,
+	"last_activity_at" text NOT NULL,
+	"description" text,
+	"description_source" text,
+	"message_count" integer DEFAULT 0 NOT NULL,
+	"completed_turn_count" integer DEFAULT 0 NOT NULL,
+	"last_message_preview" text,
+	"working_memory" text,
+	"working_memory_updated_at" text,
+	"metadata" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"status" text DEFAULT 'idle' NOT NULL,
+	"type" text DEFAULT 'direct' NOT NULL,
+	"user_ids" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	CONSTRAINT "sessions_agent_id_session_id_pk" PRIMARY KEY("agent_id","session_id")
 );
-
-CREATE TABLE IF NOT EXISTS "schedules" (
-    "agent_id" TEXT NOT NULL,
-    "schedule_id" TEXT NOT NULL,
-    "type" TEXT NOT NULL,
-    "status" TEXT NOT NULL DEFAULT 'active',
-    "cron_expression" TEXT,
-    "run_at" TEXT,
-    "prompt" TEXT NOT NULL,
-    "session_mode" TEXT NOT NULL DEFAULT 'dedicated',
-    "delivery_json" TEXT NOT NULL DEFAULT '"silent"',
-    "policy_json" TEXT NOT NULL DEFAULT '{}',
-    "created_by" TEXT,
-    "created_at" TEXT NOT NULL,
-    "updated_at" TEXT NOT NULL,
-    "last_run_at" TEXT,
-    "next_run_at" TEXT,
-    "run_count" INTEGER NOT NULL DEFAULT 0,
-    "consecutive_errors" INTEGER NOT NULL DEFAULT 0,
-    "last_error" TEXT,
-    PRIMARY KEY ("agent_id", "schedule_id")
+--> statement-breakpoint
+CREATE TABLE "skills" (
+	"id" text PRIMARY KEY NOT NULL,
+	"name" text NOT NULL,
+	"description" text NOT NULL,
+	"path" text NOT NULL,
+	"metadata" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"created_at" text NOT NULL,
+	"updated_at" text NOT NULL
 );
-
-CREATE TABLE IF NOT EXISTS "schedule_runs" (
-    "id" SERIAL PRIMARY KEY,
-    "agent_id" TEXT NOT NULL,
-    "schedule_id" TEXT NOT NULL,
-    "status" TEXT NOT NULL,
-    "session_id" TEXT,
-    "prompt" TEXT NOT NULL,
-    "started_at" TEXT NOT NULL,
-    "finished_at" TEXT,
-    "duration_ms" INTEGER,
-    "error" TEXT,
-    FOREIGN KEY ("agent_id", "schedule_id") REFERENCES "schedules"("agent_id", "schedule_id") ON DELETE CASCADE
+--> statement-breakpoint
+CREATE TABLE "user_agents" (
+	"user_id" text NOT NULL,
+	"agent_id" text NOT NULL,
+	"role" text NOT NULL,
+	"created_at" text NOT NULL,
+	CONSTRAINT "user_agents_user_id_agent_id_pk" PRIMARY KEY("user_id","agent_id")
 );
-
--- Indexes
-CREATE INDEX IF NOT EXISTS "idx_sessions_agent" ON "sessions"("agent_id", "last_activity_at" DESC);
-CREATE INDEX IF NOT EXISTS "idx_session_events_agent_session" ON "session_events"("agent_id", "session_id", "ts" DESC);
-CREATE INDEX IF NOT EXISTS "idx_session_events_type" ON "session_events"("agent_id", "session_id", "event_type", "id" DESC);
-CREATE INDEX IF NOT EXISTS "idx_memories_agent" ON "memories"("agent_id", "updated_at" DESC);
-CREATE INDEX IF NOT EXISTS "idx_containers_agent" ON "containers"("agent_id", "container_name");
-CREATE INDEX IF NOT EXISTS "idx_users_updated" ON "users"("updated_at" DESC);
-CREATE INDEX IF NOT EXISTS "idx_user_agents_agent" ON "user_agents"("agent_id");
-CREATE INDEX IF NOT EXISTS "idx_user_identities_user" ON "user_identities"("user_id");
-CREATE INDEX IF NOT EXISTS "idx_agent_skills_agent" ON "agent_skills"("agent_id");
-CREATE INDEX IF NOT EXISTS "idx_schedules_agent_status" ON "schedules"("agent_id", "status");
-CREATE INDEX IF NOT EXISTS "idx_schedules_next_run" ON "schedules"("agent_id", "next_run_at");
-CREATE INDEX IF NOT EXISTS "idx_schedule_runs_schedule" ON "schedule_runs"("agent_id", "schedule_id", "started_at" DESC);
-
--- Full-text search on memories (if not exists)
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'memories' AND column_name = 'content_tsv'
-  ) THEN
-    ALTER TABLE "memories" ADD COLUMN "content_tsv" tsvector
-      GENERATED ALWAYS AS (to_tsvector('english', content)) STORED;
-    CREATE INDEX "idx_memories_fts" ON "memories" USING gin("content_tsv");
-  END IF;
-END $$;
+--> statement-breakpoint
+CREATE TABLE "user_identities" (
+	"user_id" text NOT NULL,
+	"channel" text NOT NULL,
+	"channel_user_id" text NOT NULL,
+	"created_at" text NOT NULL,
+	CONSTRAINT "user_identities_channel_channel_user_id_pk" PRIMARY KEY("channel","channel_user_id")
+);
+--> statement-breakpoint
+CREATE TABLE "users" (
+	"user_id" text PRIMARY KEY NOT NULL,
+	"name" text,
+	"merged_into" text,
+	"created_at" text NOT NULL,
+	"updated_at" text NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX "idx_agent_mcp_servers_agent" ON "agent_mcp_servers" USING btree ("agent_id");--> statement-breakpoint
+CREATE INDEX "idx_agent_skills_agent" ON "agent_skills" USING btree ("agent_id");--> statement-breakpoint
+CREATE INDEX "idx_containers_agent" ON "containers" USING btree ("agent_id","container_name");--> statement-breakpoint
+CREATE INDEX "idx_memories_agent" ON "memories" USING btree ("agent_id","updated_at");--> statement-breakpoint
+CREATE INDEX "idx_schedule_runs_schedule" ON "schedule_runs" USING btree ("agent_id","schedule_id","started_at");--> statement-breakpoint
+CREATE INDEX "idx_schedules_agent_status" ON "schedules" USING btree ("agent_id","status");--> statement-breakpoint
+CREATE INDEX "idx_schedules_next_run" ON "schedules" USING btree ("agent_id","next_run_at");--> statement-breakpoint
+CREATE INDEX "idx_session_events_agent_session" ON "session_events" USING btree ("agent_id","session_id","ts");--> statement-breakpoint
+CREATE INDEX "idx_session_events_type" ON "session_events" USING btree ("agent_id","session_id","event_type","id");--> statement-breakpoint
+CREATE INDEX "idx_sessions_agent" ON "sessions" USING btree ("agent_id","last_activity_at");--> statement-breakpoint
+CREATE INDEX "idx_user_agents_agent" ON "user_agents" USING btree ("agent_id");--> statement-breakpoint
+CREATE INDEX "idx_user_identities_user" ON "user_identities" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX "idx_users_updated" ON "users" USING btree ("updated_at");

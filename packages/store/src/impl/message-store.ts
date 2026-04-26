@@ -13,9 +13,9 @@ const mapEventRowToHistoryMessage = (row: {
   ts: string;
   eventType: string;
   content: string | null;
-  payloadJson: string;
+  payload: unknown;
 }): SessionHistoryMessage => {
-  const payload = asRecord(JSON.parse(row.payloadJson || '{}'));
+  const payload = asRecord(row.payload ?? {});
 
   if (row.eventType === 'user') {
     const message: SessionHistoryMessage = { ts: row.ts, role: 'user', content: row.content ?? '' };
@@ -89,8 +89,8 @@ const createSessionStartedEntries = (spec: SessionSpec, model: { provider: strin
   };
 };
 
-const parseStoredSessionLogEntry = (payloadJson: string): SessionLogEntry =>
-  JSON.parse(payloadJson) as SessionLogEntry;
+const parseStoredSessionLogEntry = (payload: unknown): SessionLogEntry =>
+  payload as SessionLogEntry;
 
 export class DbMessageStore implements MessageStore {
   constructor(private readonly db: DrizzleDb) {}
@@ -104,7 +104,7 @@ export class DbMessageStore implements MessageStore {
       sessionId,
       ts: entry.ts,
       eventType: entry.type ?? entry.role,
-      payloadJson: JSON.stringify(entry),
+      payload: entry as unknown as Record<string, unknown>,
       content,
       userId,
     }).returning({ id: sessionEvents.id });
@@ -223,10 +223,10 @@ export class DbMessageStore implements MessageStore {
   }
 
   async listSessionEntries(scope: StoreScope, sessionId: string): Promise<SessionLogEntry[]> {
-    const rows = await this.db.select({ payloadJson: sessionEvents.payloadJson }).from(sessionEvents)
+    const rows = await this.db.select({ payload: sessionEvents.payload }).from(sessionEvents)
       .where(and(eq(sessionEvents.agentId, scope.agentId), eq(sessionEvents.sessionId, sessionId)))
       .orderBy(asc(sessionEvents.ts), asc(sessionEvents.id));
-    return rows.map((row) => parseStoredSessionLogEntry(row.payloadJson));
+    return rows.map((row) => parseStoredSessionLogEntry(row.payload));
   }
 
   async listRecentMessages(scope: StoreScope, sessionId: string, limit: number, offset?: number): Promise<MessageRow[]> {
@@ -250,7 +250,7 @@ export class DbMessageStore implements MessageStore {
     scope: StoreScope,
     sessionId: string,
   ): Promise<{ compactionSummary: string | undefined; entries: SessionLogEntry[] }> {
-    const [compactionRow] = await this.db.select({ id: sessionEvents.id, payloadJson: sessionEvents.payloadJson })
+    const [compactionRow] = await this.db.select({ id: sessionEvents.id, payload: sessionEvents.payload })
       .from(sessionEvents)
       .where(and(
         eq(sessionEvents.agentId, scope.agentId),
@@ -263,11 +263,11 @@ export class DbMessageStore implements MessageStore {
     const afterId = compactionRow?.id ?? 0;
     let compactionSummary: string | undefined;
     if (compactionRow) {
-      const parsed = JSON.parse(compactionRow.payloadJson) as Record<string, unknown>;
+      const parsed = (compactionRow.payload ?? {}) as Record<string, unknown>;
       compactionSummary = typeof parsed.content === 'string' ? parsed.content : undefined;
     }
 
-    const rows = await this.db.select({ payloadJson: sessionEvents.payloadJson }).from(sessionEvents)
+    const rows = await this.db.select({ payload: sessionEvents.payload }).from(sessionEvents)
       .where(and(
         eq(sessionEvents.agentId, scope.agentId),
         eq(sessionEvents.sessionId, sessionId),
@@ -277,7 +277,7 @@ export class DbMessageStore implements MessageStore {
 
     return {
       compactionSummary,
-      entries: rows.map((row) => parseStoredSessionLogEntry(row.payloadJson)),
+      entries: rows.map((row) => parseStoredSessionLogEntry(row.payload)),
     };
   }
 
@@ -293,7 +293,7 @@ export class DbMessageStore implements MessageStore {
   }
 
   async getCompactionSummary(scope: StoreScope, sessionId: string): Promise<string | undefined> {
-    const [row] = await this.db.select({ payloadJson: sessionEvents.payloadJson }).from(sessionEvents)
+    const [row] = await this.db.select({ payload: sessionEvents.payload }).from(sessionEvents)
       .where(and(
         eq(sessionEvents.agentId, scope.agentId),
         eq(sessionEvents.sessionId, sessionId),
@@ -302,7 +302,7 @@ export class DbMessageStore implements MessageStore {
       .orderBy(desc(sessionEvents.id))
       .limit(1);
     if (!row) return undefined;
-    const parsed = JSON.parse(row.payloadJson) as Record<string, unknown>;
+    const parsed = (row.payload ?? {}) as Record<string, unknown>;
     return typeof parsed.content === 'string' ? parsed.content : undefined;
   }
 

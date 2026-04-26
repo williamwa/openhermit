@@ -50,8 +50,8 @@ export class DbScheduleStore implements ScheduleStore {
       runAt: input.runAt ?? null,
       prompt: input.prompt,
       sessionMode: JSON.stringify({ kind: 'dedicated' }),
-      deliveryJson: JSON.stringify(delivery),
-      policyJson: JSON.stringify(policy),
+      delivery: delivery as unknown,
+      policy: policy as Record<string, unknown>,
       createdBy: input.createdBy ?? null,
       createdAt: now,
       updatedAt: now,
@@ -107,8 +107,8 @@ export class DbScheduleStore implements ScheduleStore {
     if (input.cronExpression !== undefined) data.cronExpression = input.cronExpression;
     if (input.runAt !== undefined) data.runAt = input.runAt;
     if (input.prompt !== undefined) data.prompt = input.prompt;
-    if (input.delivery !== undefined) data.deliveryJson = JSON.stringify(input.delivery);
-    if (input.policy !== undefined) data.policyJson = JSON.stringify(input.policy);
+    if (input.delivery !== undefined) data.delivery = input.delivery;
+    if (input.policy !== undefined) data.policy = input.policy;
 
     const [row] = await this.db.update(schedules).set(data)
       .where(and(eq(schedules.agentId, scope.agentId), eq(schedules.scheduleId, scheduleId)))
@@ -206,8 +206,8 @@ export class DbScheduleStore implements ScheduleStore {
       ...(row.cronExpression ? { cronExpression: row.cronExpression } : {}),
       ...(row.runAt ? { runAt: row.runAt } : {}),
       prompt: row.prompt,
-      delivery: JSON.parse(row.deliveryJson) as ScheduleDelivery,
-      policy: JSON.parse(row.policyJson) as SchedulePolicy,
+      delivery: (row.delivery ?? { kind: 'silent' }) as ScheduleDelivery,
+      policy: (row.policy ?? {}) as SchedulePolicy,
       ...(row.createdBy ? { createdBy: row.createdBy } : {}),
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,

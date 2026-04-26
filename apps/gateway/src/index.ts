@@ -14,6 +14,7 @@ import {
   DbSkillStore,
   DbUserStore,
   FileSecretStore,
+  runMigrations,
 } from '@openhermit/store';
 import { scanSkillDirectory } from '@openhermit/agent/skills';
 
@@ -99,6 +100,8 @@ export const main = async (): Promise<void> => {
   let configStore: DbAgentConfigStore | undefined;
   if (process.env.DATABASE_URL) {
     try {
+      await runMigrations();
+      logStartup('migrations applied');
       agentStore = await DbAgentStore.open();
       skillStore = await DbSkillStore.open();
       scheduleStore = await DbScheduleStore.open();
