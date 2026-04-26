@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, getToken, setToken } from './api';
+import { useTabRouter } from './router';
 import { AuthScreen } from './components/AuthScreen';
 import { Topbar } from './components/Topbar';
 import { FleetPanel } from './components/FleetPanel';
@@ -9,12 +10,10 @@ import { SchedulesPanel } from './components/SchedulesPanel';
 import { StatsPanel } from './components/StatsPanel';
 import { LogsPanel } from './components/LogsPanel';
 
-type Tab = 'fleet' | 'skills' | 'mcp-servers' | 'schedules' | 'stats' | 'logs';
-
 export function App() {
   const [authed, setAuthed] = useState(false);
   const [checking, setChecking] = useState(true);
-  const [tab, setTab] = useState<Tab>('fleet');
+  const [tab, setTab] = useTabRouter();
 
   useEffect(() => {
     if (!getToken()) {

@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
-
-type Tab = 'fleet' | 'skills' | 'mcp-servers' | 'schedules' | 'stats' | 'logs';
+import type { Tab } from '../router';
 
 const tabs: { id: Tab; label: string }[] = [
   { id: 'fleet', label: 'Agents' },
@@ -39,7 +38,15 @@ export function Topbar({
 
   return (
     <nav className="topbar">
-      <a className="topbar__brand" href="/admin/" aria-label="OpenHermit">
+      <a
+        className="topbar__brand"
+        href="/admin/fleet"
+        aria-label="OpenHermit"
+        onClick={(e) => {
+          e.preventDefault();
+          pickTab('fleet');
+        }}
+      >
         <img className="topbar__logo" src="/admin/logo.png" alt="" width="22" height="22" />
         <span className="topbar__brand-text">openhermit</span>
       </a>
