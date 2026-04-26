@@ -1,8 +1,9 @@
-type Tab = 'fleet' | 'agents' | 'skills' | 'mcp-servers' | 'schedules' | 'stats' | 'logs';
+import { useEffect, useState } from 'react';
+
+type Tab = 'fleet' | 'skills' | 'mcp-servers' | 'schedules' | 'stats' | 'logs';
 
 const tabs: { id: Tab; label: string }[] = [
-  { id: 'fleet', label: 'Fleet' },
-  { id: 'agents', label: 'Agents' },
+  { id: 'fleet', label: 'Agents' },
   { id: 'skills', label: 'Skills' },
   { id: 'mcp-servers', label: 'MCP' },
   { id: 'schedules', label: 'Schedules' },
@@ -19,21 +20,55 @@ export function Topbar({
   onTabChange: (tab: Tab) => void;
   onSignOut: () => void;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest('.topbar')) setMenuOpen(false);
+    };
+    document.addEventListener('click', onClick);
+    return () => document.removeEventListener('click', onClick);
+  }, [menuOpen]);
+
+  const pickTab = (id: Tab) => {
+    onTabChange(id);
+    setMenuOpen(false);
+  };
+
   return (
     <nav className="topbar">
-      <span className="topbar__brand">OpenHermit Gateway</span>
-      <div className="topbar__tabs">
+      <a className="topbar__brand" href="/admin/" aria-label="OpenHermit">
+        <img className="topbar__logo" src="/admin/logo.png" alt="" width="22" height="22" />
+        <span className="topbar__brand-text">openhermit</span>
+      </a>
+
+      <button
+        className="topbar__hamburger"
+        aria-label="Toggle menu"
+        aria-expanded={menuOpen}
+        onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
+      >
+        <span /><span /><span />
+      </button>
+
+      <div className={`topbar__tabs${menuOpen ? ' topbar__tabs--open' : ''}`}>
         {tabs.map((t) => (
           <button
             key={t.id}
             className={`tab${tab === t.id ? ' active' : ''}`}
-            onClick={() => onTabChange(t.id)}
+            onClick={() => pickTab(t.id)}
           >
             {t.label}
           </button>
         ))}
+        <button className="btn btn--ghost btn--sm topbar__signout" onClick={() => { setMenuOpen(false); onSignOut(); }}>
+          Sign Out
+        </button>
       </div>
-      <button className="btn btn--ghost btn--sm" onClick={onSignOut}>
+
+      <button className="btn btn--ghost btn--sm topbar__signout-desktop" onClick={onSignOut}>
         Sign Out
       </button>
     </nav>

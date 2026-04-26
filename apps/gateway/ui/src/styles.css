@@ -141,17 +141,56 @@ h3 { font-size: 1.1rem; font-weight: 600; }
   height: 52px;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border);
+  position: relative;
 }
 
 .topbar__brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   font-weight: 600;
-  font-size: 0.9rem;
-  color: var(--brand);
+  font-size: 0.95rem;
+  color: var(--text);
   margin-right: 1rem;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
+  text-decoration: none;
 }
 
-.topbar__tabs { display: flex; gap: 0.25rem; flex: 1; }
+.topbar__logo {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.topbar__brand-text { color: var(--text); }
+
+.topbar__hamburger {
+  display: none;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 28px;
+  height: 22px;
+  padding: 4px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  margin-left: auto;
+}
+
+.topbar__hamburger span {
+  display: block;
+  height: 2px;
+  background: var(--text);
+  border-radius: 2px;
+}
+
+.topbar__signout-desktop { margin-left: auto; }
+.topbar__signout { display: none; }
+
+.topbar__tabs { display: flex; gap: 0.25rem; flex: 1; align-items: center; }
 
 .tab {
   padding: 0.4rem 0.8rem;
@@ -608,7 +647,74 @@ dialog::backdrop { background: rgba(9, 9, 11, 0.4); }
   border: 1px solid var(--border);
 }
 
-/* --- Mobile --- */
+/* --- Per-row action menu (Fleet) --- */
+
+.fleet-actions {
+  position: relative;
+  display: inline-block;
+}
+
+.fleet-actions__trigger {
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0.2rem 0.55rem;
+}
+
+.fleet-actions__menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  min-width: 160px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px -6px rgba(9, 9, 11, 0.18);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+
+.fleet-actions__menu button {
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.fleet-actions__menu button:hover { background: var(--bg-hover); }
+
+.fleet-actions__divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+.fleet-table__actions { width: 1%; white-space: nowrap; text-align: right; }
+
+/* --- Text overflow guards --- */
+
+.agent-card__id,
+.agent-card__name,
+.agent-card__dirs,
+.skill-card__id,
+.skill-card__name,
+.skill-card__desc,
+.skill-card__path,
+.fleet-cell-agent__id,
+.fleet-cell-agent__name {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.fleet-cell-agent { min-width: 0; max-width: 200px; }
+
+/* --- Mobile (hamburger drawer + responsive) --- */
 
 .fleet-table-wrap {
   overflow-x: auto;
@@ -617,12 +723,16 @@ dialog::backdrop { background: rgba(9, 9, 11, 0.4); }
 }
 
 .fleet-table-wrap .fleet-table {
-  min-width: 720px;
+  min-width: 760px;
 }
 
 @media (max-width: 720px) {
+  body { font-size: 14px; }
+
   .panel {
     padding: 1rem 0.75rem;
+    max-width: 100%;
+    overflow-wrap: anywhere;
   }
 
   .panel__header {
@@ -633,6 +743,7 @@ dialog::backdrop { background: rgba(9, 9, 11, 0.4); }
 
   .panel__header h2 {
     font-size: 1.1rem;
+    overflow-wrap: anywhere;
   }
 
   .panel__header-actions {
@@ -641,33 +752,39 @@ dialog::backdrop { background: rgba(9, 9, 11, 0.4); }
     gap: 0.4rem;
   }
 
+  /* Hamburger drawer */
   .topbar {
     padding: 0 0.75rem;
-    height: auto;
     flex-wrap: wrap;
     gap: 0.5rem;
-    padding-top: 0.5rem;
-    padding-bottom: 0.5rem;
   }
 
-  .topbar__brand {
-    margin-right: 0.5rem;
-  }
+  .topbar__hamburger { display: flex; }
+  .topbar__signout-desktop { display: none; }
+  .topbar__signout { display: inline-flex; margin-top: 0.25rem; }
 
   .topbar__tabs {
+    display: none;
     order: 3;
     width: 100%;
-    overflow-x: auto;
-    flex-wrap: nowrap;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    flex-direction: column;
+    gap: 0;
+    padding: 0.5rem 0;
+    border-top: 1px solid var(--border);
+    margin: 0 -0.75rem -0.5rem -0.75rem;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+    background: var(--bg-surface);
   }
-  .topbar__tabs::-webkit-scrollbar { display: none; }
+
+  .topbar__tabs--open { display: flex; }
 
   .tab {
-    flex-shrink: 0;
-    padding: 0.4rem 0.7rem;
-    font-size: 0.85rem;
+    width: 100%;
+    text-align: left;
+    padding: 0.6rem 0.75rem;
+    font-size: 0.95rem;
+    border-radius: 6px;
   }
 
   /* Agent / skill / MCP / schedule cards: stack info above actions */
@@ -699,14 +816,14 @@ dialog::backdrop { background: rgba(9, 9, 11, 0.4); }
     padding: 1rem;
   }
 
-  /* Stats grid stacks */
-  .stats-grid {
-    grid-template-columns: 1fr;
+  .dialog__form h3,
+  .dialog__inner h3 {
+    overflow-wrap: anywhere;
   }
 
-  .stats-row {
-    grid-template-columns: 1fr;
-  }
+  /* Stats grid stacks */
+  .stats-grid { grid-template-columns: 1fr; }
+  .stats-row { grid-template-columns: 1fr; }
 
   /* Fleet panel header bits wrap nicely */
   .fleet__sub {
@@ -715,18 +832,17 @@ dialog::backdrop { background: rgba(9, 9, 11, 0.4); }
     font-size: 0.78rem;
   }
 
-  /* Schedule runs table — already has its own wrap */
-  .schedule-runs-table {
-    font-size: 0.75rem;
-  }
+  .schedule-runs-table { font-size: 0.75rem; }
+
+  /* Action menu width on small screens */
+  .fleet-actions__menu { min-width: 140px; }
+
+  /* Logs panel — keep code lines from overflowing */
+  pre, code { word-break: break-word; white-space: pre-wrap; }
 }
 
 @media (max-width: 420px) {
-  .topbar__brand {
-    font-size: 0.85rem;
-  }
-
-  .panel {
-    padding: 0.75rem 0.5rem;
-  }
+  .topbar { padding: 0 0.5rem; }
+  .topbar__brand { font-size: 0.9rem; }
+  .panel { padding: 0.75rem 0.5rem; }
 }
