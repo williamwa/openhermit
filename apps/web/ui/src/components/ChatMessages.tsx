@@ -79,7 +79,7 @@ function ToolCard({ item }: { item: Extract<ChatItem, { type: 'tool' }> }) {
   const icon = item.phase === 'done'
     ? (item.isError ? '✗' : '✓')
     : (item.phase === 'running' ? '●' : '○');
-  const statusText = item.phase === 'done'
+  const statusLabel = item.phase === 'done'
     ? (item.isError ? 'error' : 'done')
     : item.phase;
 
@@ -97,11 +97,14 @@ function ToolCard({ item }: { item: Extract<ChatItem, { type: 'tool' }> }) {
   return (
     <details className={`tool-card ${doneClass}`} open={item.phase !== 'done'}>
       <summary className="tool-card__header">
-        <span className="tool-card__icon">{icon}</span>
         <span className="tool-card__label">Tool:</span>
         <span className="tool-card__name">{item.tool}</span>
-        <span className={`tool-card__status${item.phase === 'done' ? (item.isError ? ' tool-card__status--error' : ' tool-card__status--done') : ''}`}>
-          {statusText}
+        <span
+          className={`tool-card__icon${item.phase === 'done' ? (item.isError ? ' tool-card__icon--error' : ' tool-card__icon--done') : ''}`}
+          aria-label={statusLabel}
+          title={statusLabel}
+        >
+          {icon}
         </span>
       </summary>
       {hasBody && (
