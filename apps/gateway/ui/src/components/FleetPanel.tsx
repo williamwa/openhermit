@@ -167,6 +167,7 @@ export function FleetPanel() {
       )}
 
       {fleet.length > 0 && (
+        <>
         <div className="fleet-table-wrap">
         <table className="fleet-table">
           <thead>
@@ -241,6 +242,64 @@ export function FleetPanel() {
           </tbody>
         </table>
         </div>
+
+        <div className="fleet-cards">
+          {fleet.map((a) => (
+            <div
+              key={a.agentId}
+              className={`fleet-card${selected.has(a.agentId) ? ' fleet-card--selected' : ''}`}
+            >
+              <div className="fleet-card__top">
+                <input
+                  type="checkbox"
+                  checked={selected.has(a.agentId)}
+                  onChange={() => toggleOne(a.agentId)}
+                  aria-label={`Select ${a.agentId}`}
+                />
+                <div className="fleet-card__heading">
+                  <span className="fleet-card__id">{a.agentId}</span>
+                  {a.name && <span className="fleet-card__name">{a.name}</span>}
+                </div>
+                <span className={`badge badge--${a.status}`}>{a.status}</span>
+                <button
+                  className="btn btn--ghost btn--sm fleet-actions__trigger"
+                  aria-label={`Manage ${a.agentId}`}
+                  aria-expanded={openMenu?.agentId === a.agentId}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (openMenu?.agentId === a.agentId) {
+                      setOpenMenu(null);
+                      return;
+                    }
+                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    setOpenMenu({
+                      agentId: a.agentId,
+                      top: rect.bottom + 4,
+                      right: window.innerWidth - rect.right,
+                    });
+                  }}
+                >
+                  ⋮
+                </button>
+              </div>
+              <dl className="fleet-card__stats">
+                <div>
+                  <dt>Last activity</dt>
+                  <dd>{formatRelative(a.lastActivity)}</dd>
+                </div>
+                <div>
+                  <dt>Sessions 24h</dt>
+                  <dd>{a.sessions24h}</dd>
+                </div>
+                <div>
+                  <dt>Errors 24h</dt>
+                  <dd className={a.errors24h > 0 ? 'fleet-cell-error' : ''}>{a.errors24h}</dd>
+                </div>
+              </dl>
+            </div>
+          ))}
+        </div>
+        </>
       )}
 
       <dialog ref={dialogRef} className="dialog">
