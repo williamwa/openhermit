@@ -47,7 +47,7 @@ import {
   type LangfuseTurnContext,
   startTurnTrace,
 } from './langfuse.js';
-import { type SessionDescriptor, SessionEventBroker, type SessionRuntime } from './runtime.js';
+import { type Caller, type SessionDescriptor, SessionEventBroker, type SessionRuntime } from './runtime.js';
 export type { SessionEventEnvelope } from './runtime.js';
 import {
   type ApprovalCallback,
@@ -343,25 +343,15 @@ export class AgentRunner implements SessionRuntime {
     }
   }
 
-  async openSession(spec: SessionSpec): Promise<SessionDescriptor> {
+  async openSession(spec: SessionSpec, caller?: Caller): Promise<SessionDescriptor> {
     const existing = this.sessions.get(spec.sessionId);
     const now = new Date().toISOString();
 
     if (existing) {
       this.clearIdleSummaryTimer(existing);
-      // When reopening from a different channel (e.g. owner viewing a CLI
-      // session in the web UI), the request's metadata.username belongs to
-      // the caller's *own* channel and must not be merged into the session's
-      // (different-channel) metadata — doing so would make the speaker
-      // resolver look up the caller's id under the session's channel, hit a
-      // stale guest, and reject access.
-      const incomingMeta = { ...(spec.metadata ?? {}) };
-      const existingChannel = existing.spec.source.platform ?? existing.spec.source.kind;
-      const incomingChannel = spec.source.platform ?? spec.source.kind;
-      if (existingChannel !== incomingChannel) delete incomingMeta.username;
       const mergedMetadata = {
         ...(existing.spec.metadata ?? {}),
-        ...incomingMeta,
+        ...(spec.metadata ?? {}),
       };
 
       existing.spec = {
@@ -370,19 +360,17 @@ export class AgentRunner implements SessionRuntime {
         // Preserve the original source — reopening from a different channel
         // (e.g. viewing a telegram session in the web UI) must not change it.
         source: existing.spec.source,
-        // Always overwrite metadata with the merged (and channel-filtered)
-        // value; otherwise a raw spec.metadata with username would slip
-        // through via `...spec` when mergedMetadata is empty.
-        metadata: mergedMetadata,
+        ...(Object.keys(mergedMetadata).length > 0
+          ? { metadata: mergedMetadata }
+          : {}),
       };
-      if (Object.keys(mergedMetadata).length === 0) delete existing.spec.metadata;
       existing.status = 'idle';
 
       // Re-resolve user identity every time the session opens.
       // This picks up merges (e.g. guest merged into owner) that happened
       // since the session was first created.
-      await this.ensureCliUser(existing.spec, now);
-      const { userId, role, userName } = await this.resolveSessionUser(existing.spec, now);
+      await this.ensureCliUser(existing.spec, now, caller);
+      const { userId, role, userName } = await this.resolveSessionUser(existing.spec, now, caller);
 
       // Access control: only allow reopen if the resolved user is already
       // a participant or is the owner.  Don't silently add strangers.
@@ -409,38 +397,27 @@ export class AgentRunner implements SessionRuntime {
     }
 
     const persisted = await this.store.sessions.get(this.scope,spec.sessionId);
-    // See note in the in-memory reopen branch above: drop the incoming
-    // username when channels differ so the speaker resolver doesn't look
-    // up the caller's id under the wrong channel.
-    const incomingMeta = { ...(spec.metadata ?? {}) };
-    if (persisted) {
-      const persistedChannel = persisted.source.platform ?? persisted.source.kind;
-      const incomingChannel = spec.source.platform ?? spec.source.kind;
-      if (persistedChannel !== incomingChannel) delete incomingMeta.username;
-    }
     const mergedMetadata = {
       ...(persisted?.metadata ?? {}),
-      ...incomingMeta,
+      ...(spec.metadata ?? {}),
     };
     const effectiveSpec: SessionSpec = {
       ...spec,
       source: persisted?.source ?? spec.source,
-      // Always overwrite metadata with the merged (and channel-filtered)
-      // value; otherwise spec.metadata.username slips through via `...spec`
-      // when mergedMetadata is empty.
-      metadata: mergedMetadata,
+      ...(Object.keys(mergedMetadata).length > 0
+        ? { metadata: mergedMetadata }
+        : {}),
     };
-    if (Object.keys(mergedMetadata).length === 0) delete effectiveSpec.metadata;
     const createdAt = persisted?.createdAt ?? now;
 
     const config = await this.options.security.readConfig();
 
     // Bootstrap owner on first connection from CLI or web
-    await this.ensureCliUser(effectiveSpec, now);
+    await this.ensureCliUser(effectiveSpec, now, caller);
 
     // Resolve user identity for this session
     const { userId: resolvedUserId, role: resolvedUserRole, userName: resolvedUserName } =
-      await this.resolveSessionUser(effectiveSpec, now);
+      await this.resolveSessionUser(effectiveSpec, now, caller);
 
     // Access control on reopen: non-owner users must already be participants
     if (persisted && resolvedUserId && !persisted.userIds?.includes(resolvedUserId) && resolvedUserRole !== 'owner') {
@@ -1059,10 +1036,16 @@ export class AgentRunner implements SessionRuntime {
    * Re-running for the same OS user is a no-op aside from making sure
    * an agent role exists.
    */
-  private async ensureCliUser(spec: SessionSpec, now: string): Promise<void> {
-    if (spec.source.kind !== 'cli') return;
+  private async ensureCliUser(spec: SessionSpec, now: string, caller?: Caller): Promise<void> {
+    // Only bootstrap CLI ownership for genuine CLI callers — not for an
+    // owner browsing a CLI session from the web UI.
+    if (caller) {
+      if (caller.channel !== 'cli') return;
+    } else if (spec.source.kind !== 'cli') {
+      return;
+    }
 
-    const channelUserId = this.deriveChannelUserId(spec);
+    const channelUserId = caller?.channelUserId ?? this.deriveChannelUserId(spec);
     if (!channelUserId) return;
 
     const agentUsers = await this.store.users.listByAgent(this.scope);
@@ -1106,6 +1089,7 @@ export class AgentRunner implements SessionRuntime {
   private async resolveSessionUser(
     spec: SessionSpec,
     now: string,
+    caller?: Caller,
   ): Promise<{ userId?: string; role?: UserRole; userName?: string }> {
     // Schedule sessions carry the creator's userId directly
     const scheduleUserId = spec.metadata?.schedule_user_id;
@@ -1117,10 +1101,12 @@ export class AgentRunner implements SessionRuntime {
       }
     }
 
-    const channelUserId = this.deriveChannelUserId(spec);
+    // Caller (auth context) takes priority over session metadata. This is
+    // the request initiator's identity, regardless of what channel the
+    // session itself was originally created from.
+    const channel = caller?.channel ?? spec.source.platform ?? spec.source.kind;
+    const channelUserId = caller?.channelUserId ?? this.deriveChannelUserId(spec);
     if (!channelUserId) return {};
-
-    const channel = spec.source.platform ?? spec.source.kind;
 
     // Try to resolve existing identity
     const existingUserId = await this.store.users.resolve(channel, channelUserId);
@@ -1130,6 +1116,14 @@ export class AgentRunner implements SessionRuntime {
       if (user) {
         return { userId: user.userId, role, ...(user.name ? { userName: user.name } : {}) };
       }
+    }
+
+    // Cross-channel viewer (e.g. owner browsing a CLI session via web)
+    // should not auto-create a guest in the session's channel namespace —
+    // that pollutes the user table and the lookup will mismatch on next
+    // visit. Just deny if the caller has no existing identity here.
+    if (caller && caller.channel !== (spec.source.platform ?? spec.source.kind)) {
+      return {};
     }
 
     // Unknown identity: auto-create as guest

@@ -588,27 +588,13 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     // Channel tokens can only create sessions within their namespace.
     enforceSessionNamespace(auth, payload.sessionId);
 
-    // Inject the authenticated user's channel identity into session
-    // metadata so the agent runtime can identify the current caller.
-    // Match when either source.kind or source.platform equals the
-    // auth channel — web sessions ship with kind='api', platform='web'.
-    // The matching prevents cross-channel leakage (e.g. a web JWT
-    // used to open a cli session would put a SHA-256 fingerprint into
-    // cli's identity space). Always overwrites — never trust a
-    // persisted username for the live caller.
-    const src = payload.source as { kind?: string; platform?: string } | undefined;
-    if (
-      auth.mode === 'user'
-      && auth.channelUserId
-      && (src?.kind === auth.channel || src?.platform === auth.channel)
-    ) {
-      payload.metadata = {
-        ...payload.metadata,
-        username: auth.channelUserId,
-      };
-    }
-
-    const session = await runtime.openSession(payload);
+    // Pass caller identity directly to the runtime instead of injecting
+    // it into session metadata — keeps "who's calling now" cleanly
+    // separated from the session's persisted attributes.
+    const caller = auth.mode === 'user' && auth.channelUserId
+      ? { channel: auth.channel, channelUserId: auth.channelUserId }
+      : undefined;
+    const session = await runtime.openSession(payload, caller);
     return c.json({ sessionId: session.spec.sessionId });
   });
 

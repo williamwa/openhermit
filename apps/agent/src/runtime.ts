@@ -18,9 +18,21 @@ export interface SessionDescriptor {
   updatedAt: string;
 }
 
+/**
+ * Channel identity of the current request initiator (HTTP/WS auth context
+ * or channel adapter handling an incoming message). Decoupled from the
+ * session's `source` so an owner browsing a CLI session in the web UI
+ * authenticates as `{channel:'web', channelUserId:<fingerprint>}` rather
+ * than being forced through the session's CLI channel.
+ */
+export interface Caller {
+  channel: string;
+  channelUserId: string;
+}
+
 export interface SessionRuntime {
   readonly events: SessionEventBroker;
-  openSession(spec: SessionSpec): Promise<SessionDescriptor>;
+  openSession(spec: SessionSpec, caller?: Caller): Promise<SessionDescriptor>;
   listSessions(query?: SessionListQuery, callerUserId?: string): Promise<SessionSummary[]>;
   listSessionMessages(sessionId: string, callerUserId?: string): Promise<SessionHistoryMessage[]>;
   /** Resolve a channel identity to an internal userId (read-only). */

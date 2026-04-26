@@ -98,22 +98,13 @@ const handleRequest = async (
           sendError(ws, id, 'INVALID_PARAMS', 'Invalid SessionSpec params.');
           return;
         }
-        // Inject the caller's channel identity so resolveSessionUser
-        // can pin the current speaker for this request. Matches when
-        // either source.kind or source.platform equals the auth
-        // channel (web sessions ship as kind='api', platform='web').
-        // Always overwrites — never trust persisted username for the
-        // current caller's identity.
-        if (conn.auth.mode === 'user' && conn.auth.channelUserId) {
-          const src = p.source as { kind?: string; platform?: string } | undefined;
-          if (src?.kind === conn.auth.channel || src?.platform === conn.auth.channel) {
-            p.metadata = {
-              ...((p.metadata as Record<string, unknown>) ?? {}),
-              username: conn.auth.channelUserId,
-            };
-          }
-        }
-        const session = await runtime.openSession(p);
+        // Pass the caller's channel identity directly so the runtime can
+        // pin the current speaker without round-tripping through session
+        // metadata (which historically caused cross-channel pollution).
+        const caller = conn.auth.mode === 'user' && conn.auth.channelUserId
+          ? { channel: conn.auth.channel, channelUserId: conn.auth.channelUserId }
+          : undefined;
+        const session = await runtime.openSession(p, caller);
         sendResult(ws, id, { sessionId: session.spec.sessionId });
         return;
       }
