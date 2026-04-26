@@ -349,9 +349,19 @@ export class AgentRunner implements SessionRuntime {
 
     if (existing) {
       this.clearIdleSummaryTimer(existing);
+      // When reopening from a different channel (e.g. owner viewing a CLI
+      // session in the web UI), the request's metadata.username belongs to
+      // the caller's *own* channel and must not be merged into the session's
+      // (different-channel) metadata — doing so would make the speaker
+      // resolver look up the caller's id under the session's channel, hit a
+      // stale guest, and reject access.
+      const incomingMeta = { ...(spec.metadata ?? {}) };
+      const existingChannel = existing.spec.source.platform ?? existing.spec.source.kind;
+      const incomingChannel = spec.source.platform ?? spec.source.kind;
+      if (existingChannel !== incomingChannel) delete incomingMeta.username;
       const mergedMetadata = {
         ...(existing.spec.metadata ?? {}),
-        ...(spec.metadata ?? {}),
+        ...incomingMeta,
       };
 
       existing.spec = {
@@ -397,9 +407,18 @@ export class AgentRunner implements SessionRuntime {
     }
 
     const persisted = await this.store.sessions.get(this.scope,spec.sessionId);
+    // See note in the in-memory reopen branch above: drop the incoming
+    // username when channels differ so the speaker resolver doesn't look
+    // up the caller's id under the wrong channel.
+    const incomingMeta = { ...(spec.metadata ?? {}) };
+    if (persisted) {
+      const persistedChannel = persisted.source.platform ?? persisted.source.kind;
+      const incomingChannel = spec.source.platform ?? spec.source.kind;
+      if (persistedChannel !== incomingChannel) delete incomingMeta.username;
+    }
     const mergedMetadata = {
       ...(persisted?.metadata ?? {}),
-      ...(spec.metadata ?? {}),
+      ...incomingMeta,
     };
     const effectiveSpec: SessionSpec = {
       ...spec,
