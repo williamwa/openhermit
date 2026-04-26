@@ -73,7 +73,9 @@ export const registerGatewayCommand = (program: Command): void => {
   gw
     .command('start')
     .description('Start the gateway in the background')
-    .action(async () => {
+    .option('-p, --port <port>', 'Listen port (overrides GATEWAY_PORT, default 4000)')
+    .option('-H, --host <host>', 'Listen host (overrides GATEWAY_HOST, default 127.0.0.1; use 0.0.0.0 to expose publicly)')
+    .action(async (opts: { port?: string; host?: string }) => {
       try {
         // Check if already running.
         const existingPid = await readPid();
@@ -91,10 +93,14 @@ export const registerGatewayCommand = (program: Command): void => {
         const out = openSync(logFile, 'a');
         const err = openSync(logFile, 'a');
 
+        const env: NodeJS.ProcessEnv = { ...process.env };
+        if (opts.port) env.GATEWAY_PORT = opts.port;
+        if (opts.host) env.GATEWAY_HOST = opts.host;
+
         const child = spawn(bin, args, {
           detached: true,
           stdio: ['ignore', out, err],
-          env: { ...process.env },
+          env,
         });
 
         child.unref();
@@ -105,7 +111,14 @@ export const registerGatewayCommand = (program: Command): void => {
         }
 
         await writeFile(pidFilePath(), String(child.pid), 'utf8');
+
+        const port = opts.port ?? env.GATEWAY_PORT ?? env.PORT ?? '4000';
+        const host = opts.host ?? env.GATEWAY_HOST ?? '127.0.0.1';
         console.log(`Gateway started (pid ${child.pid}).`);
+        console.log(`Listening on http://${host}:${port}`);
+        if (host === '0.0.0.0') {
+          console.log('  (bound to 0.0.0.0 — reachable from any network interface)');
+        }
         console.log(`Logs: ${logFile}`);
       } catch (error) {
         handleError(error);

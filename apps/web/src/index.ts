@@ -16,14 +16,15 @@ export const main = async (): Promise<void> => {
     throw new Error(`Invalid port: ${rawPort}`);
   }
 
+  const host = process.env.OPENHERMIT_WEB_HOST ?? '127.0.0.1';
   const server = createWebServer({ port });
 
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
-    server.listen(port, '127.0.0.1', () => resolve());
+    server.listen(port, host, () => resolve());
   });
 
-  console.info(`[openhermit-web] http://127.0.0.1:${port}`);
+  console.info(`[openhermit-web] http://${host}:${port}`);
 };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

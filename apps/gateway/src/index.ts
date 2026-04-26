@@ -46,6 +46,7 @@ const logStartup = logBuffer.wrap((message: string): void => {
 const listen = (
   fetch: NodeFetchCallback,
   port: number,
+  host: string,
 ): Promise<{ server: ReturnType<typeof createAdaptorServer>; info: AddressInfo }> =>
   new Promise((resolve, reject) => {
     const server = createAdaptorServer({ fetch });
@@ -74,7 +75,7 @@ const listen = (
 
     server.once('error', onError);
     server.once('listening', onListening);
-    server.listen(port, '127.0.0.1');
+    server.listen(port, host);
   });
 
 export const main = async (): Promise<void> => {
@@ -211,10 +212,13 @@ export const main = async (): Promise<void> => {
     throw new Error(`Invalid port: ${rawPort}`);
   }
 
-  const { server, info } = await listen(app.fetch, port);
+  const host = process.env.GATEWAY_HOST ?? '127.0.0.1';
 
-  // Set the gateway base URL, admin token, and channel registry so channel adapters can connect back.
-  instances.setGatewayBaseUrl(`http://localhost:${info.port}`);
+  const { server, info } = await listen(app.fetch, port, host);
+
+  // Channel adapters connect back to the gateway from inside the host. Use
+  // 127.0.0.1 even when the public listener is 0.0.0.0 / a specific IP.
+  instances.setGatewayBaseUrl(`http://127.0.0.1:${info.port}`);
   instances.setAdminToken(adminToken);
   instances.setChannelRegistry(channels);
 
@@ -283,7 +287,7 @@ export const main = async (): Promise<void> => {
     console.error('[openhermit-gateway] unhandledRejection — keeping gateway alive', reason);
   });
 
-  logStartup(`listening on http://localhost:${info.port}`);
+  logStartup(`listening on http://${host === '0.0.0.0' ? '0.0.0.0' : info.address}:${info.port}`);
 };
 
 if (

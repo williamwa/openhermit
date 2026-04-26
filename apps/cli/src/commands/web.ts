@@ -77,7 +77,9 @@ export const registerWebCommand = (program: Command): void => {
   web
     .command('start')
     .description('Start the web UI in the background')
-    .action(async () => {
+    .option('-p, --port <port>', 'Listen port (overrides OPENHERMIT_WEB_PORT, default 4310)')
+    .option('-H, --host <host>', 'Listen host (overrides OPENHERMIT_WEB_HOST, default 127.0.0.1; use 0.0.0.0 to expose publicly)')
+    .action(async (opts: { port?: string; host?: string }) => {
       try {
         const existingPid = await readPid();
         if (existingPid && isProcessAlive(existingPid)) {
@@ -94,10 +96,14 @@ export const registerWebCommand = (program: Command): void => {
         const out = openSync(logFile, 'a');
         const err = openSync(logFile, 'a');
 
+        const env: NodeJS.ProcessEnv = { ...process.env };
+        if (opts.port) env.OPENHERMIT_WEB_PORT = opts.port;
+        if (opts.host) env.OPENHERMIT_WEB_HOST = opts.host;
+
         const child = spawn(bin, args, {
           detached: true,
           stdio: ['ignore', out, err],
-          env: { ...process.env },
+          env,
         });
 
         child.unref();
@@ -108,7 +114,14 @@ export const registerWebCommand = (program: Command): void => {
         }
 
         await writeFile(pidFilePath(), String(child.pid), 'utf8');
+
+        const port = opts.port ?? env.OPENHERMIT_WEB_PORT ?? env.PORT ?? '4310';
+        const host = opts.host ?? env.OPENHERMIT_WEB_HOST ?? '127.0.0.1';
         console.log(`Web started (pid ${child.pid}).`);
+        console.log(`Listening on http://${host}:${port}`);
+        if (host === '0.0.0.0') {
+          console.log('  (bound to 0.0.0.0 — reachable from any network interface)');
+        }
         console.log(`Logs: ${logFile}`);
       } catch (error) {
         handleError(error);
