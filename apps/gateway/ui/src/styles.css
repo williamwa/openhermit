@@ -861,12 +861,10 @@ dialog::backdrop { background: rgba(9, 9, 11, 0.4); }
     gap: 0.4rem;
   }
 
-  /* Hamburger drawer */
+  /* Hamburger drawer (overlays — does not push topbar height) */
   .topbar {
-    padding: 0.5rem 0.75rem;
-    height: auto;
-    min-height: 52px;
-    flex-wrap: wrap;
+    padding: 0 0.75rem;
+    height: 52px;
     gap: 0.5rem;
     align-items: center;
   }
@@ -877,16 +875,17 @@ dialog::backdrop { background: rgba(9, 9, 11, 0.4); }
 
   .topbar__tabs {
     display: none;
-    order: 3;
-    width: 100%;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 50;
     flex-direction: column;
     gap: 0;
-    padding: 0.5rem 0;
-    border-top: 1px solid var(--border);
-    margin: 0 -0.75rem -0.5rem -0.75rem;
-    padding-left: 0.75rem;
-    padding-right: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border);
     background: var(--bg-surface);
+    box-shadow: 0 8px 24px -8px rgba(9, 9, 11, 0.18);
   }
 
   .topbar__tabs--open { display: flex; }
