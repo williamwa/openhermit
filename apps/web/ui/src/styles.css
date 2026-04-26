@@ -265,6 +265,14 @@ h2 { font-size: 14px; font-weight: 600; }
   font-family: var(--mono);
 }
 
+.sidebar__footer-uid {
+  margin-left: 4px;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+
 .session-card {
   position: relative;
   width: 100%;

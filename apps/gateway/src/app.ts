@@ -317,6 +317,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
         token,
         expiresAt,
         isNewDevice,
+        ...(existingUserId ? { userId: existingUserId } : {}),
         ...(authResult.displayName ? { displayName: authResult.displayName } : {}),
         ...(role ? { role } : {}),
       });

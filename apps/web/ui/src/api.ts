@@ -18,6 +18,7 @@ export interface TokenExchangeResult {
   isNewDevice: boolean;
   displayName?: string;
   role?: string;
+  userId?: string;
 }
 
 export interface SessionSummary {
@@ -178,6 +179,7 @@ export const setDisplayName = (name: string): void => {
 let jwtToken: string | null = null;
 let jwtExpiresAt = 0;
 let userRole: string | null = null;
+let userId: string | null = null;
 
 const loadJwt = (): void => {
   try {
@@ -223,6 +225,7 @@ export const exchangeToken = async (displayName?: string | null): Promise<TokenE
   const result = await response.json() as TokenExchangeResult;
   saveJwt(result.token, result.expiresAt);
   if (result.role) userRole = result.role;
+  if (result.userId) userId = result.userId;
   return result;
 };
 
@@ -425,6 +428,7 @@ export class AgentWsClient {
 // ─── User role ────────────────────────────────────────────────────────────
 
 export const getUserRole = (): string | null => userRole;
+export const getUserId = (): string | null => userId;
 
 // ─── REST API helpers for management ──────────────────────────────────────
 

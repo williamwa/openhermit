@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AgentWsClient, fetchAgentInfo, getDisplayName, type Connection, type SessionSummary, type HistoryMessage, type OutboundEvent } from '../api';
+import { AgentWsClient, fetchAgentInfo, getDisplayName, getUserId, type Connection, type SessionSummary, type HistoryMessage, type OutboundEvent } from '../api';
 import { SessionList } from './SessionList';
 import { ChatMessages, type ChatItem } from './ChatMessages';
 import { Composer } from './Composer';
@@ -523,7 +523,11 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
         />
         <div className="sidebar__footer">
           <div>
-            <div className="sidebar__footer-name"><span className="sidebar__footer-dot" />{getDisplayName() || 'Anonymous'}</div>
+            <div className="sidebar__footer-name">
+              <span className="sidebar__footer-dot" />
+              {getDisplayName() || 'Anonymous'}
+              {getUserId() && <span className="sidebar__footer-uid"> · {getUserId()}</span>}
+            </div>
             <div className="sidebar__footer-auth">Auth: device key · WS</div>
           </div>
           <button className="btn btn--ghost btn--sm" onClick={onDisconnect}>Disconnect</button>
