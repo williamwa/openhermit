@@ -1,12 +1,34 @@
+import { drizzle } from 'drizzle-orm/node-postgres';
 import { eq, and, asc, isNull, sql } from 'drizzle-orm';
+import pg from 'pg';
 
 import type { UserStore } from '../interfaces.js';
 import type { StoreScope, UserAgentRecord, UserIdentity, UserRecord, UserRole } from '../types.js';
+import * as schema from '../schema.js';
 import { users, userAgents, userIdentities, sessionEvents } from '../schema.js';
 import type { DrizzleDb } from './index.js';
 
 export class DbUserStore implements UserStore {
+  private pool?: pg.Pool;
+
   constructor(private readonly db: DrizzleDb) {}
+
+  static async open(databaseUrl?: string): Promise<DbUserStore> {
+    const url = databaseUrl ?? process.env.DATABASE_URL;
+    if (!url) {
+      throw new Error('DATABASE_URL environment variable is required');
+    }
+    const pool = new pg.Pool({ connectionString: url });
+    await pool.query('SELECT 1');
+    const db = drizzle(pool, { schema });
+    const store = new DbUserStore(db);
+    store.pool = pool;
+    return store;
+  }
+
+  async close(): Promise<void> {
+    await this.pool?.end();
+  }
 
   async upsert(user: UserRecord): Promise<void> {
     await this.db.insert(users).values({

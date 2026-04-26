@@ -6,7 +6,7 @@ import { LogBuffer } from './log-buffer.js';
 
 import { createAdaptorServer } from '@hono/node-server';
 
-import { DbAgentStore, DbMcpServerStore, DbScheduleStore, DbSkillStore } from '@openhermit/store';
+import { DbAgentStore, DbMcpServerStore, DbScheduleStore, DbSkillStore, DbUserStore } from '@openhermit/store';
 import { scanSkillDirectory } from '@openhermit/agent/skills';
 
 import { loadEnv, resolveOpenHermitHome } from '@openhermit/shared';
@@ -87,12 +87,14 @@ export const main = async (): Promise<void> => {
   let skillStore: DbSkillStore | undefined;
   let scheduleStore: DbScheduleStore | undefined;
   let mcpServerStore: DbMcpServerStore | undefined;
+  let userStore: DbUserStore | undefined;
   if (process.env.DATABASE_URL) {
     try {
       agentStore = await DbAgentStore.open();
       skillStore = await DbSkillStore.open();
       scheduleStore = await DbScheduleStore.open();
       mcpServerStore = await DbMcpServerStore.open();
+      userStore = await DbUserStore.open();
       logStartup('agent store connected');
     } catch (error) {
       logStartup(`agent store unavailable: ${error instanceof Error ? error.message : String(error)}`);
@@ -153,6 +155,7 @@ export const main = async (): Promise<void> => {
     ...(skillStore ? { skillStore } : {}),
     ...(scheduleStore ? { scheduleStore } : {}),
     ...(mcpServerStore ? { mcpServerStore } : {}),
+    ...(userStore ? { userStore } : {}),
     auth,
     adminToken,
     logger: logStartup,

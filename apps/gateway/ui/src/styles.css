@@ -983,3 +983,40 @@ dialog::backdrop { background: rgba(9, 9, 11, 0.4); }
   .topbar__brand { font-size: 0.9rem; }
   .panel { padding: 0.75rem; }
 }
+
+/* --- Users Panel --- */
+
+.users-identities {
+  background: var(--bg-surface);
+  padding: 0.6rem 0.85rem !important;
+}
+
+.users-identities__empty {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin: 0;
+  padding: 0.4rem 0;
+}
+
+.users-identities__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.users-identities__table th,
+.users-identities__table td {
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.users-identities__table tbody tr:last-child td { border-bottom: none; }
+
+.users-identities__table th {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}

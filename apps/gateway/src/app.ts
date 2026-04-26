@@ -18,7 +18,7 @@ import {
   type SyncResponse,
   type SyncToolCall,
 } from '@openhermit/protocol';
-import type { DbAgentStore, DbMcpServerStore, DbScheduleStore, DbSkillStore } from '@openhermit/store';
+import type { DbAgentStore, DbMcpServerStore, DbScheduleStore, DbSkillStore, DbUserStore } from '@openhermit/store';
 import {
   NotFoundError,
   OpenHermitError,
@@ -160,6 +160,7 @@ export interface GatewayAppOptions {
   skillStore?: DbSkillStore | undefined;
   scheduleStore?: DbScheduleStore | undefined;
   mcpServerStore?: DbMcpServerStore | undefined;
+  userStore?: DbUserStore | undefined;
   auth?: AuthResolverOptions | undefined;
   adminToken?: string | undefined;
   logger?: ((message: string) => void) | undefined;
@@ -186,7 +187,7 @@ const resolveRunner = (
 // ─── App factory ──────────────────────────────────────────────────────────────
 
 export const createGatewayApp = (options: GatewayAppOptions): Hono => {
-  const { instances, agentStore, adminToken } = options;
+  const { instances, agentStore, adminToken, userStore } = options;
   const log = options.logger ?? ((msg: string) => console.log(msg));
   const app = new Hono();
 
@@ -968,6 +969,31 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
       const message = err instanceof Error ? err.message : String(err);
       return c.json({ error: { code: 'docker_unavailable', message } }, 503);
     }
+  });
+
+  app.get('/api/admin/users', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    if (!userStore) return c.json([]);
+    const list = await userStore.list();
+    // Annotate with identity count.
+    const enriched = await Promise.all(list.map(async (u) => {
+      const identities = await userStore.listIdentities(u.userId);
+      return {
+        userId: u.userId,
+        name: u.name ?? null,
+        createdAt: u.createdAt,
+        updatedAt: u.updatedAt,
+        identityCount: identities.length,
+      };
+    }));
+    return c.json(enriched);
+  });
+
+  app.get('/api/admin/users/:userId/identities', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    if (!userStore) return c.json([]);
+    const identities = await userStore.listIdentities(c.req.param('userId'));
+    return c.json(identities);
   });
 
   app.get('/api/admin/stats', async (c) => {
