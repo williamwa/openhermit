@@ -318,19 +318,19 @@ export class GatewayClient {
   }
 
   async getAgentConfig(agentId: string): Promise<Record<string, unknown>> {
-    return this.getJson(`/api/admin/agents/${encodeURIComponent(agentId)}/config`);
+    return this.getJson(`/api/agents/${encodeURIComponent(agentId)}/config`);
   }
 
   async putAgentConfig(agentId: string, config: Record<string, unknown>): Promise<void> {
-    await this.putJson(`/api/admin/agents/${encodeURIComponent(agentId)}/config`, config);
+    await this.putJson(`/api/agents/${encodeURIComponent(agentId)}/config`, config);
   }
 
   async getAgentSecrets(agentId: string): Promise<Record<string, string>> {
-    return this.getJson(`/api/admin/agents/${encodeURIComponent(agentId)}/secrets`);
+    return this.getJson(`/api/agents/${encodeURIComponent(agentId)}/secrets`);
   }
 
   async putAgentSecrets(agentId: string, secrets: Record<string, string>): Promise<void> {
-    await this.putJson(`/api/admin/agents/${encodeURIComponent(agentId)}/secrets`, secrets);
+    await this.putJson(`/api/agents/${encodeURIComponent(agentId)}/secrets`, secrets);
   }
 
   // --- skills (admin) ---
@@ -375,7 +375,7 @@ export class GatewayClient {
    * same API surface as if it were talking to the agent directly.
    */
   async listSchedules(agentId: string): Promise<unknown[]> {
-    return this.getJson(`/api/admin/agents/${encodeURIComponent(agentId)}/schedules`);
+    return this.getJson(`/api/agents/${encodeURIComponent(agentId)}/schedules`);
   }
 
   async createSchedule(agentId: string, input: {
@@ -387,20 +387,20 @@ export class GatewayClient {
     delivery?: unknown;
     policy?: unknown;
   }): Promise<unknown> {
-    return this.postJson(`/api/admin/agents/${encodeURIComponent(agentId)}/schedules`, input);
+    return this.postJson(`/api/agents/${encodeURIComponent(agentId)}/schedules`, input);
   }
 
   async updateSchedule(agentId: string, scheduleId: string, input: Record<string, unknown>): Promise<unknown> {
-    return this.putJson(`/api/admin/agents/${encodeURIComponent(agentId)}/schedules/${encodeURIComponent(scheduleId)}`, input);
+    return this.putJson(`/api/agents/${encodeURIComponent(agentId)}/schedules/${encodeURIComponent(scheduleId)}`, input);
   }
 
   async deleteSchedule(agentId: string, scheduleId: string): Promise<void> {
-    await this.deleteJson(`/api/admin/agents/${encodeURIComponent(agentId)}/schedules/${encodeURIComponent(scheduleId)}`);
+    await this.deleteJson(`/api/agents/${encodeURIComponent(agentId)}/schedules/${encodeURIComponent(scheduleId)}`);
   }
 
   async listScheduleRuns(agentId: string, scheduleId: string, limit?: number): Promise<unknown[]> {
     const params = limit ? `?limit=${limit}` : '';
-    return this.getJson(`/api/admin/agents/${encodeURIComponent(agentId)}/schedules/${encodeURIComponent(scheduleId)}/runs${params}`);
+    return this.getJson(`/api/agents/${encodeURIComponent(agentId)}/schedules/${encodeURIComponent(scheduleId)}/runs${params}`);
   }
 
   agent(agentId: string): AgentLocalClient {
