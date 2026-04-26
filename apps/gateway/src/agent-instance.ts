@@ -166,7 +166,7 @@ export class AgentInstanceManager {
       try {
         const config = await security.readConfig();
         if (config.channels) {
-          const agentBaseUrl = `${this.gatewayBaseUrl}/agents/${encodeURIComponent(agentId)}`;
+          const agentBaseUrl = `${this.gatewayBaseUrl}/api/agents/${encodeURIComponent(agentId)}`;
 
           // Generate a per-channel token so each builtin channel gets its own auth identity.
           const enabledBuiltins = BUILTIN_CHANNELS.filter(
@@ -269,7 +269,7 @@ export class AgentInstanceManager {
       return { name: channelName, status: 'error', error: 'No channels configured' };
     }
 
-    const agentBaseUrl = `${this.gatewayBaseUrl}/agents/${encodeURIComponent(agentId)}`;
+    const agentBaseUrl = `${this.gatewayBaseUrl}/api/agents/${encodeURIComponent(agentId)}`;
     const token = randomBytes(24).toString('hex');
     if (this.channelRegistry) {
       this.channelRegistry.register({
