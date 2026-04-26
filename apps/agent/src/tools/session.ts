@@ -47,10 +47,15 @@ export const createSessionListTool = (context: ToolContext): AgentTool<typeof Se
       throw new ValidationError('session_list is unavailable: no session store is configured.');
     }
 
+    // Owner sees every session on the agent (so it can answer
+    // questions like "who else has chatted with you?" or
+    // "which other identity is also me?"). Non-owners only see
+    // sessions they participate in.
+    const isOwner = context.currentUserRole === 'owner';
     let sessions = await context.sessionStore.list(
       context.storeScope,
       {
-        ...(context.currentUserId ? { userId: context.currentUserId } : {}),
+        ...(!isOwner && context.currentUserId ? { userId: context.currentUserId } : {}),
         ...(args.include_inactive ? { includeInactive: true } : {}),
       },
     );
@@ -108,7 +113,13 @@ export const createSessionReadTool = (context: ToolContext): AgentTool<typeof Se
       throw new ValidationError('session_read requires a non-empty session_id.');
     }
 
-    if (context.currentUserId && context.sessionStore) {
+    // Owner can read any session on the agent; non-owners must be a
+    // participant in user_ids.
+    if (
+      context.currentUserRole !== 'owner'
+      && context.currentUserId
+      && context.sessionStore
+    ) {
       const target = await context.sessionStore.get(context.storeScope!, sessionId);
       if (!target?.userIds?.includes(context.currentUserId)) {
         throw new ValidationError(`Access denied: you are not a participant in session ${sessionId}.`);

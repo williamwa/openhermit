@@ -52,6 +52,10 @@ export interface ToolContext {
   sessionStore?: SessionStore | undefined;
   sessionId?: string | undefined;
   currentUserId?: string | undefined;
+  /** Role of the user the agent is currently acting on behalf of. Tools
+   * that surface cross-user information (e.g. session_list) widen their
+   * visibility when role === 'owner'. */
+  currentUserRole?: 'owner' | 'user' | 'guest' | undefined;
   webProvider?: WebProvider | undefined;
   instructionStore?: InstructionStore;
   userStore?: UserStore;

@@ -1334,6 +1334,7 @@ export class AgentRunner implements SessionRuntime {
         ...(isOwnerOrUnresolved ? { userStore: this.store.users } : {}),
         ...(isOwnerOrUnresolved || input.userId ? { sessionStore: this.store.sessions } : {}),
         ...(input.userId ? { currentUserId: input.userId } : {}),
+        ...(input.userRole ? { currentUserRole: input.userRole } : {}),
         storeScope: this.scope,
         ...(!isGuestRole ? {
           agentId: this.scope.agentId,
