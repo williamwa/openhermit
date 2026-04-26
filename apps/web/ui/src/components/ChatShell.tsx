@@ -400,11 +400,11 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
           fetchAgentInfo().then(info => setAgentName(info.name)).catch(() => {}),
         ]);
         setSessions(list);
-        // Load session from URL directly, or fall back to first session
+        // Only auto-load when the URL itself names a valid session.
+        // Refreshing /  ̄or any non-/chat/:id path keeps the user on the
+        // sessions list — don't jump them into a session they didn't pick.
         if (initialSessionId && list.some((s: SessionSummary) => s.sessionId === initialSessionId)) {
           await loadSession(client, initialSessionId);
-        } else if (list.length > 0 && !currentSessionRef.current) {
-          await loadSession(client, list[0].sessionId);
         }
       })
       .catch(() => setStatus('Disconnected'));
