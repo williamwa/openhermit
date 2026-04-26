@@ -1048,8 +1048,11 @@ export class AgentRunner implements SessionRuntime {
     const channelUserId = caller?.channelUserId ?? this.deriveChannelUserId(spec);
     if (!channelUserId) return;
 
-    const agentUsers = await this.store.users.listByAgent(this.scope);
-    const role: UserRole = agentUsers.length === 0 ? 'owner' : 'guest';
+    // Always create CLI users as guests. Owner promotion is now an explicit
+    // action: \`POST /api/agents/:id/users/:userId/promote-to-owner\`,
+    // typically triggered by an interactive prompt in the CLI when it sees
+    // an agent with no owner. This keeps web/CLI ordering from accidentally
+    // deciding who's in charge.
 
     // If this CLI identity is already linked, just make sure the role
     // assignment for this agent exists. Don't downgrade an existing
@@ -1058,8 +1061,8 @@ export class AgentRunner implements SessionRuntime {
     if (existingUserId) {
       const existingRole = await this.store.users.getAgentRole(this.scope, existingUserId);
       if (!existingRole) {
-        await this.store.users.assignAgent(this.scope, existingUserId, role, now);
-        this.logRuntime(`cli user ${existingUserId} assigned role ${role} on agent ${this.scope.agentId}`);
+        await this.store.users.assignAgent(this.scope, existingUserId, 'guest', now);
+        this.logRuntime(`cli user ${existingUserId} assigned role guest on agent ${this.scope.agentId}`);
       }
       return;
     }
@@ -1071,14 +1074,14 @@ export class AgentRunner implements SessionRuntime {
       createdAt: now,
       updatedAt: now,
     });
-    await this.store.users.assignAgent(this.scope, userId, role, now);
+    await this.store.users.assignAgent(this.scope, userId, 'guest', now);
     await this.store.users.linkIdentity({
       userId,
       channel: 'cli',
       channelUserId,
       createdAt: now,
     });
-    this.logRuntime(`cli user created: ${userId} (${role}) cli:${channelUserId}`);
+    this.logRuntime(`cli user created: ${userId} (guest) cli:${channelUserId}`);
   }
 
   /**

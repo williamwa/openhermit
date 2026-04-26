@@ -27,6 +27,7 @@ import type {
   DbUserStore,
 } from '@openhermit/store';
 import {
+  ConflictError,
   NotFoundError,
   OpenHermitError,
   UnauthorizedError,
@@ -1053,6 +1054,68 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
       name: record?.name ?? agentId,
       status: instances.getRunner(agentId) ? 'running' : 'stopped',
     });
+  });
+
+  // Returns ownership info for the agent: who the owner is (if any),
+  // and — when ?channel=cli&channelUserId=alice is supplied — the user
+  // record for that identity. Used by the CLI to decide whether to prompt
+  // for ownership claim on connection.
+  app.get('/api/agents/:agentId/ownership', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    requireAuth(c, agentId);
+    if (!userStore) {
+      throw new OpenHermitError('User store is not configured.', 'not_configured', 500);
+    }
+    const agentUsers = await userStore.listByAgent({ agentId });
+    const ownerEntry = agentUsers.find((u) => u.role === 'owner');
+    let owner: { userId: string; name: string | null } | null = null;
+    if (ownerEntry) {
+      const ownerRecord = await userStore.get(ownerEntry.userId);
+      owner = { userId: ownerEntry.userId, name: ownerRecord?.name ?? null };
+    }
+
+    const channel = c.req.query('channel');
+    const channelUserId = c.req.query('channelUserId');
+    let me: { userId: string; role: string | null; name: string | null } | null = null;
+    if (channel && channelUserId) {
+      const userId = await userStore.resolve(channel, channelUserId);
+      if (userId) {
+        const record = await userStore.get(userId);
+        const roleEntry = agentUsers.find((u) => u.userId === userId);
+        me = {
+          userId,
+          role: roleEntry?.role ?? null,
+          name: record?.name ?? null,
+        };
+      }
+    }
+    return c.json({ hasOwner: !!owner, owner, me });
+  });
+
+  // Promote a user to owner of this agent. Idempotent if the user is
+  // already the owner; rejects with 409 if a different user is the owner.
+  // Admin-token only — the CLI uses this after asking the user to confirm.
+  app.post('/api/agents/:agentId/users/:userId/promote-to-owner', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    const userId = c.req.param('userId') ?? '';
+    requireAdmin(c.req.header('authorization'));
+    if (!userStore) {
+      throw new OpenHermitError('User store is not configured.', 'not_configured', 500);
+    }
+    const scope = { agentId };
+    const agentUsers = await userStore.listByAgent(scope);
+    const existingOwner = agentUsers.find((u) => u.role === 'owner');
+    if (existingOwner && existingOwner.userId !== userId) {
+      const ownerRecord = await userStore.get(existingOwner.userId);
+      throw new ConflictError(
+        `Agent ${agentId} already has an owner: ${ownerRecord?.name ?? existingOwner.userId}.`,
+      );
+    }
+    const target = await userStore.get(userId);
+    if (!target) throw new NotFoundError(`User ${userId} not found.`);
+    const now = new Date().toISOString();
+    await userStore.assignAgent(scope, userId, 'owner', now);
+    return c.json({ ok: true, userId, role: 'owner' });
   });
 
   app.get('/api/agents/:agentId/config', async (c) => {

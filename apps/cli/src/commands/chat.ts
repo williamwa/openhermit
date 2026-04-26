@@ -38,6 +38,7 @@ export const registerChatCommand = (program: Command): void => {
           client,
           token: process.env.OPENHERMIT_TOKEN ?? '',
           agentId: opts.agentId,
+          gatewayUrl: resolveGatewayUrl(),
           workspaceRoot,
           startupSession,
           resumeFlag: opts.resume ?? false,

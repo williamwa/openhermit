@@ -7,7 +7,7 @@ export interface JsonErrorBody {
   };
 }
 
-export type OpenHermitStatusCode = 400 | 401 | 404 | 500;
+export type OpenHermitStatusCode = 400 | 401 | 404 | 409 | 500;
 
 export class OpenHermitError extends Error {
   constructor(
@@ -17,6 +17,12 @@ export class OpenHermitError extends Error {
   ) {
     super(message);
     this.name = new.target.name;
+  }
+}
+
+export class ConflictError extends OpenHermitError {
+  constructor(message: string) {
+    super(message, 'conflict', 409);
   }
 }
 

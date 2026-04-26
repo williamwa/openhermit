@@ -45,6 +45,7 @@ export const main = async (): Promise<void> => {
     client,
     token,
     agentId: options.agentId,
+    gatewayUrl,
     workspaceRoot,
     startupSession,
     resumeFlag: options.resume,
