@@ -1258,9 +1258,8 @@ export class AgentRunner implements SessionRuntime {
       if (meta?.telegram_username) return String(meta.telegram_username);
     }
 
-    // CLI / web: use explicit metadata username or OS username as fallback
-    if (meta?.username) return String(meta.username);
-
+    // CLI without a caller (e.g. CLI process running locally with no auth):
+    // fall back to the OS username so first-run provisioning still works.
     if (spec.source.kind === 'cli') {
       try {
         return userInfo().username;
