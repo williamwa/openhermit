@@ -1,8 +1,7 @@
-import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 
 import { AgentRunner } from '@openhermit/agent/agent-runner';
-import { AgentSecurity, AgentWorkspace, BUILTIN_CHANNELS } from '@openhermit/agent/core';
+import { AgentSecurity, AgentWorkspace } from '@openhermit/agent/core';
 import {
   createLangfuseClientFromEnv,
   createLangfuseShutdownHandler,
@@ -42,6 +41,8 @@ export class AgentInstanceManager {
   private configStore: AgentConfigStore | undefined;
   /** File-backed (today) secret store. */
   private secretStore: SecretStore | undefined;
+  /** DB-backed channel store (builtin + external rows, encrypted tokens). */
+  private channelStore: import('@openhermit/store').DbAgentChannelStore | undefined;
 
   setGatewayBaseUrl(url: string): void {
     this.gatewayBaseUrl = url;
@@ -69,6 +70,10 @@ export class AgentInstanceManager {
 
   setSecretStore(store: SecretStore): void {
     this.secretStore = store;
+  }
+
+  setChannelStore(store: import('@openhermit/store').DbAgentChannelStore): void {
+    this.channelStore = store;
   }
 
   getConfigStore(): AgentConfigStore | undefined {
@@ -143,68 +148,53 @@ export class AgentInstanceManager {
     this.runners.set(agentId, runner);
     log(`[${agentId}] runner started`);
 
-    // 6. Register channel tokens for external channel auth.
-    if (this.channelRegistry) {
-      const channelTokens = security.getChannelTokens();
-      for (const entry of channelTokens) {
-        const channelId = `${agentId}:${entry.channel}`;
-        this.channelRegistry.register({
-          channelId,
-          apiKey: entry.token,
-          namespace: entry.channel,
-          agentId,
-        });
-        log(`[${agentId}] registered channel token: ${entry.channel}`);
-      }
-    }
-
-    // 7. Start built-in channel adapters (e.g. Telegram) if configured.
-    //    Each built-in channel gets an auto-generated token registered in the
-    //    ChannelRegistry, scoped to this agent and channel namespace.
-    if (this.gatewayBaseUrl) {
+    // 6. Load channel rows (builtin + external) from DB. Each row's encrypted
+    //    token is registered in ChannelRegistry; for enabled builtin rows we
+    //    additionally boot the in-process bridge using row.config.
+    if (this.channelStore && this.gatewayBaseUrl) {
       try {
-        const config = await security.readConfig();
-        if (config.channels) {
-          const agentBaseUrl = `${this.gatewayBaseUrl}/api/agents/${encodeURIComponent(agentId)}`;
+        const allActive = await this.channelStore.loadActive();
+        const myChannels = allActive.filter((c) => c.agentId === agentId);
 
-          // Generate a per-channel token so each builtin channel gets its own auth identity.
-          const enabledBuiltins = BUILTIN_CHANNELS.filter(
-            (def) => (config.channels as Record<string, { enabled?: boolean }>)[def.key]?.enabled,
-          );
+        if (this.channelRegistry) {
+          for (const ch of myChannels) {
+            this.channelRegistry.register({
+              channelId: ch.id,
+              apiKey: ch.token,
+              namespace: ch.namespace,
+              agentId,
+            });
+          }
+        }
+
+        const enabledBuiltins = myChannels.filter((c) => c.kind === 'builtin' && c.enabled);
+        if (enabledBuiltins.length > 0) {
+          const agentBaseUrl = `${this.gatewayBaseUrl}/api/agents/${encodeURIComponent(agentId)}`;
+          const channelsConfig: Record<string, unknown> = {};
           const agentTokens: Record<string, string> = {};
-          for (const def of enabledBuiltins) {
-            const token = randomBytes(24).toString('hex');
-            agentTokens[def.key] = token;
-            if (this.channelRegistry) {
-              this.channelRegistry.register({
-                channelId: `${agentId}:${def.key}:builtin`,
-                apiKey: token,
-                namespace: def.namespace,
-                agentId,
-              });
-            }
+          for (const ch of enabledBuiltins) {
+            // Resolve ${{SECRET}} placeholders before handing config to the bridge.
+            const resolved = await security.expandSecrets({ ...ch.config, enabled: true });
+            channelsConfig[ch.channelType] = resolved;
+            agentTokens[ch.channelType] = ch.token;
           }
 
-          const { handles, statuses } = await startChannels(config.channels, {
+          const { handles, statuses } = await startChannels(channelsConfig as never, {
             agentBaseUrl,
             agentTokens,
             logger: (channel, msg) => log(`[${agentId}] [${channel}] ${msg}`),
           });
-          if (statuses.length > 0) {
-            this.channelStatuses.set(agentId, statuses);
-          }
+          if (statuses.length > 0) this.channelStatuses.set(agentId, statuses);
           if (handles.length > 0) {
             this.channelHandles.set(agentId, handles);
             for (const handle of handles) {
-              if (handle.outbound) {
-                runner.registerChannelOutbound(handle.outbound);
-              }
+              if (handle.outbound) runner.registerChannelOutbound(handle.outbound);
             }
             log(`[${agentId}] started ${handles.length} channel(s): ${handles.map((h) => h.name).join(', ')}`);
           }
         }
       } catch (error) {
-        log(`[${agentId}] failed to start channels: ${error instanceof Error ? error.message : String(error)}`);
+        log(`[${agentId}] failed to load/start channels: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
@@ -257,31 +247,49 @@ export class AgentInstanceManager {
     log(`[${agentId}] stopped channel: ${channelName}`);
   }
 
+  /**
+   * Start a single builtin channel (used by the enable-channel API). The
+   * row in agent_channels must already be enabled and have config; we
+   * just spawn the in-process bridge and register the row's token in the
+   * live ChannelRegistry.
+   */
   async startSingleChannel(agentId: string, channelName: string, log: (msg: string) => void): Promise<ChannelStatus> {
     const runner = this.runners.get(agentId);
     if (!runner || !this.gatewayBaseUrl) {
       return { name: channelName, status: 'error', error: 'Agent not running' };
     }
+    if (!this.channelStore) {
+      return { name: channelName, status: 'error', error: 'Channel store not configured' };
+    }
 
-    const config = await runner.security.readConfig();
-    if (!config.channels) {
-      return { name: channelName, status: 'error', error: 'No channels configured' };
+    const row = await this.channelStore.findBuiltin(agentId, channelName);
+    if (!row || !row.enabled) {
+      return { name: channelName, status: 'error', error: `Builtin channel ${channelName} is not enabled` };
+    }
+
+    // Decrypt the token via loadActive (we don't expose decrypt directly).
+    const all = await this.channelStore.loadActive();
+    const loaded = all.find((c) => c.id === row.id);
+    if (!loaded) {
+      return { name: channelName, status: 'error', error: 'Failed to decrypt channel token' };
     }
 
     const agentBaseUrl = `${this.gatewayBaseUrl}/api/agents/${encodeURIComponent(agentId)}`;
-    const token = randomBytes(24).toString('hex');
     if (this.channelRegistry) {
       this.channelRegistry.register({
-        channelId: `${agentId}:${channelName}:builtin`,
-        apiKey: token,
-        namespace: channelName,
+        channelId: row.id,
+        apiKey: loaded.token,
+        namespace: row.namespace,
         agentId,
       });
     }
 
-    const { handle, status } = await startSingleChannel(channelName, config.channels, {
+    const resolvedRow = await runner.security.expandSecrets({ ...row.config, enabled: true });
+    const channelsConfig: Record<string, unknown> = { [channelName]: resolvedRow };
+
+    const { handle, status } = await startSingleChannel(channelName, channelsConfig as never, {
       agentBaseUrl,
-      agentTokens: { [channelName]: token },
+      agentTokens: { [channelName]: loaded.token },
       logger: (channel, msg) => log(`[${agentId}] [${channel}] ${msg}`),
     });
 

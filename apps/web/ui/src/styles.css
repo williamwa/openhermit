@@ -847,6 +847,36 @@ h2 { font-size: 14px; font-weight: 600; }
   font-family: var(--mono);
 }
 
+.manage__hint {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 4px 0 12px;
+  line-height: 1.5;
+}
+
+.manage__card--accent {
+  border-left: 3px solid var(--accent, #4f8cf6);
+  background: var(--surface-elevated, #fafafa);
+}
+
+.manage__card-help {
+  margin: 4px 0 8px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.manage__token {
+  background: var(--surface, #f4f4f5);
+  border: 1px solid var(--border, #e5e5e5);
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  word-break: break-all;
+  white-space: pre-wrap;
+  margin: 4px 0 0;
+}
+
 .manage__card-actions {
   display: flex;
   gap: 6px;

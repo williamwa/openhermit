@@ -7,6 +7,7 @@ import { FleetPanel } from './components/FleetPanel';
 import { SkillsPanel } from './components/SkillsPanel';
 import { McpServersPanel } from './components/McpServersPanel';
 import { SchedulesPanel } from './components/SchedulesPanel';
+import { ChannelsPanel } from './components/ChannelsPanel';
 import { ContainersPanel } from './components/ContainersPanel';
 import { UsersPanel } from './components/UsersPanel';
 import { StatsPanel } from './components/StatsPanel';
@@ -52,6 +53,7 @@ export function App() {
       {tab === 'skills' && <SkillsPanel />}
       {tab === 'mcp-servers' && <McpServersPanel />}
       {tab === 'schedules' && <SchedulesPanel />}
+      {tab === 'channels' && <ChannelsPanel />}
       {tab === 'containers' && <ContainersPanel />}
       {tab === 'users' && <UsersPanel />}
       {tab === 'stats' && <StatsPanel />}

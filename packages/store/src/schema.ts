@@ -65,26 +65,39 @@ export const sessionEvents = pgTable('session_events', {
 ]);
 
 /**
- * Owner-registered external channel adapters (Telegram bots, Slack
- * workspaces, etc.) that connect from outside the gateway process. Each
- * row carries an AES-256-GCM-encrypted access token issued at creation
- * time; the channel adapter sends it as `Bearer …` and is resolved into
- * a ChannelRegistration scoped to the row's namespace.
+ * Per-agent channel registrations — both built-in (telegram/discord/slack
+ * adapters running in-process) and owner-issued external channels. Each
+ * row carries:
+ *  - an AES-256-GCM-encrypted access token (the bridge sends it as
+ *    `Bearer …`; resolved into a ChannelRegistration scoped to the
+ *    row's namespace);
+ *  - a per-channel config blob (bot tokens, webhook URLs, etc. — the
+ *    same shape that used to live in agents.config_json.channels.X);
+ *  - an enabled flag toggled by owner / admin.
  *
- * Built-in channels (started in-process by the gateway) get their token
- * generated in memory and never touch this table.
+ * Built-in rows are auto-created when an agent is created (one per
+ * supported builtin channel kind, all initially disabled). External rows
+ * are created on demand via POST /api/agents/:id/channels.
  */
 export const agentChannels = pgTable('agent_channels', {
   id: text('id').primaryKey(),
   agentId: text('agent_id').notNull(),
+  /** 'builtin' or 'external'. */
+  kind: text('kind').notNull(),
+  /** For builtin: the adapter type ('telegram', 'discord', 'slack').
+   *  For external: identical to namespace, free-form. */
+  channelType: text('channel_type').notNull(),
   namespace: text('namespace').notNull(),
   label: text('label'),
+  enabled: boolean('enabled').default(false).notNull(),
+  config: jsonb('config').$type<Record<string, unknown>>().default({}).notNull(),
   /** Plaintext prefix (first 12 chars) for display in admin UI. */
   tokenPrefix: text('token_prefix').notNull(),
   /** Full token, encrypted with OPENHERMIT_SECRETS_KEY. */
   tokenCiphertext: text('token_ciphertext').notNull(),
   createdBy: text('created_by'),
   createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
   lastUsedAt: text('last_used_at'),
   revokedAt: text('revoked_at'),
 }, (table) => [

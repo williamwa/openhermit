@@ -13,26 +13,30 @@ import {
 import type { DrizzleDb } from './index.js';
 
 /**
- * Owner-registered external channel adapters. Each row owns one access
- * token issued at creation time:
- *  - the **plaintext** is shown to the creator exactly once (in the API
- *    response) so they can paste it into the external adapter's config;
- *  - we keep an encrypted copy in the DB so the gateway can decrypt
- *    every entry at boot and seed ChannelRegistry without needing a
- *    plaintext-recovery flow.
+ * Per-agent channel registrations: built-in adapters (telegram/discord/slack
+ * running in-process) and owner-issued external channels. Each row owns a
+ * token; for builtin rows the token still goes through ChannelRegistry so
+ * the in-process bridge can call the gateway with the same auth flow as an
+ * external adapter would.
  *
  * Encryption key is OPENHERMIT_SECRETS_KEY — same key as DbSecretStore;
- * losing it means losing every external-channel token along with every
- * agent secret.
+ * losing it means losing every channel token along with every agent secret.
  */
+export type ChannelKind = 'builtin' | 'external';
+
 export interface AgentChannelRow {
   id: string;
   agentId: string;
+  kind: ChannelKind;
+  channelType: string;
   namespace: string;
   label: string | null;
+  enabled: boolean;
+  config: Record<string, unknown>;
   tokenPrefix: string;
   createdBy: string | null;
   createdAt: string;
+  updatedAt: string;
   lastUsedAt: string | null;
   revokedAt: string | null;
 }
@@ -45,7 +49,11 @@ export interface CreatedAgentChannel extends AgentChannelRow {
 export interface AgentChannelLoaded {
   id: string;
   agentId: string;
+  kind: ChannelKind;
+  channelType: string;
   namespace: string;
+  enabled: boolean;
+  config: Record<string, unknown>;
   /** Decrypted plaintext, used by the gateway to seed ChannelRegistry at boot. */
   token: string;
 }
@@ -86,13 +94,51 @@ export class DbAgentChannelStore {
   }
 
   /**
-   * Issue a new channel token. Returns the row plus the plaintext token —
-   * plaintext is only visible here, never on subsequent reads.
+   * Create a new external (owner-registered) channel. Returns the row +
+   * plaintext token (only visible here).
    */
-  async create(input: {
+  async createExternal(input: {
     agentId: string;
     namespace: string;
     label?: string;
+    config?: Record<string, unknown>;
+    enabled?: boolean;
+    createdBy?: string;
+  }): Promise<CreatedAgentChannel> {
+    return this.createRow({
+      ...input,
+      kind: 'external',
+      channelType: input.namespace,
+    });
+  }
+
+  /**
+   * Create a built-in channel slot for an agent. Used by the create-agent
+   * flow to pre-seed one row per supported builtin (telegram/discord/slack),
+   * all initially disabled.
+   */
+  async createBuiltin(input: {
+    agentId: string;
+    channelType: string;
+    label?: string;
+    config?: Record<string, unknown>;
+    enabled?: boolean;
+  }): Promise<CreatedAgentChannel> {
+    return this.createRow({
+      ...input,
+      kind: 'builtin',
+      namespace: input.channelType,
+    });
+  }
+
+  private async createRow(input: {
+    agentId: string;
+    kind: ChannelKind;
+    channelType: string;
+    namespace: string;
+    label?: string;
+    config?: Record<string, unknown>;
+    enabled?: boolean;
     createdBy?: string;
   }): Promise<CreatedAgentChannel> {
     const id = generateChannelId();
@@ -100,48 +146,62 @@ export class DbAgentChannelStore {
     const tokenPrefix = token.slice(0, 12);
     const tokenCiphertext = encrypt(this.key, token);
     const now = new Date().toISOString();
+    const config = input.config ?? {};
+    const enabled = input.enabled ?? false;
 
     await this.db.insert(agentChannels).values({
       id,
       agentId: input.agentId,
+      kind: input.kind,
+      channelType: input.channelType,
       namespace: input.namespace,
       label: input.label ?? null,
+      enabled,
+      config,
       tokenPrefix,
       tokenCiphertext,
       createdBy: input.createdBy ?? null,
       createdAt: now,
+      updatedAt: now,
     });
 
     return {
       id,
       agentId: input.agentId,
+      kind: input.kind,
+      channelType: input.channelType,
       namespace: input.namespace,
       label: input.label ?? null,
+      enabled,
+      config,
       tokenPrefix,
       createdBy: input.createdBy ?? null,
       createdAt: now,
+      updatedAt: now,
       lastUsedAt: null,
       revokedAt: null,
       token,
     };
   }
 
-  /**
-   * List active (non-revoked) channels for an agent. Token plaintext is
-   * NOT returned — only the prefix for display.
-   */
+  /** All non-revoked channels (both kinds) for an agent. */
   async listForAgent(agentId: string): Promise<AgentChannelRow[]> {
     const rows = await this.db.select().from(agentChannels)
       .where(and(eq(agentChannels.agentId, agentId), isNull(agentChannels.revokedAt)))
-      .orderBy(asc(agentChannels.createdAt));
+      .orderBy(asc(agentChannels.kind), asc(agentChannels.channelType), asc(agentChannels.createdAt));
     return rows.map(rowToPublic);
   }
 
-  /** Soft-delete: mark revoked so it stops resolving. */
-  async revoke(id: string): Promise<void> {
-    await this.db.update(agentChannels)
-      .set({ revokedAt: new Date().toISOString() })
-      .where(eq(agentChannels.id, id));
+  /** Find an active builtin row by (agentId, channelType). */
+  async findBuiltin(agentId: string, channelType: string): Promise<AgentChannelRow | undefined> {
+    const [row] = await this.db.select().from(agentChannels)
+      .where(and(
+        eq(agentChannels.agentId, agentId),
+        eq(agentChannels.kind, 'builtin'),
+        eq(agentChannels.channelType, channelType),
+        isNull(agentChannels.revokedAt),
+      ));
+    return row ? rowToPublic(row) : undefined;
   }
 
   async get(id: string): Promise<AgentChannelRow | undefined> {
@@ -150,9 +210,41 @@ export class DbAgentChannelStore {
   }
 
   /**
+   * Patch enabled / label / config on an existing channel. Returns the
+   * updated row (or undefined if missing).
+   */
+  async update(id: string, patch: {
+    enabled?: boolean;
+    label?: string | null;
+    config?: Record<string, unknown>;
+  }): Promise<AgentChannelRow | undefined> {
+    const data: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+    if (patch.enabled !== undefined) data.enabled = patch.enabled;
+    if (patch.label !== undefined) data.label = patch.label;
+    if (patch.config !== undefined) data.config = patch.config;
+
+    const [row] = await this.db.update(agentChannels).set(data)
+      .where(eq(agentChannels.id, id))
+      .returning();
+    return row ? rowToPublic(row) : undefined;
+  }
+
+  /** Soft-delete: mark revoked so it stops resolving. */
+  async revoke(id: string): Promise<void> {
+    await this.db.update(agentChannels)
+      .set({ revokedAt: new Date().toISOString(), enabled: false })
+      .where(eq(agentChannels.id, id));
+  }
+
+  /** Hard-delete (used for builtin slots that owner truly wants gone). */
+  async delete(id: string): Promise<void> {
+    await this.db.delete(agentChannels).where(eq(agentChannels.id, id));
+  }
+
+  /**
    * Decrypt every active channel token for boot-time loading into
-   * ChannelRegistry. Decryption failures (e.g. key rotated) are skipped
-   * with a warning rather than crashing the gateway.
+   * ChannelRegistry. Includes both kinds. Decryption failures (e.g. key
+   * rotated) are skipped silently.
    */
   async loadActive(): Promise<AgentChannelLoaded[]> {
     const rows = await this.db.select().from(agentChannels)
@@ -161,10 +253,18 @@ export class DbAgentChannelStore {
     for (const row of rows) {
       try {
         const token = decrypt(this.key, row.tokenCiphertext);
-        out.push({ id: row.id, agentId: row.agentId, namespace: row.namespace, token });
+        out.push({
+          id: row.id,
+          agentId: row.agentId,
+          kind: row.kind as ChannelKind,
+          channelType: row.channelType,
+          namespace: row.namespace,
+          enabled: row.enabled,
+          config: (row.config ?? {}) as Record<string, unknown>,
+          token,
+        });
       } catch {
-        // Encryption key changed or row corrupted — skip silently. The
-        // owner can revoke + reissue from the admin UI.
+        // skip
       }
     }
     return out;
@@ -174,11 +274,16 @@ export class DbAgentChannelStore {
 const rowToPublic = (row: typeof agentChannels.$inferSelect): AgentChannelRow => ({
   id: row.id,
   agentId: row.agentId,
+  kind: row.kind as ChannelKind,
+  channelType: row.channelType,
   namespace: row.namespace,
   label: row.label,
+  enabled: row.enabled,
+  config: (row.config ?? {}) as Record<string, unknown>,
   tokenPrefix: row.tokenPrefix,
   createdBy: row.createdBy,
   createdAt: row.createdAt,
+  updatedAt: row.updatedAt,
   lastUsedAt: row.lastUsedAt,
   revokedAt: row.revokedAt,
 });

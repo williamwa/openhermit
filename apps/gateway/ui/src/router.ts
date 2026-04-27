@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 
-export type Tab = 'fleet' | 'skills' | 'mcp-servers' | 'schedules' | 'containers' | 'users' | 'stats' | 'logs';
+export type Tab = 'fleet' | 'skills' | 'mcp-servers' | 'schedules' | 'channels' | 'containers' | 'users' | 'stats' | 'logs';
 
-const VALID_TABS: readonly Tab[] = ['fleet', 'skills', 'mcp-servers', 'schedules', 'containers', 'users', 'stats', 'logs'];
+const VALID_TABS: readonly Tab[] = ['fleet', 'skills', 'mcp-servers', 'schedules', 'channels', 'containers', 'users', 'stats', 'logs'];
 const DEFAULT_TAB: Tab = 'fleet';
 
 const tabFromPath = (pathname: string): Tab => {

@@ -42,7 +42,7 @@ import {
 
 import type { AgentRunner, SessionEventEnvelope } from '@openhermit/agent/agent-runner';
 import { metricsRegistry, startDefaultMetrics } from '@openhermit/agent/metrics';
-import { buildDefaultAgentConfig, listAllOpenHermitContainers } from '@openhermit/agent/core';
+import { BUILTIN_CHANNELS, buildDefaultAgentConfig, listAllOpenHermitContainers } from '@openhermit/agent/core';
 import { listProviderCatalog } from '@openhermit/agent/model-catalog';
 
 import type { AgentInstanceManager } from './agent-instance.js';
@@ -460,6 +460,19 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
 
     await configStore.setConfig(record.agentId, templateConfig as unknown as Record<string, unknown>);
     await configStore.setSecurity(record.agentId, templateSecurity);
+
+    // Pre-seed one row per supported builtin channel (all disabled). Owner
+    // can flip them on later from the admin / web UI without having to
+    // create rows from scratch.
+    if (options.agentChannelStore) {
+      for (const def of BUILTIN_CHANNELS) {
+        await options.agentChannelStore.createBuiltin({
+          agentId: record.agentId,
+          channelType: def.key,
+          enabled: false,
+        });
+      }
+    }
 
     // Seed default instructions
     const agentName = record.name ?? record.agentId;
@@ -1410,20 +1423,28 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     return c.json({ ok: true });
   });
 
-  // ── Channels management ─────────────────────────────────────────────
+  // ── Channels management (builtin + external, unified) ─────────────────
 
-  const CHANNEL_DEFS: Record<string, { label: string; secretKeys: { key: string; label: string; placeholder: string }[] }> = {
+  /**
+   * Static metadata about each builtin channel kind. Drives the secrets
+   * hint shown by the UI ("you'll need TELEGRAM_BOT_TOKEN") and the
+   * default config templates POSTed when toggling on.
+   */
+  const BUILTIN_CHANNEL_DEFS: Record<string, {
+    label: string;
+    secretKeys: { key: string; label: string; placeholder: string }[];
+    /** Default config skeleton with ${{SECRET}} placeholders. */
+    defaultConfig: Record<string, unknown>;
+  }> = {
     telegram: {
       label: 'Telegram',
-      secretKeys: [
-        { key: 'TELEGRAM_BOT_TOKEN', label: 'Bot Token', placeholder: 'Enter Telegram bot token' },
-      ],
+      secretKeys: [{ key: 'TELEGRAM_BOT_TOKEN', label: 'Bot Token', placeholder: 'Enter Telegram bot token' }],
+      defaultConfig: { bot_token: '${{TELEGRAM_BOT_TOKEN}}', mode: 'polling' },
     },
     discord: {
       label: 'Discord',
-      secretKeys: [
-        { key: 'DISCORD_BOT_TOKEN', label: 'Bot Token', placeholder: 'Enter Discord bot token' },
-      ],
+      secretKeys: [{ key: 'DISCORD_BOT_TOKEN', label: 'Bot Token', placeholder: 'Enter Discord bot token' }],
+      defaultConfig: { bot_token: '${{DISCORD_BOT_TOKEN}}' },
     },
     slack: {
       label: 'Slack',
@@ -1431,149 +1452,14 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
         { key: 'SLACK_BOT_TOKEN', label: 'Bot Token (xoxb-...)', placeholder: 'Enter Slack bot token' },
         { key: 'SLACK_APP_TOKEN', label: 'App Token (xapp-...)', placeholder: 'Enter Slack app token' },
       ],
+      defaultConfig: { bot_token: '${{SLACK_BOT_TOKEN}}', app_token: '${{SLACK_APP_TOKEN}}' },
     },
   };
-
-  app.get('/api/agents/:agentId/channels', async (c) => {
-    const agentId = c.req.param('agentId') ?? '';
-    await requireOwnerOrAdmin(c, agentId);
-    const runner = instances.getRunner(agentId);
-
-    let rawConfig: Record<string, unknown>;
-    let secretNames: string[];
-    if (runner) {
-      rawConfig = (await runner.security.readRawConfig()) as unknown as Record<string, unknown>;
-      secretNames = await runner.security.listSecretNames();
-    } else {
-      // Stopped agent — fall back to the stores. Channel enable/disable still
-      // requires a running agent (runtime side-effects), but listing is fine.
-      if (!configStore) throw new NotFoundError(`Agent ${agentId} is not running and no config store is available.`);
-      const stored = await configStore.getConfig(agentId);
-      if (!stored) throw new NotFoundError(`Agent ${agentId} not found.`);
-      rawConfig = stored;
-      secretNames = []; // Without a runner we can't read the secret store; secretsSet will read as false.
-    }
-    const channels = (rawConfig.channels ?? {}) as Record<string, { enabled?: boolean }>;
-    const runtimeStatuses = instances.getChannelStatuses(agentId);
-
-    const result = Object.entries(CHANNEL_DEFS).map(([id, def]) => {
-      const cfg = channels[id];
-      const configured = !!cfg;
-      const enabled = cfg?.enabled ?? false;
-      const secretsSet = def.secretKeys.every((sk) => secretNames.includes(sk.key));
-      const runtime = runtimeStatuses.find((s) => s.name === id);
-      const status = !configured ? undefined : !enabled ? 'disabled' : runtime?.status ?? 'unknown';
-      const error = runtime?.status === 'error' ? runtime.error : undefined;
-      return { id, label: def.label, configured, enabled, secretsSet, secretKeys: def.secretKeys, status, error };
-    });
-
-    return c.json(result);
-  });
-
-  app.post('/api/agents/:agentId/channels/:channelId/enable', async (c) => {
-    const agentId = c.req.param('agentId') ?? '';
-    const channelId = c.req.param('channelId') ?? '';
-    await requireOwnerOrAdmin(c, agentId);
-    const runner = instances.getRunner(agentId);
-    if (!runner) throw new NotFoundError(`Agent ${agentId} is not running.`);
-    if (!CHANNEL_DEFS[channelId]) throw new NotFoundError(`Unknown channel: ${channelId}`);
-
-    const config = await runner.security.readRawConfig();
-    const channels = (config.channels ?? {}) as Record<string, Record<string, unknown>>;
-    if (!channels[channelId]) throw new NotFoundError(`Channel ${channelId} is not configured. Configure it first.`);
-    channels[channelId]!.enabled = true;
-    await runner.security.writeConfig({ ...config, channels });
-
-    const status = await instances.startSingleChannel(agentId, channelId, log);
-    return c.json({ ok: true, status: status.status, error: status.error });
-  });
-
-  app.post('/api/agents/:agentId/channels/:channelId/disable', async (c) => {
-    const agentId = c.req.param('agentId') ?? '';
-    const channelId = c.req.param('channelId') ?? '';
-    await requireOwnerOrAdmin(c, agentId);
-    const runner = instances.getRunner(agentId);
-    if (!runner) throw new NotFoundError(`Agent ${agentId} is not running.`);
-    if (!CHANNEL_DEFS[channelId]) throw new NotFoundError(`Unknown channel: ${channelId}`);
-
-    const config = await runner.security.readRawConfig();
-    const channels = (config.channels ?? {}) as Record<string, Record<string, unknown>>;
-    if (!channels[channelId]) throw new NotFoundError(`Channel ${channelId} is not configured.`);
-    channels[channelId]!.enabled = false;
-    await runner.security.writeConfig({ ...config, channels });
-
-    await instances.stopSingleChannel(agentId, channelId, log);
-    return c.json({ ok: true });
-  });
-
-  app.put('/api/agents/:agentId/channels/:channelId', async (c) => {
-    const agentId = c.req.param('agentId') ?? '';
-    const channelId = c.req.param('channelId') ?? '';
-    await requireOwnerOrAdmin(c, agentId);
-    const runner = instances.getRunner(agentId);
-    if (!runner) throw new NotFoundError(`Agent ${agentId} is not running.`);
-    const def = CHANNEL_DEFS[channelId];
-    if (!def) throw new NotFoundError(`Unknown channel: ${channelId}`);
-
-    const body = await c.req.json() as { secrets: Record<string, string> };
-    if (!body.secrets || typeof body.secrets !== 'object') {
-      return c.json({ error: { message: 'Missing secrets object' } }, 400);
-    }
-
-    // Write secrets
-    const existingSecrets = await runner.security.readSecrets();
-    for (const sk of def.secretKeys) {
-      const val = body.secrets[sk.key];
-      if (val && typeof val === 'string' && val.trim()) {
-        existingSecrets[sk.key] = val.trim();
-      }
-    }
-    await runner.security.writeSecrets(existingSecrets);
-
-    // Write channel config with ${{SECRET}} placeholders
-    const config = await runner.security.readRawConfig();
-    const channels = (config.channels ?? {}) as Record<string, Record<string, unknown>>;
-    const channelCfg: Record<string, unknown> = { enabled: channels[channelId]?.enabled ?? true };
-
-    if (channelId === 'telegram') {
-      channelCfg.bot_token = '${{TELEGRAM_BOT_TOKEN}}';
-      channelCfg.mode = 'polling';
-    } else if (channelId === 'discord') {
-      channelCfg.bot_token = '${{DISCORD_BOT_TOKEN}}';
-    } else if (channelId === 'slack') {
-      channelCfg.bot_token = '${{SLACK_BOT_TOKEN}}';
-      channelCfg.app_token = '${{SLACK_APP_TOKEN}}';
-    }
-
-    channels[channelId] = channelCfg;
-    await runner.security.writeConfig({ ...config, channels });
-    return c.json({ ok: true });
-  });
-
-  app.delete('/api/agents/:agentId/channels/:channelId', async (c) => {
-    const agentId = c.req.param('agentId') ?? '';
-    const channelId = c.req.param('channelId') ?? '';
-    await requireOwnerOrAdmin(c, agentId);
-    const runner = instances.getRunner(agentId);
-    if (!runner) throw new NotFoundError(`Agent ${agentId} is not running.`);
-
-    const config = await runner.security.readRawConfig();
-    const channels = (config.channels ?? {}) as Record<string, Record<string, unknown>>;
-    delete channels[channelId];
-    await runner.security.writeConfig({ ...config, channels });
-    return c.json({ ok: true });
-  });
-
-  // ── External channel tokens ───────────────────────────────────────────
-  // These are owner-issued tokens for channel adapters that run OUTSIDE the
-  // gateway process (a Telegram bot deployed on another machine, etc.).
-  // Built-in channels register their own ephemeral in-memory tokens at
-  // agent boot — they don't go through this API.
 
   const requireAgentChannelStore = (): DbAgentChannelStore => {
     if (!options.agentChannelStore) {
       throw new OpenHermitError(
-        'External channel store unavailable (DATABASE_URL or OPENHERMIT_SECRETS_KEY missing).',
+        'Channel store unavailable (DATABASE_URL or OPENHERMIT_SECRETS_KEY missing).',
         'not_configured',
         500,
       );
@@ -1581,55 +1467,155 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     return options.agentChannelStore;
   };
 
-  app.get('/api/agents/:agentId/external-channels', async (c) => {
+  app.get('/api/agents/:agentId/channels', async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     await requireOwnerOrAdmin(c, agentId);
     const store = requireAgentChannelStore();
     const rows = await store.listForAgent(agentId);
-    return c.json(rows);
+    const runtimeStatuses = instances.getChannelStatuses(agentId);
+
+    // Secret presence — needed by the UI to indicate whether a channel
+    // can actually start. Only available when agent is running.
+    const runner = instances.getRunner(agentId);
+    let secretNames: string[] = [];
+    if (runner) {
+      try { secretNames = await runner.security.listSecretNames(); } catch { /* ignore */ }
+    }
+
+    const result = rows.map((row) => {
+      const def = row.kind === 'builtin' ? BUILTIN_CHANNEL_DEFS[row.channelType] : undefined;
+      const secretsSet = def
+        ? def.secretKeys.every((sk) => secretNames.includes(sk.key))
+        : true;
+      const runtime = runtimeStatuses.find((s) => s.name === row.channelType);
+      const status = !row.enabled ? 'disabled' : runtime?.status ?? 'unknown';
+      const error = runtime?.status === 'error' ? runtime.error : undefined;
+      return {
+        ...row,
+        ...(def ? { label: row.label ?? def.label, secretKeys: def.secretKeys } : {}),
+        secretsSet,
+        runtimeStatus: status,
+        ...(error ? { error } : {}),
+      };
+    });
+    return c.json(result);
   });
 
-  app.post('/api/agents/:agentId/external-channels', async (c) => {
+  /**
+   * Create a new external channel. Builtin slots are auto-seeded on
+   * agent create — owner doesn't POST those, only PATCHes them.
+   */
+  app.post('/api/agents/:agentId/channels', async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     const auth = await requireOwnerOrAdmin(c, agentId);
     const store = requireAgentChannelStore();
-    const body = await c.req.json().catch(() => ({})) as { namespace?: string; label?: string };
+    const body = await c.req.json().catch(() => ({})) as {
+      namespace?: string;
+      label?: string;
+      config?: Record<string, unknown>;
+      enabled?: boolean;
+    };
     if (!body.namespace || typeof body.namespace !== 'string') {
-      throw new ValidationError('namespace is required (e.g. "telegram", "my-bot").');
+      throw new ValidationError('namespace is required.');
     }
-    // Resolve the creator — admin auth has no resolved user, so leave it null.
     let createdBy: string | undefined;
     if (auth.mode === 'user' && options.userStore) {
       const userId = await options.userStore.resolve(auth.channel, auth.channelUserId);
       if (userId) createdBy = userId;
     }
-    const created = await store.create({
+    const created = await store.createExternal({
       agentId,
       namespace: body.namespace,
       ...(body.label ? { label: body.label } : {}),
+      ...(body.config ? { config: body.config } : {}),
+      ...(typeof body.enabled === 'boolean' ? { enabled: body.enabled } : {}),
       ...(createdBy ? { createdBy } : {}),
     });
-    // Plug the new token into the live registry so it's usable immediately.
     options.channelRegistry?.register({
       channelId: created.id,
       apiKey: created.token,
       namespace: created.namespace,
       agentId,
     });
-    // Plaintext token is returned ONCE — caller has to save it now.
     return c.json(created, 201);
   });
 
-  app.delete('/api/agents/:agentId/external-channels/:channelId', async (c) => {
+  /**
+   * Patch an existing channel (builtin or external). Body may include
+   * `enabled`, `label`, and `config`. Toggling enabled on a builtin row
+   * boots / stops the in-process bridge.
+   */
+  app.patch('/api/agents/:agentId/channels/:channelId', async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     const channelId = c.req.param('channelId') ?? '';
     await requireOwnerOrAdmin(c, agentId);
     const store = requireAgentChannelStore();
     const existing = await store.get(channelId);
     if (!existing || existing.agentId !== agentId) {
-      throw new NotFoundError(`External channel ${channelId} not found on agent ${agentId}.`);
+      throw new NotFoundError(`Channel ${channelId} not found on agent ${agentId}.`);
     }
-    await store.revoke(channelId);
+    const body = await c.req.json().catch(() => ({})) as {
+      enabled?: boolean;
+      label?: string | null;
+      config?: Record<string, unknown>;
+    };
+
+    // For builtin channels, when first enabling we apply the default
+    // config skeleton so the user doesn't have to know the field names.
+    let effectiveConfig: Record<string, unknown> | undefined = body.config;
+    if (
+      existing.kind === 'builtin'
+      && body.enabled === true
+      && Object.keys(existing.config).length === 0
+      && !body.config
+    ) {
+      const def = BUILTIN_CHANNEL_DEFS[existing.channelType];
+      if (def) effectiveConfig = { ...def.defaultConfig };
+    }
+
+    const updated = await store.update(channelId, {
+      ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
+      ...(body.label !== undefined ? { label: body.label } : {}),
+      ...(effectiveConfig !== undefined ? { config: effectiveConfig } : {}),
+    });
+    if (!updated) throw new NotFoundError(`Channel ${channelId} not found.`);
+
+    // Builtin channel runtime side-effects: enable → start, disable → stop.
+    if (existing.kind === 'builtin' && body.enabled !== undefined) {
+      if (body.enabled) {
+        const status = await instances.startSingleChannel(agentId, existing.channelType, log);
+        return c.json({ ...updated, runtimeStatus: status.status, error: status.error });
+      } else {
+        await instances.stopSingleChannel(agentId, existing.channelType, log);
+      }
+    }
+
+    return c.json(updated);
+  });
+
+  /**
+   * Delete a channel. External rows are soft-deleted (revoked); builtin
+   * rows are hard-deleted (a fresh row will be re-seeded on next agent
+   * create or via the backfill on next gateway boot if the channelType
+   * is in BUILTIN_CHANNELS).
+   */
+  app.delete('/api/agents/:agentId/channels/:channelId', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    const channelId = c.req.param('channelId') ?? '';
+    await requireOwnerOrAdmin(c, agentId);
+    const store = requireAgentChannelStore();
+    const existing = await store.get(channelId);
+    if (!existing || existing.agentId !== agentId) {
+      throw new NotFoundError(`Channel ${channelId} not found on agent ${agentId}.`);
+    }
+    if (existing.kind === 'builtin' && existing.enabled) {
+      await instances.stopSingleChannel(agentId, existing.channelType, log);
+    }
+    if (existing.kind === 'builtin') {
+      await store.delete(channelId);
+    } else {
+      await store.revoke(channelId);
+    }
     options.channelRegistry?.unregister(channelId);
     return c.json({ ok: true });
   });

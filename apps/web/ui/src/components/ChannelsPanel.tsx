@@ -1,20 +1,37 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   fetchChannels,
-  enableChannel,
-  disableChannel,
-  configureChannel,
+  patchChannel,
   removeChannel,
+  createExternalChannel,
   type ChannelInfo,
+  type CreatedChannel,
 } from '../api';
 
+/**
+ * Unified channel management — covers both built-in adapters
+ * (telegram/discord/slack, in-process bridges) and owner-issued external
+ * tokens (third-party adapters connecting from outside the gateway).
+ *
+ * Both kinds live in the agent_channels table; the server returns them
+ * in one list. Built-in rows are auto-seeded on agent creation and only
+ * support enable/disable/config-edit. External rows are created here
+ * (with a token issued by the server) and can be revoked.
+ */
 export function ChannelsPanel() {
   const [channels, setChannels] = useState<ChannelInfo[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-  const [configuring, setConfiguring] = useState<string | null>(null);
-  const [secretValues, setSecretValues] = useState<Record<string, string>>({});
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editConfig, setEditConfig] = useState('');
+  const [editLabel, setEditLabel] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Create-external flow
+  const [creating, setCreating] = useState(false);
+  const [newNamespace, setNewNamespace] = useState('');
+  const [newLabel, setNewLabel] = useState('');
+  const [createdToken, setCreatedToken] = useState<CreatedChannel | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -31,11 +48,7 @@ export function ChannelsPanel() {
 
   const handleToggle = async (ch: ChannelInfo) => {
     try {
-      if (ch.enabled) {
-        await disableChannel(ch.id);
-      } else {
-        await enableChannel(ch.id);
-      }
+      await patchChannel(ch.id, { enabled: !ch.enabled });
       await load();
     } catch (err) {
       setError((err as Error).message);
@@ -43,7 +56,10 @@ export function ChannelsPanel() {
   };
 
   const handleRemove = async (ch: ChannelInfo) => {
-    if (!confirm(`Remove ${ch.label} channel configuration?`)) return;
+    const what = ch.kind === 'builtin'
+      ? `Reset ${ch.channelType} channel? (it will be re-created disabled on next gateway boot)`
+      : `Revoke external channel "${ch.label ?? ch.namespace}"? Its token will stop working immediately.`;
+    if (!confirm(what)) return;
     try {
       await removeChannel(ch.id);
       await load();
@@ -52,33 +68,56 @@ export function ChannelsPanel() {
     }
   };
 
-  const openConfigure = (ch: ChannelInfo) => {
-    setConfiguring(ch.id);
-    setSecretValues({});
+  const startEdit = (ch: ChannelInfo) => {
+    setEditing(ch.id);
+    setEditConfig(JSON.stringify(ch.config, null, 2));
+    setEditLabel(ch.label ?? '');
     setError('');
   };
 
-  const handleSave = async () => {
-    if (!configuring) return;
-    const ch = channels.find((c) => c.id === configuring);
-    if (!ch) return;
-
-    const missing = ch.secretKeys.filter((sk) => !secretValues[sk.key]?.trim());
-    if (missing.length > 0 && !ch.configured) {
-      setError(`Please fill in: ${missing.map((m) => m.label).join(', ')}`);
+  const handleSaveEdit = async () => {
+    if (!editing) return;
+    let parsedConfig: Record<string, unknown>;
+    try {
+      parsedConfig = JSON.parse(editConfig || '{}') as Record<string, unknown>;
+      if (typeof parsedConfig !== 'object' || parsedConfig === null) {
+        throw new Error('Config must be a JSON object');
+      }
+    } catch (err) {
+      setError(`Invalid JSON: ${(err as Error).message}`);
       return;
     }
-
     setSaving(true);
     try {
-      const secrets: Record<string, string> = {};
-      for (const sk of ch.secretKeys) {
-        const val = secretValues[sk.key]?.trim();
-        if (val) secrets[sk.key] = val;
-      }
-      await configureChannel(configuring, secrets);
-      setConfiguring(null);
-      setSecretValues({});
+      await patchChannel(editing, {
+        config: parsedConfig,
+        label: editLabel.trim() === '' ? null : editLabel.trim(),
+      });
+      setEditing(null);
+      await load();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCreateExternal = async () => {
+    const ns = newNamespace.trim();
+    if (!ns) {
+      setError('Namespace is required.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const created = await createExternalChannel({
+        namespace: ns,
+        ...(newLabel.trim() ? { label: newLabel.trim() } : {}),
+      });
+      setCreatedToken(created);
+      setNewNamespace('');
+      setNewLabel('');
+      setCreating(false);
       await load();
     } catch (err) {
       setError((err as Error).message);
@@ -89,108 +128,199 @@ export function ChannelsPanel() {
 
   if (loading) return <p className="manage__empty">Loading...</p>;
 
-  const configured = channels.filter((c) => c.configured);
-  const available = channels.filter((c) => !c.configured);
-  const configuringChannel = channels.find((c) => c.id === configuring);
+  const builtin = channels.filter((c) => c.kind === 'builtin');
+  const external = channels.filter((c) => c.kind === 'external');
+  const editingChannel = channels.find((c) => c.id === editing);
 
   return (
     <div className="manage__list">
       {error && <p className="manage__error">{error}</p>}
 
-      {configured.length === 0 && !configuring && (
-        <p className="manage__empty">No channels configured.</p>
-      )}
-
-      {configured.map((ch) => (
-        <div className="manage__card" key={ch.id}>
+      {createdToken && (
+        <div className="manage__card manage__card--accent">
           <div className="manage__card-info">
             <div className="manage__card-header">
-              <span className="manage__card-name">{ch.label}</span>
-              {ch.status === 'error' ? (
-                <span className="manage__card-badge manage__card-badge--err" title={ch.error}>Error</span>
-              ) : (
-                <span className={`manage__card-badge ${ch.enabled ? 'manage__card-badge--on' : 'manage__card-badge--off'}`}>
-                  {ch.status === 'connected' ? 'Connected' : ch.enabled ? 'Enabled' : 'Disabled'}
-                </span>
-              )}
-              {ch.configured && !ch.secretsSet && (
-                <span className="manage__card-badge manage__card-badge--warn">Secrets missing</span>
-              )}
+              <span className="manage__card-name">Token issued for {createdToken.namespace}</span>
             </div>
-            {ch.error && (
-              <div className="manage__card-error">{ch.error}</div>
-            )}
+            <p className="manage__card-help">
+              Save this now — it won't be shown again.
+            </p>
+            <pre className="manage__token">{createdToken.token}</pre>
           </div>
           <div className="manage__card-actions">
-            <button
-              className="btn btn--sm btn--ghost"
-              onClick={() => openConfigure(ch)}
-            >
-              Configure
-            </button>
-            <button
-              className={`btn btn--sm ${ch.enabled ? 'btn--ghost' : 'btn--primary'}`}
-              onClick={() => void handleToggle(ch)}
-            >
-              {ch.enabled ? 'Disable' : 'Enable'}
-            </button>
-            <button
-              className="btn btn--sm btn--danger"
-              onClick={() => void handleRemove(ch)}
-            >
-              Remove
+            <button className="btn btn--sm btn--ghost" onClick={() => setCreatedToken(null)}>Dismiss</button>
+          </div>
+        </div>
+      )}
+
+      <h3 className="manage__section-title">Built-in channels</h3>
+      {builtin.length === 0 && (
+        <p className="manage__empty">No built-in channels yet (will be seeded on next agent restart).</p>
+      )}
+      {builtin.map((ch) => (
+        <ChannelCard
+          key={ch.id}
+          ch={ch}
+          onToggle={() => void handleToggle(ch)}
+          onEdit={() => startEdit(ch)}
+          onRemove={() => void handleRemove(ch)}
+        />
+      ))}
+
+      <h3 className="manage__section-title" style={{ marginTop: 24 }}>
+        External channel tokens
+      </h3>
+      <p className="manage__hint">
+        For channel adapters running outside the gateway (a Telegram bot deployed
+        elsewhere, a custom bridge). Each token is namespace-scoped and has no
+        admin privileges.
+      </p>
+      {external.length === 0 && (
+        <p className="manage__empty">No external tokens issued.</p>
+      )}
+      {external.map((ch) => (
+        <ChannelCard
+          key={ch.id}
+          ch={ch}
+          onToggle={() => void handleToggle(ch)}
+          onEdit={() => startEdit(ch)}
+          onRemove={() => void handleRemove(ch)}
+        />
+      ))}
+
+      {creating ? (
+        <div className="manage__dialog">
+          <div className="manage__dialog-header">
+            <h3>New external channel</h3>
+            <button className="btn btn--sm btn--ghost" onClick={() => setCreating(false)}>Cancel</button>
+          </div>
+          <div className="manage__dialog-body">
+            <div className="manage__field">
+              <label className="manage__field-label">Namespace</label>
+              <input
+                className="manage__field-input"
+                placeholder="e.g. telegram-bot, custom-slack"
+                value={newNamespace}
+                onChange={(e) => setNewNamespace(e.target.value)}
+              />
+              <span className="manage__field-hint">
+                The adapter will only be able to act in this namespace (sender.channel must match).
+              </span>
+            </div>
+            <div className="manage__field">
+              <label className="manage__field-label">Label (optional)</label>
+              <input
+                className="manage__field-input"
+                placeholder="Human-readable name"
+                value={newLabel}
+                onChange={(e) => setNewLabel(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="manage__dialog-footer">
+            <button className="btn btn--primary" onClick={() => void handleCreateExternal()} disabled={saving}>
+              {saving ? 'Creating...' : 'Issue token'}
             </button>
           </div>
         </div>
-      ))}
+      ) : (
+        <div className="manage__add-list">
+          <button className="btn btn--sm btn--outline" onClick={() => setCreating(true)}>
+            + Issue external channel token
+          </button>
+        </div>
+      )}
 
-      {configuringChannel && (
+      {editingChannel && (
         <div className="manage__dialog">
           <div className="manage__dialog-header">
-            <h3>Configure {configuringChannel.label}</h3>
-            <button className="btn btn--sm btn--ghost" onClick={() => setConfiguring(null)}>Cancel</button>
+            <h3>Edit {editingChannel.label ?? editingChannel.channelType}</h3>
+            <button className="btn btn--sm btn--ghost" onClick={() => setEditing(null)}>Cancel</button>
           </div>
           <div className="manage__dialog-body">
-            {configuringChannel.secretKeys.map((sk) => (
-              <div className="manage__field" key={sk.key}>
-                <label className="manage__field-label">{sk.label}</label>
-                <input
-                  className="manage__field-input"
-                  type="password"
-                  placeholder={sk.placeholder}
-                  value={secretValues[sk.key] ?? ''}
-                  onChange={(e) => setSecretValues((prev) => ({ ...prev, [sk.key]: e.target.value }))}
-                />
-                {configuringChannel.configured && (
-                  <span className="manage__field-hint">Leave blank to keep existing value</span>
-                )}
-              </div>
-            ))}
+            <div className="manage__field">
+              <label className="manage__field-label">Label</label>
+              <input
+                className="manage__field-input"
+                value={editLabel}
+                onChange={(e) => setEditLabel(e.target.value)}
+              />
+            </div>
+            <div className="manage__field">
+              <label className="manage__field-label">Config (JSON)</label>
+              <textarea
+                className="manage__field-input"
+                rows={10}
+                spellCheck={false}
+                style={{ fontFamily: 'var(--mono)', fontSize: 12 }}
+                value={editConfig}
+                onChange={(e) => setEditConfig(e.target.value)}
+              />
+              {editingChannel.secretKeys && editingChannel.secretKeys.length > 0 && (
+                <span className="manage__field-hint">
+                  Reference secrets with <code>{'${{NAME}}'}</code>. Expected:{' '}
+                  {editingChannel.secretKeys.map((sk) => sk.key).join(', ')}.
+                </span>
+              )}
+            </div>
           </div>
           <div className="manage__dialog-footer">
-            <button className="btn btn--primary" onClick={() => void handleSave()} disabled={saving}>
+            <button className="btn btn--primary" onClick={() => void handleSaveEdit()} disabled={saving}>
               {saving ? 'Saving...' : 'Save'}
             </button>
           </div>
         </div>
       )}
+    </div>
+  );
+}
 
-      {available.length > 0 && !configuring && (
-        <div className="manage__section">
-          <h3 className="manage__section-title">Add Channel</h3>
-          <div className="manage__add-list">
-            {available.map((ch) => (
-              <button
-                key={ch.id}
-                className="btn btn--sm btn--outline"
-                onClick={() => openConfigure(ch)}
-              >
-                + {ch.label}
-              </button>
-            ))}
-          </div>
+function ChannelCard({ ch, onToggle, onEdit, onRemove }: {
+  ch: ChannelInfo;
+  onToggle: () => void;
+  onEdit: () => void;
+  onRemove: () => void;
+}) {
+  const statusClass =
+    ch.runtimeStatus === 'error' ? 'manage__card-badge--err'
+    : ch.enabled ? 'manage__card-badge--on'
+    : 'manage__card-badge--off';
+  const statusText =
+    ch.runtimeStatus === 'connected' ? 'Connected'
+    : ch.runtimeStatus === 'error' ? 'Error'
+    : ch.enabled ? 'Enabled' : 'Disabled';
+  return (
+    <div className="manage__card">
+      <div className="manage__card-info">
+        <div className="manage__card-header">
+          <span className="manage__card-name">
+            {ch.label ?? ch.channelType}
+            {ch.kind === 'external' && (
+              <span className="manage__card-meta"> · {ch.namespace}</span>
+            )}
+          </span>
+          <span className={`manage__card-badge ${statusClass}`}>{statusText}</span>
+          {ch.kind === 'builtin' && !ch.secretsSet && (
+            <span className="manage__card-badge manage__card-badge--warn">Secrets missing</span>
+          )}
         </div>
-      )}
+        <div className="manage__card-meta">
+          token <code>{ch.tokenPrefix}…</code>
+        </div>
+        {ch.error && <div className="manage__card-error">{ch.error}</div>}
+      </div>
+      <div className="manage__card-actions">
+        <button className="btn btn--sm btn--ghost" onClick={onEdit}>Edit</button>
+        <button
+          className={`btn btn--sm ${ch.enabled ? 'btn--ghost' : 'btn--primary'}`}
+          onClick={onToggle}
+        >
+          {ch.enabled ? 'Disable' : 'Enable'}
+        </button>
+        <button className="btn btn--sm btn--danger" onClick={onRemove}>
+          {ch.kind === 'external' ? 'Revoke' : 'Reset'}
+        </button>
+      </div>
     </div>
   );
 }

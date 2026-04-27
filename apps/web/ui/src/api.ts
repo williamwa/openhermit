@@ -495,14 +495,42 @@ export const deleteSchedule = (id: string) => apiFetch<{ ok: boolean }>(`/schedu
 export const triggerSchedule = (id: string) => apiFetch<{ ok: boolean }>(`/schedules/${encodeURIComponent(id)}/trigger`, { method: 'POST' });
 export const fetchScheduleRuns = (id: string) => apiFetch<ScheduleRunInfo[]>(`/schedules/${encodeURIComponent(id)}/runs`);
 
-// Channels
+// Channels — unified for builtin (telegram/discord/slack) and external
+// (owner-issued) tokens. The server returns a single list with `kind` and
+// runtime status enriched on top of the DB row.
+export type ChannelKind = 'builtin' | 'external';
 export interface ChannelSecretKey { key: string; label: string; placeholder: string }
-export interface ChannelInfo { id: string; label: string; configured: boolean; enabled: boolean; secretsSet: boolean; secretKeys: ChannelSecretKey[]; status?: string; error?: string }
+export interface ChannelInfo {
+  id: string;
+  agentId: string;
+  kind: ChannelKind;
+  channelType: string;
+  namespace: string;
+  label: string | null;
+  enabled: boolean;
+  config: Record<string, unknown>;
+  tokenPrefix: string;
+  createdAt: string;
+  updatedAt: string;
+  /** Only for builtin rows: which env-var keys feed this channel. */
+  secretKeys?: ChannelSecretKey[];
+  /** Server-side check that those env vars are populated. */
+  secretsSet: boolean;
+  /** 'connected' | 'disabled' | 'error' | 'unknown' — derived from runtime. */
+  runtimeStatus?: string;
+  error?: string;
+}
+export interface CreatedChannel extends ChannelInfo {
+  /** Plaintext token, only included on the create response. */
+  token: string;
+}
 export const fetchChannels = () => apiFetch<ChannelInfo[]>('/channels');
-export const enableChannel = (id: string) => apiFetch<{ ok: boolean }>(`/channels/${encodeURIComponent(id)}/enable`, { method: 'POST' });
-export const disableChannel = (id: string) => apiFetch<{ ok: boolean }>(`/channels/${encodeURIComponent(id)}/disable`, { method: 'POST' });
-export const configureChannel = (id: string, secrets: Record<string, string>) => apiFetch<{ ok: boolean }>(`/channels/${encodeURIComponent(id)}`, { method: 'PUT', body: { secrets } });
-export const removeChannel = (id: string) => apiFetch<{ ok: boolean }>(`/channels/${encodeURIComponent(id)}`, { method: 'DELETE' });
+export const patchChannel = (id: string, patch: { enabled?: boolean; label?: string | null; config?: Record<string, unknown> }) =>
+  apiFetch<ChannelInfo>(`/channels/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch });
+export const removeChannel = (id: string) =>
+  apiFetch<{ ok: boolean }>(`/channels/${encodeURIComponent(id)}`, { method: 'DELETE' });
+export const createExternalChannel = (input: { namespace: string; label?: string; config?: Record<string, unknown>; enabled?: boolean }) =>
+  apiFetch<CreatedChannel>('/channels', { method: 'POST', body: input });
 
 // Agent config (basic settings)
 export interface AgentConfig {

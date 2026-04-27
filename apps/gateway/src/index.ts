@@ -122,28 +122,44 @@ export const main = async (): Promise<void> => {
     }
   }
 
-  // Auth configuration (secrets stay in env).
+  // Auth configuration (secrets stay in env). ChannelRegistry is seeded
+  // per-agent inside AgentInstanceManager.start() — every channel row
+  // (builtin or external) lives in the same agent_channels table and
+  // takes the same registration path.
   const channels = new ChannelRegistry();
-
-  // Seed registry with owner-registered external-channel tokens (DB-backed).
-  // Built-in (in-process) channels register themselves later in
-  // AgentInstanceManager.start() with ephemeral in-memory tokens.
   if (agentChannelStore) {
-    try {
-      const loaded = await agentChannelStore.loadActive();
-      for (const entry of loaded) {
-        channels.register({
-          channelId: entry.id,
-          apiKey: entry.token,
-          namespace: entry.namespace,
-          agentId: entry.agentId,
-        });
+    instances.setChannelStore(agentChannelStore);
+
+    // One-shot backfill: for every existing agent, make sure each
+    // BUILTIN_CHANNELS kind has a row. If the agent's old
+    // config_json.channels.X document has values, copy them into the
+    // new row's config field on first create. Idempotent — runs every
+    // boot but only inserts the missing rows.
+    if (agentStore && configStore) {
+      try {
+        const { BUILTIN_CHANNELS } = await import('@openhermit/agent/core');
+        for (const agent of await agentStore.list()) {
+          const legacyConfig = await configStore.getConfig(agent.agentId);
+          const legacyChannels = (legacyConfig?.channels ?? {}) as Record<string, Record<string, unknown> | undefined>;
+          for (const def of BUILTIN_CHANNELS) {
+            const existing = await agentChannelStore.findBuiltin(agent.agentId, def.key);
+            if (existing) continue;
+            const legacy = legacyChannels[def.key];
+            const enabled = !!legacy?.enabled;
+            const cfg = legacy ? { ...legacy } : {};
+            delete (cfg as { enabled?: unknown }).enabled;
+            await agentChannelStore.createBuiltin({
+              agentId: agent.agentId,
+              channelType: def.key,
+              config: cfg,
+              enabled,
+            });
+            logStartup(`backfilled builtin channel row: ${agent.agentId}/${def.key} (enabled=${enabled})`);
+          }
+        }
+      } catch (err) {
+        logStartup(`builtin-channel backfill failed: ${err instanceof Error ? err.message : String(err)}`);
       }
-      if (loaded.length > 0) {
-        logStartup(`loaded ${loaded.length} external channel token(s) from DB`);
-      }
-    } catch (error) {
-      logStartup(`failed to load external channel tokens: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

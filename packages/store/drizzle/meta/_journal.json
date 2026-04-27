@@ -29,6 +29,13 @@
       "when": 1777253574532,
       "tag": "0003_agent_channels",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1777254268655,
+      "tag": "0004_agent_channels_rich",
+      "breakpoints": true
     }
   ]
 }

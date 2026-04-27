@@ -326,6 +326,16 @@ export class AgentSecurity {
   }
 
   /**
+   * Public entry-point for callers (e.g. the channel-row loader in
+   * agent-instance.ts) that hold a raw config blob and need secret
+   * placeholders resolved without going through readConfig.
+   */
+  async expandSecrets<T>(value: T): Promise<T> {
+    await this.load();
+    return this.interpolateSecrets(value);
+  }
+
+  /**
    * Recursively replace `${{SECRET_NAME}}` placeholders in string values
    * with the corresponding secret. Unknown secret names are left as-is.
    */
