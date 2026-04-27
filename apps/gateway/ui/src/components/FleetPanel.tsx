@@ -116,6 +116,15 @@ export function FleetPanel() {
 
   const handleAction = async (agentId: string, action: string) => {
     setOpenMenu(null);
+    if (action === 'delete') {
+      const ok = confirm(
+        `Delete agent "${agentId}"?\n\n` +
+        'This wipes its sessions, schedules, channels, secrets, skills, ' +
+        'MCP assignments, and members. Workspace files on disk are NOT removed.\n\n' +
+        'This cannot be undone.',
+      );
+      if (!ok) return;
+    }
     try {
       await api(`/api/agents/${encodeURIComponent(agentId)}/manage/${action}`, { method: 'POST' });
     } catch (err) {
@@ -377,6 +386,18 @@ function FleetActionsMenu({
       <button role="menuitem" onClick={() => onSkills(agent.agentId)}>Skills</button>
       <button role="menuitem" onClick={() => onMcp(agent.agentId)}>MCP</button>
       <button role="menuitem" onClick={() => onSecrets(agent.agentId)}>Secrets</button>
+      {agent.status === 'stopped' && (
+        <>
+          <div className="fleet-actions__divider" />
+          <button
+            role="menuitem"
+            className="fleet-actions__danger"
+            onClick={() => onAction(agent.agentId, 'delete')}
+          >
+            Delete…
+          </button>
+        </>
+      )}
     </div>
   );
 }

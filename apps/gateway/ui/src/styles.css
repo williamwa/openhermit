@@ -719,6 +719,13 @@ dialog::backdrop { background: rgba(9, 9, 11, 0.4); }
 
 .fleet-actions__menu button:hover { background: var(--bg-hover); }
 
+.fleet-actions__menu button.fleet-actions__danger {
+  color: var(--danger, #b91c1c);
+}
+.fleet-actions__menu button.fleet-actions__danger:hover {
+  background: var(--danger-bg, #fef2f2);
+}
+
 .fleet-actions__divider {
   height: 1px;
   background: var(--border);

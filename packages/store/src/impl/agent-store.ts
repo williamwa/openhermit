@@ -7,9 +7,15 @@ import type { AgentRecord } from '../types.js';
 import * as schema from '../schema.js';
 import {
   agents,
+  agentChannels,
+  agentSecrets,
   agentSkills,
   agentMcpServers,
+  containers,
   instructions,
+  memories,
+  schedules,
+  scheduleRuns,
   users,
   userAgents,
   sessions,
@@ -230,7 +236,30 @@ export class DbAgentStore implements AgentStore {
     return { users: u!.count, sessions: s!.count, sessionEvents: e!.count };
   }
 
+  /**
+   * Hard-delete an agent and every agent-scoped row across the schema.
+   * Most child tables don't have a real FK back to agents (they reference
+   * agent_id by string), so we have to enumerate them here. Order doesn't
+   * really matter — none of these reference each other through agents.
+   *
+   * On-disk artifacts (workspace dir, skill-mounts at <home>/agents/<id>)
+   * are left for the operator to clean up; deletion may be destructive
+   * and is rarely worth automating.
+   */
   async delete(agentId: string): Promise<void> {
+    const where = eq(sessionEvents.agentId, agentId);
+    await this.db.delete(sessionEvents).where(where);
+    await this.db.delete(sessions).where(eq(sessions.agentId, agentId));
+    await this.db.delete(scheduleRuns).where(eq(scheduleRuns.agentId, agentId));
+    await this.db.delete(schedules).where(eq(schedules.agentId, agentId));
+    await this.db.delete(agentChannels).where(eq(agentChannels.agentId, agentId));
+    await this.db.delete(agentSecrets).where(eq(agentSecrets.agentId, agentId));
+    await this.db.delete(agentSkills).where(eq(agentSkills.agentId, agentId));
+    await this.db.delete(agentMcpServers).where(eq(agentMcpServers.agentId, agentId));
+    await this.db.delete(memories).where(eq(memories.agentId, agentId));
+    await this.db.delete(containers).where(eq(containers.agentId, agentId));
+    await this.db.delete(instructions).where(eq(instructions.agentId, agentId));
+    // user_agents has ON DELETE CASCADE — it goes away with the agents row.
     await this.db.delete(agents).where(eq(agents.agentId, agentId));
   }
 
