@@ -32,7 +32,12 @@ export interface AuthContext {
   channel: string;
   channelUserId: string;
 
-  /** The agentId this JWT was issued for (user mode only). */
+  /**
+   * Only used by channel-mode auth: the agent the channel registration is
+   * scoped to. User-mode JWTs are gateway-level (no agentId); per-agent
+   * authorization happens via the user_agents membership lookup at the
+   * route level.
+   */
   agentId?: string;
 
   /** Display name (optional). */
@@ -231,14 +236,15 @@ export interface JwtConfig {
 }
 
 export interface JwtTokenPayload extends JWTPayload {
-  /** Subject: "channel:channelUserId" */
+  /** Subject: "channel:channelUserId". */
   sub: string;
-  /** Agent ID this token is scoped to. */
-  agentId: string;
   /** Channel name. */
   channel: string;
   /** Channel user ID. */
   channelUserId: string;
+  // NOTE: agentId is no longer in the JWT — tokens are gateway-level
+  // identity now. Agent access is gated per-request via the user_agents
+  // membership table.
 }
 
 export const createJwtConfig = (secretEnv?: string): JwtConfig => {
@@ -254,11 +260,10 @@ export const createJwtConfig = (secretEnv?: string): JwtConfig => {
 
 export const signJwt = async (
   config: JwtConfig,
-  payload: { agentId: string; channel: string; channelUserId: string },
+  payload: { channel: string; channelUserId: string },
 ): Promise<{ token: string; expiresAt: number }> => {
   const expiry = config.expiry ?? JWT_DEFAULT_EXPIRY;
   const jwt = await new SignJWT({
-    agentId: payload.agentId,
     channel: payload.channel,
     channelUserId: payload.channelUserId,
   })
@@ -281,7 +286,7 @@ export const verifyJwt = async (
 ): Promise<JwtTokenPayload | null> => {
   try {
     const { payload } = await jwtVerify(token, config.secret);
-    if (!payload.sub || !payload.agentId || !payload.channel || !payload.channelUserId) {
+    if (!payload.sub || !payload.channel || !payload.channelUserId) {
       return null;
     }
     return payload as JwtTokenPayload;
@@ -353,14 +358,14 @@ export const resolveAuth = async (
       return { mode: 'admin' as const, channel: 'admin', channelUserId: 'admin' };
     }
 
-    // 1. Try JWT
+    // 1. Try JWT (gateway-level identity; agent access is gated downstream
+    //    via per-request user_agents lookup).
     const jwtPayload = await verifyJwt(options.jwt, bearerToken);
     if (jwtPayload) {
       return {
         mode: 'user',
         channel: jwtPayload.channel as string,
         channelUserId: jwtPayload.channelUserId as string,
-        agentId: jwtPayload.agentId as string,
       };
     }
 

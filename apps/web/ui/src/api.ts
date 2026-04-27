@@ -16,9 +16,15 @@ export interface TokenExchangeResult {
   token: string;
   expiresAt: number;
   isNewDevice: boolean;
+  userId: string;
   displayName?: string;
-  role?: string;
-  userId?: string;
+}
+
+export interface AgentMembership {
+  agentId: string;
+  role: 'owner' | 'user' | 'guest';
+  name?: string;
+  status: 'running' | 'stopped';
 }
 
 export interface SessionSummary {
@@ -130,8 +136,18 @@ const generateDeviceKeyCredential = async (): Promise<string> => {
 };
 
 // ─── Connection ────────────────────────────────────────────────────────────
+//
+// Gateway is set in the first connect step (gatewayUrl + display name →
+// JWT). Picking an agent in the second step is decoupled from gateway
+// auth — the JWT is gateway-level, and per-agent membership is checked
+// per request.
+//
 
 let apiBase = '';
+let gatewayBase = '';
+let currentAgentId = '';
+
+const STORAGE_GATEWAY_URL = 'openhermit_gateway_url';
 
 export const loadConnection = (): Connection | null => {
   try {
@@ -150,8 +166,16 @@ export const clearConnection = (): void => {
   localStorage.removeItem(JWT_STORAGE);
 };
 
-let gatewayBase = '';
-let currentAgentId = '';
+export const loadGatewayUrl = (): string | null =>
+  localStorage.getItem(STORAGE_GATEWAY_URL);
+
+export const saveGatewayUrl = (url: string): void => {
+  localStorage.setItem(STORAGE_GATEWAY_URL, url);
+};
+
+export const setGateway = (url: string): void => {
+  gatewayBase = url.replace(/\/+$/, '');
+};
 
 export const setConnection = (conn: Connection): void => {
   const base = conn.gatewayUrl.replace(/\/+$/, '');
@@ -161,6 +185,7 @@ export const setConnection = (conn: Connection): void => {
 };
 
 export const getApiBase = (): string => apiBase;
+export const getGatewayBase = (): string => gatewayBase;
 
 // ─── Display name ──────────────────────────────────────────────────────────
 
@@ -202,16 +227,19 @@ const saveJwt = (token: string, expiresAt: number): void => {
 const isJwtValid = (): boolean =>
   !!jwtToken && jwtExpiresAt > Math.floor(Date.now() / 1000) + 60;
 
+/**
+ * Exchange the device key for a gateway-level JWT. This is the FIRST
+ * step — only requires gateway URL + display name. The returned JWT
+ * proves identity but grants nothing yet; per-agent access is gated by
+ * subsequent /api/agents/:id/members calls.
+ */
 export const exchangeToken = async (displayName?: string | null): Promise<TokenExchangeResult> => {
+  if (!gatewayBase) throw new Error('Gateway URL not set; call setGateway() first.');
   const deviceKey = await generateDeviceKeyCredential();
   const body: Record<string, unknown> = { grant_type: 'device-key', device_key: deviceKey };
-
   if (displayName) body.display_name = displayName;
 
-  const conn = loadConnection();
-  if (conn?.token) body.agent_token = conn.token;
-
-  const response = await fetch(`${apiBase}/auth/token`, {
+  const response = await fetch(`${gatewayBase}/api/auth/token`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -224,8 +252,7 @@ export const exchangeToken = async (displayName?: string | null): Promise<TokenE
 
   const result = await response.json() as TokenExchangeResult;
   saveJwt(result.token, result.expiresAt);
-  if (result.role) userRole = result.role;
-  if (result.userId) userId = result.userId;
+  userId = result.userId;
   return result;
 };
 
@@ -233,6 +260,45 @@ export const getJwt = async (): Promise<string> => {
   if (isJwtValid()) return jwtToken!;
   const result = await exchangeToken(getDisplayName());
   return result.token;
+};
+
+/** List the agents the current JWT subject has membership on. */
+export const listMyAgents = async (): Promise<AgentMembership[]> => {
+  if (!gatewayBase) throw new Error('Gateway URL not set.');
+  const token = await getJwt();
+  const res = await fetch(`${gatewayBase}/api/users/me/agents`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: { message?: string } }).error?.message || `Failed to list agents (${res.status})`);
+  }
+  return res.json() as Promise<AgentMembership[]>;
+};
+
+/** Join an agent (assign self a guest membership; for protected agents
+ *  the access token is required). After this, web can connect a chat. */
+export const joinAgent = async (agentId: string, accessToken?: string): Promise<AgentMembership> => {
+  if (!gatewayBase) throw new Error('Gateway URL not set.');
+  const token = await getJwt();
+  const body: Record<string, unknown> = {};
+  if (accessToken) body.accessToken = accessToken;
+  const res = await fetch(
+    `${gatewayBase}/api/agents/${encodeURIComponent(agentId)}/members`,
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: { message?: string } }).error?.message || `Failed to join agent (${res.status})`);
+  }
+  return res.json() as Promise<AgentMembership>;
 };
 
 export const initJwt = (): void => { loadJwt(); };

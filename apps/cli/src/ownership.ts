@@ -7,6 +7,61 @@ import type { AgentLocalClient } from '@openhermit/sdk';
 import { createCliSessionSpec } from './sessions.js';
 
 /**
+ * Register the current CLI identity at the gateway BEFORE opening a
+ * session. Two admin calls:
+ *   1. POST /api/users   { channel:'cli', channelUserId, displayName? }
+ *      → create the global user record + identity link if missing
+ *   2. POST /api/agents/:id/members  { userId, role:'guest' }
+ *      → assign a baseline membership on this agent
+ * Idempotent on both ends. Returns the resolved userId.
+ */
+export const registerCliIdentity = async (opts: {
+  agentId: string;
+  gatewayUrl: string;
+  token: string;
+}): Promise<{ userId: string; channelUserId: string } | null> => {
+  let channelUserId: string;
+  try { channelUserId = userInfo().username; } catch { return null; }
+  if (!opts.token) return null; // CLI must be admin-authenticated
+
+  const headers = {
+    authorization: `Bearer ${opts.token}`,
+    'content-type': 'application/json',
+  };
+
+  let userRes: Response;
+  try {
+    userRes = await fetch(`${opts.gatewayUrl}/api/users`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        channel: 'cli',
+        channelUserId,
+        displayName: channelUserId,
+      }),
+    });
+  } catch {
+    return null;
+  }
+  if (!userRes.ok) return null;
+  const userBody = await userRes.json().catch(() => ({})) as { userId?: string };
+  const userId = userBody.userId;
+  if (!userId) return null;
+
+  // Best-effort membership assignment. Idempotent — server will overwrite
+  // role only if upgrading; here we just ensure a row exists.
+  try {
+    await fetch(`${opts.gatewayUrl}/api/agents/${encodeURIComponent(opts.agentId)}/members`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ userId, role: 'guest' }),
+    });
+  } catch { /* non-fatal */ }
+
+  return { userId, channelUserId };
+};
+
+/**
  * Probe the gateway's ownership state for the current CLI identity. If the
  * agent has no owner yet and we're not already owner, prompt the operator
  * to claim ownership. On success we re-open the session so the runner's

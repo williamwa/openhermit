@@ -1,6 +1,6 @@
 import type { Command } from 'commander';
 
-import { maybeClaimOwnership } from '../ownership.js';
+import { maybeClaimOwnership, registerCliIdentity } from '../ownership.js';
 import { createCliSessionSpec, listCliSessions, selectStartupSession } from '../sessions.js';
 import { runTuiChatLoop } from '../tui/index.js';
 import { createGateway, resolveGatewayUrl, handleError } from './shared.js';
@@ -35,16 +35,17 @@ export const registerChatCommand = (program: Command): void => {
           initialSessions,
         );
 
-        // Open the session once up front so the agent registers our CLI
-        // identity (as guest). Then run the ownership probe — if we claim,
-        // the helper re-opens the session so resolvedUserRole refreshes
-        // before the TUI starts pumping requests through the runner.
-        await client.openSession(createCliSessionSpec(startupSession.sessionId));
-
         const token = process.env.OPENHERMIT_TOKEN ?? '';
+        const gatewayUrl = resolveGatewayUrl();
+
+        // Step 1: register CLI identity at the gateway (global user + agent
+        // membership). Step 2: open session so the runner picks up the
+        // resolved role. Step 3: ownership prompt if no owner yet.
+        await registerCliIdentity({ agentId: opts.agentId, gatewayUrl, token });
+        await client.openSession(createCliSessionSpec(startupSession.sessionId));
         await maybeClaimOwnership({
           agentId: opts.agentId,
-          gatewayUrl: resolveGatewayUrl(),
+          gatewayUrl,
           token,
           client,
           sessionId: startupSession.sessionId,

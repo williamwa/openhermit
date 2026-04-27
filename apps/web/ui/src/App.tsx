@@ -1,89 +1,86 @@
 import { useEffect, useState } from 'react';
 import {
   loadConnection,
+  loadGatewayUrl,
   saveConnection,
   clearConnection,
   setConnection,
+  setGateway,
   initJwt,
   exchangeToken,
   getDisplayName,
-  getUserRole,
   type Connection,
 } from './api';
-import { ConnectScreen } from './components/ConnectScreen';
+import { PickAgentScreen } from './components/PickAgentScreen';
 import { SetupScreen } from './components/SetupScreen';
 import { ChatShell } from './components/ChatShell';
 
-type Screen = 'loading' | 'setup' | 'connect' | 'chat';
+type Screen = 'loading' | 'setup' | 'pick-agent' | 'chat';
 
 export function App() {
   const [screen, setScreen] = useState<Screen>('loading');
   const [connection, setConn] = useState<Connection | null>(null);
-  const [error, setError] = useState('');
-  const [role, setRole] = useState<string | null>(null);
+  const [gatewayUrl, setGatewayUrl] = useState<string>('');
 
   useEffect(() => {
+    initJwt();
+
+    // Need both display name AND a remembered gateway URL to skip setup.
     const displayName = getDisplayName();
-    if (!displayName) {
+    const savedGateway = loadGatewayUrl();
+    if (!displayName || !savedGateway) {
       setScreen('setup');
       return;
     }
+    setGateway(savedGateway);
+    setGatewayUrl(savedGateway);
 
-    const saved = loadConnection();
-    if (saved?.gatewayUrl && saved?.agentId) {
-      setConn(saved);
-      setConnection(saved);
-      initJwt();
+    // Try to refresh the JWT silently. If the device key is still valid
+    // for this gateway we go straight to agent picker / last chat.
+    (async () => {
+      try {
+        await exchangeToken(displayName);
+      } catch {
+        setScreen('setup');
+        return;
+      }
 
-      (async () => {
-        try {
-          await exchangeToken(displayName);
-          setRole(getUserRole());
-          setScreen('chat');
-        } catch {
-          setScreen('connect');
-        }
-      })();
-    } else {
-      setScreen('connect');
-    }
+      const saved = loadConnection();
+      if (saved?.agentId) {
+        setConn(saved);
+        setConnection(saved);
+        setScreen('chat');
+      } else {
+        setScreen('pick-agent');
+      }
+    })();
   }, []);
 
-  const handleSetupComplete = () => {
-    const saved = loadConnection();
-    if (saved?.gatewayUrl && saved?.agentId) {
-      setConn(saved);
-      setConnection(saved);
-      initJwt();
-
-      (async () => {
-        try {
-          await exchangeToken(getDisplayName());
-          setRole(getUserRole());
-          setScreen('chat');
-        } catch {
-          setScreen('connect');
-        }
-      })();
-    } else {
-      setScreen('connect');
-    }
+  const handleSetupComplete = (): void => {
+    const url = loadGatewayUrl();
+    if (url) setGatewayUrl(url);
+    setScreen('pick-agent');
   };
 
-  const handleConnect = async (conn: Connection) => {
+  const handlePickAgent = async (conn: Connection): Promise<void> => {
     setConnection(conn);
-    initJwt();
-    await exchangeToken(getDisplayName());
-    setRole(getUserRole());
     saveConnection(conn);
     setConn(conn);
     setScreen('chat');
   };
 
-  const handleDisconnect = () => {
+  const handleDisconnect = (): void => {
     clearConnection();
     setConn(null);
-    setScreen('connect');
+    setScreen('pick-agent');
+  };
+
+  const handleSignOut = (): void => {
+    clearConnection();
+    localStorage.removeItem('openhermit_jwt');
+    localStorage.removeItem('openhermit_gateway_url');
+    setConn(null);
+    setScreen('setup');
   };
 
   if (screen === 'loading') return null;
@@ -92,22 +89,12 @@ export function App() {
     return <SetupScreen onComplete={handleSetupComplete} />;
   }
 
-  if (screen === 'connect') {
-    const saved = loadConnection();
+  if (screen === 'pick-agent') {
     return (
-      <ConnectScreen
-        defaultGatewayUrl={saved?.gatewayUrl || window.location.origin}
-        defaultAgentId={saved?.agentId || 'one'}
-        defaultToken={saved?.token || ''}
-        error={error}
-        onConnect={async (conn) => {
-          setError('');
-          try {
-            await handleConnect(conn);
-          } catch (e) {
-            setError(e instanceof Error ? e.message : String(e));
-          }
-        }}
+      <PickAgentScreen
+        gatewayUrl={gatewayUrl}
+        onPick={handlePickAgent}
+        onSignOut={handleSignOut}
       />
     );
   }
@@ -115,7 +102,7 @@ export function App() {
   return (
     <ChatShell
       connection={connection!}
-      role={role}
+      role={null}
       onDisconnect={handleDisconnect}
     />
   );

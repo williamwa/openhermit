@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { syncSkillMounts } from './skill-mounts.js';
@@ -139,15 +140,20 @@ const parseSessionListQuery = (request: Request): SessionListQuery => {
   return query;
 };
 
-/** Require auth context or throw 401. Optionally enforce agent scoping. */
+/**
+ * Require auth context or throw 401. Optionally enforce agent scoping:
+ *  - channel tokens carry a baked-in agentId; mismatch → 401.
+ *  - user JWTs are gateway-level; the per-agent gate is the user_agents
+ *    membership row, which is checked separately by callers that need it
+ *    (helper below: requireAgentMembership).
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const requireAuth = (c: any, agentId?: string): AuthContext => {
   const auth = c.get('auth' as never) as AuthContext | undefined;
   if (!auth) throw new UnauthorizedError('Authentication required.');
 
-  // Enforce agent scoping: channel tokens and user JWTs are bound to a specific agent.
-  if (agentId && auth.agentId && auth.agentId !== agentId) {
-    throw new UnauthorizedError('Token is not valid for this agent.');
+  if (agentId && auth.mode === 'channel' && auth.agentId && auth.agentId !== agentId) {
+    throw new UnauthorizedError('Channel token is not valid for this agent.');
   }
 
   return auth;
@@ -263,98 +269,249 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   if (options.auth) {
     const authOptions = options.auth;
 
-    // Auth token exchange — before the general auth middleware
-    app.post('/api/agents/:agentId/auth/token', async (c) => {
-      const agentId = c.req.param('agentId') ?? '';
-      const instance = instances.getRunner(agentId);
-      if (!instance) {
-        throw new NotFoundError(`Agent ${agentId} is not running.`);
-      }
-
-      const body: Record<string, unknown> = await c.req.json().catch(() => ({}));
-
-      // Check agent access policy
-      const security = instance.security;
-      const accessLevel = security.getAccessLevel();
-      if (accessLevel === 'protected') {
-        const agentAccessToken = body.agent_token;
-        const expectedToken = security.getAccessToken();
-        if (!expectedToken || agentAccessToken !== expectedToken) {
-          throw new UnauthorizedError('Invalid or missing agent access token.');
-        }
-      }
-
-      // Try each user auth provider
-      let authResult: import('./auth.js').UserAuthResult | null = null;
-      for (const provider of authOptions.userProviders) {
-        authResult = await provider.authenticate(body);
-        if (authResult) break;
-      }
-
-      if (!authResult) {
-        throw new UnauthorizedError('Invalid credentials.');
-      }
-
-      // Ensure a user record exists for this channel identity. Auto-creates
-      // a guest on first contact so we always have a stable userId to return
-      // to the caller, instead of waiting for the first session-open.
-      const ensure = instance.ensureUserForCaller
-        ? await instance.ensureUserForCaller(
-            { channel: authResult.channel, channelUserId: authResult.channelUserId },
-            authResult.displayName,
-          )
-        : null;
-      const userId = ensure?.userId;
-      const isNewDevice = ensure?.created ?? false;
-
-      if (!ensure?.created && authResult.displayName && instance.updateUserName) {
-        await instance.updateUserName(
-          { channel: authResult.channel, channelUserId: authResult.channelUserId },
-          authResult.displayName,
-        );
-      }
-
-      const { token, expiresAt } = await signJwt(authOptions.jwt, {
-        agentId,
-        channel: authResult.channel,
-        channelUserId: authResult.channelUserId,
-      });
-
-      const role = ensure?.role
-        ?? await instance.resolveCallerRole({
-          channel: authResult.channel,
-          channelUserId: authResult.channelUserId,
-        });
-
-      return c.json({
-        token,
-        expiresAt,
-        isNewDevice,
-        ...(userId ? { userId } : {}),
-        ...(authResult.displayName ? { displayName: authResult.displayName } : {}),
-        ...(role ? { role } : {}),
-      });
-    });
-
-    // General auth middleware for all agent routes (except auth/token)
+    // Register the auth middleware BEFORE the route handlers so every
+    // /api/* request gets an AuthContext attached (when credentials are
+    // valid). Each endpoint then enforces its own policy via requireAuth /
+    // requireAdmin / requireOwnerOrAdmin.
     const agentAuthMiddleware = async (c: any, next: any) => {
-      // Skip auth for the token exchange endpoint (already handled above)
-      if (c.req.path.endsWith('/auth/token') && c.req.method === 'POST') {
+      if (c.req.path === '/api/auth/token' && c.req.method === 'POST') {
         await next();
         return;
       }
-
       const authContext = await resolveAuth(c.req.raw, authOptions);
       if (authContext) {
         c.set('auth' as never, authContext as never);
       }
       await next();
     };
-    app.use('/api/agents/*', agentAuthMiddleware);
-    // Global (non-agent-scoped) /api/* endpoints reuse the same auth
-    // resolver so they accept either an admin token or any valid user
-    // JWT. Endpoints that need agent-scoping enforce it themselves.
-    app.use('/api/providers', agentAuthMiddleware);
+    app.use('/api/*', agentAuthMiddleware);
+
+    /**
+     * Gateway-level token exchange. Identifies the user (device key auth
+     * or any other registered provider) and returns a JWT that proves
+     * "I am user X" — it is NOT scoped to any particular agent.
+     *
+     * Per-agent authorization happens later via /api/agents/:id/members
+     * (which checks the agent's access_token if the agent is protected)
+     * and per-request user_agents membership lookups.
+     */
+    app.post('/api/auth/token', async (c) => {
+      const body: Record<string, unknown> = await c.req.json().catch(() => ({}));
+
+      let authResult: import('./auth.js').UserAuthResult | null = null;
+      for (const provider of authOptions.userProviders) {
+        authResult = await provider.authenticate(body);
+        if (authResult) break;
+      }
+      if (!authResult) throw new UnauthorizedError('Invalid credentials.');
+
+      if (!userStore) {
+        throw new OpenHermitError('User store is not configured.', 'not_configured', 500);
+      }
+
+      // Ensure a global user record + identity link. No agent role assigned
+      // here; that comes via POST /api/agents/:id/members.
+      let userId = await userStore.resolve(authResult.channel, authResult.channelUserId);
+      let created = false;
+      if (!userId) {
+        const id = `usr-${crypto.randomBytes(6).toString('hex')}`;
+        const now = new Date().toISOString();
+        await userStore.upsert({
+          userId: id,
+          ...(authResult.displayName ? { name: authResult.displayName } : {}),
+          createdAt: now,
+          updatedAt: now,
+        });
+        await userStore.linkIdentity({
+          userId: id,
+          channel: authResult.channel,
+          channelUserId: authResult.channelUserId,
+          createdAt: now,
+        });
+        userId = id;
+        created = true;
+      } else if (authResult.displayName) {
+        // Update display name on each successful auth so renames flow.
+        const existing = await userStore.get(userId);
+        if (existing && existing.name !== authResult.displayName) {
+          await userStore.upsert({ ...existing, name: authResult.displayName });
+        }
+      }
+
+      const { token, expiresAt } = await signJwt(authOptions.jwt, {
+        channel: authResult.channel,
+        channelUserId: authResult.channelUserId,
+      });
+
+      return c.json({
+        token,
+        expiresAt,
+        userId,
+        isNewDevice: created,
+        ...(authResult.displayName ? { displayName: authResult.displayName } : {}),
+      });
+    });
+
+    /**
+     * Admin-only global user create. CLI calls this on startup to register
+     * its OS-username identity before opening a session. Same semantics as
+     * the token exchange but skips the device-key proof — admin auth is
+     * the trust boundary.
+     */
+    app.post('/api/users', async (c) => {
+      requireAdmin(c.req.header('authorization'));
+      if (!userStore) {
+        throw new OpenHermitError('User store is not configured.', 'not_configured', 500);
+      }
+      const body = await c.req.json().catch(() => ({})) as {
+        channel?: string;
+        channelUserId?: string;
+        displayName?: string;
+      };
+      if (!body.channel || typeof body.channel !== 'string') {
+        throw new ValidationError('channel is required.');
+      }
+      if (!body.channelUserId || typeof body.channelUserId !== 'string') {
+        throw new ValidationError('channelUserId is required.');
+      }
+
+      let userId = await userStore.resolve(body.channel, body.channelUserId);
+      let created = false;
+      if (!userId) {
+        const id = `usr-${crypto.randomBytes(6).toString('hex')}`;
+        const now = new Date().toISOString();
+        await userStore.upsert({
+          userId: id,
+          ...(body.displayName ? { name: body.displayName } : {}),
+          createdAt: now,
+          updatedAt: now,
+        });
+        await userStore.linkIdentity({
+          userId: id,
+          channel: body.channel,
+          channelUserId: body.channelUserId,
+          createdAt: now,
+        });
+        userId = id;
+        created = true;
+      }
+
+      return c.json({ userId, created }, created ? 201 : 200);
+    });
+
+    /**
+     * Agents the JWT subject is a member of. Powers the web "pick agent"
+     * screen so users can jump straight back into agents they've already
+     * joined.
+     */
+    app.get('/api/users/me/agents', async (c) => {
+      const auth = requireAuth(c);
+      if (auth.mode !== 'user') throw new UnauthorizedError('User JWT required.');
+      if (!userStore) {
+        throw new OpenHermitError('User store is not configured.', 'not_configured', 500);
+      }
+      const userId = await userStore.resolve(auth.channel, auth.channelUserId);
+      if (!userId) return c.json([]);
+      const memberships = await userStore.listAgentRoles(userId);
+
+      // Enrich with agent display info from agentStore.
+      const records = agentStore ? await agentStore.list() : [];
+      const byId = new Map(records.map((r) => [r.agentId, r]));
+      const result = memberships.map((m) => {
+        const rec = byId.get(m.agentId);
+        return {
+          agentId: m.agentId,
+          role: m.role,
+          ...(rec?.name ? { name: rec.name } : {}),
+          status: instances.getRunner(m.agentId) ? 'running' as const : 'stopped' as const,
+        };
+      });
+      return c.json(result);
+    });
+
+    /**
+     * Join an agent: assign a user_agents row. Three modes:
+     *  - admin: can assign any (userId, role) on this agent.
+     *  - JWT user with owner role: can assign others.
+     *  - JWT user (no role yet): self-join only, role defaults to guest.
+     *    If the agent is protected, accessToken in body must match.
+     */
+    app.post('/api/agents/:agentId/members', async (c) => {
+      const agentId = c.req.param('agentId') ?? '';
+      const auth = requireAuth(c);
+      if (!userStore) {
+        throw new OpenHermitError('User store is not configured.', 'not_configured', 500);
+      }
+      if (!agentStore) {
+        throw new OpenHermitError('Agent store is not configured.', 'not_configured', 500);
+      }
+      const agentRec = await agentStore.get(agentId);
+      if (!agentRec) throw new NotFoundError(`Agent not found: ${agentId}`);
+
+      const body = await c.req.json().catch(() => ({})) as {
+        userId?: string;
+        role?: 'owner' | 'user' | 'guest';
+        accessToken?: string;
+      };
+
+      // Resolve target userId.
+      let targetUserId: string;
+      if (auth.mode === 'admin') {
+        if (!body.userId) throw new ValidationError('userId is required when calling as admin.');
+        targetUserId = body.userId;
+      } else if (auth.mode === 'user') {
+        const callerUserId = await userStore.resolve(auth.channel, auth.channelUserId);
+        if (!callerUserId) throw new UnauthorizedError('JWT subject does not resolve to a known user.');
+        if (body.userId && body.userId !== callerUserId) {
+          // Adding someone else — caller must be owner of this agent.
+          const callerRole = await userStore.getAgentRole({ agentId }, callerUserId);
+          if (callerRole !== 'owner') {
+            throw new UnauthorizedError('Only owners or admins can add other users.');
+          }
+          targetUserId = body.userId;
+        } else {
+          targetUserId = callerUserId;
+        }
+      } else {
+        throw new UnauthorizedError('Auth mode not allowed for this endpoint.');
+      }
+
+      // Determine effective role.
+      const effectiveRole: 'owner' | 'user' | 'guest' =
+        auth.mode === 'admin' ? (body.role ?? 'guest')
+        : (body.role && body.role !== 'owner') ? body.role  // non-admins can't grant owner here
+        : 'guest';
+
+      // Protected-agent gate: when a non-admin self-joins, check access token.
+      if (auth.mode === 'user') {
+        // Read access policy directly from the security store (works whether
+        // the agent is running or not).
+        const securityDoc = configStore ? await configStore.getSecurity(agentId) : null;
+        const accessLevel = (securityDoc?.access as string | undefined) ?? 'public';
+        if (accessLevel === 'protected') {
+          const expectedToken = securityDoc?.access_token as string | undefined;
+          if (!expectedToken || body.accessToken !== expectedToken) {
+            throw new UnauthorizedError('Invalid or missing agent access token.');
+          }
+        }
+      }
+
+      const now = new Date().toISOString();
+      await userStore.assignAgent({ agentId }, targetUserId, effectiveRole, now);
+      return c.json({ agentId, userId: targetUserId, role: effectiveRole });
+    });
+
+    app.delete('/api/agents/:agentId/members/:userId', async (c) => {
+      const agentId = c.req.param('agentId') ?? '';
+      const targetUserId = c.req.param('userId') ?? '';
+      await requireOwnerOrAdmin(c, agentId);
+      if (!userStore) {
+        throw new OpenHermitError('User store is not configured.', 'not_configured', 500);
+      }
+      await userStore.removeAgent({ agentId }, targetUserId);
+      return c.json({ ok: true });
+    });
+
   } else if (adminToken) {
     // No JWT auth configured, but admin token exists — resolve admin auth for per-agent management routes
     const adminMiddleware = async (c: any, next: any) => {

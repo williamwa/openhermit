@@ -244,6 +244,18 @@ export const gatewayRoutes = {
   agentManage: (agentId: string, action: string): string =>
     `/api/agents/${encodeURIComponent(agentId)}/manage/${encodeURIComponent(action)}`,
   agentManagePattern: '/api/agents/:agentId/manage/:action',
+
+  /** Gateway-level token exchange (device key → user JWT). */
+  authToken: '/api/auth/token',
+  /** Admin-only global user create (CLI bootstrap). */
+  users: '/api/users',
+  /** Membership ops on an agent. */
+  agentMembers: (agentId: string): string =>
+    `/api/agents/${encodeURIComponent(agentId)}/members`,
+  agentMemberByUser: (agentId: string, userId: string): string =>
+    `/api/agents/${encodeURIComponent(agentId)}/members/${encodeURIComponent(userId)}`,
+  /** List the current JWT subject's agent memberships. */
+  meAgents: '/api/users/me/agents',
 } as const;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

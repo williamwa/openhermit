@@ -104,6 +104,9 @@ export interface UserStore {
   /** Assign a role to a user for an agent. */
   assignAgent(scope: StoreScope, userId: string, role: UserRole, createdAt: string): Promise<void>;
 
+  /** Remove a user's membership on a specific agent. */
+  removeAgent(scope: StoreScope, userId: string): Promise<void>;
+
   /** Get a user's role for a specific agent. */
   getAgentRole(scope: StoreScope, userId: string): Promise<UserRole | undefined>;
 

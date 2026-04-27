@@ -157,6 +157,11 @@ export class DbUserStore implements UserStore {
       });
   }
 
+  async removeAgent(scope: StoreScope, userId: string): Promise<void> {
+    await this.db.delete(userAgents)
+      .where(and(eq(userAgents.userId, userId), eq(userAgents.agentId, scope.agentId)));
+  }
+
   async getAgentRole(scope: StoreScope, userId: string): Promise<UserRole | undefined> {
     const [row] = await this.db.select().from(userAgents)
       .where(and(eq(userAgents.userId, userId), eq(userAgents.agentId, scope.agentId)));
