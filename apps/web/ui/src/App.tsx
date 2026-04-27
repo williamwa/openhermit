@@ -9,6 +9,7 @@ import {
   initJwt,
   exchangeToken,
   getDisplayName,
+  listMyAgents,
   type Connection,
 } from './api';
 import { PickAgentScreen } from './components/PickAgentScreen';
@@ -47,8 +48,23 @@ export function App() {
 
       const saved = loadConnection();
       if (saved?.agentId) {
-        setConn(saved);
-        setConnection(saved);
+        // Refresh role from server — it may have changed since last visit.
+        let role = saved.role;
+        try {
+          const memberships = await listMyAgents();
+          const m = memberships.find((x) => x.agentId === saved.agentId);
+          if (!m) {
+            setScreen('pick-agent');
+            return;
+          }
+          role = m.role;
+        } catch {
+          // fall through with stored role
+        }
+        const fresh: Connection = { ...saved, ...(role ? { role } : {}) };
+        setConn(fresh);
+        setConnection(fresh);
+        saveConnection(fresh);
         setScreen('chat');
       } else {
         setScreen('pick-agent');
@@ -102,7 +118,7 @@ export function App() {
   return (
     <ChatShell
       connection={connection!}
-      role={null}
+      role={connection?.role ?? null}
       onDisconnect={handleDisconnect}
     />
   );

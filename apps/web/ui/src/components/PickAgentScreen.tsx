@@ -38,11 +38,11 @@ export function PickAgentScreen({ gatewayUrl, onPick, onSignOut }: Props) {
 
   useEffect(() => { void refresh(); }, []);
 
-  const enter = async (agentId: string): Promise<void> => {
+  const enter = async (m: AgentMembership): Promise<void> => {
     setError('');
     setBusy(true);
     try {
-      await onPick({ gatewayUrl, agentId });
+      await onPick({ gatewayUrl, agentId: m.agentId, role: m.role });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setBusy(false);
@@ -56,8 +56,13 @@ export function PickAgentScreen({ gatewayUrl, onPick, onSignOut }: Props) {
     setError('');
     setBusy(true);
     try {
-      await joinAgent(id, joinToken.trim() || undefined);
-      await onPick({ gatewayUrl, agentId: id, ...(joinToken.trim() ? { token: joinToken.trim() } : {}) });
+      const membership = await joinAgent(id, joinToken.trim() || undefined);
+      await onPick({
+        gatewayUrl,
+        agentId: id,
+        role: membership.role,
+        ...(joinToken.trim() ? { token: joinToken.trim() } : {}),
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setBusy(false);
@@ -93,7 +98,7 @@ export function PickAgentScreen({ gatewayUrl, onPick, onSignOut }: Props) {
                 type="button"
                 className="btn btn--ghost"
                 disabled={busy}
-                onClick={() => void enter(m.agentId)}
+                onClick={() => void enter(m)}
                 style={{
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                   padding: '10px 12px', textAlign: 'left',

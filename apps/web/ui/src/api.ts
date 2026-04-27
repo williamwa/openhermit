@@ -10,6 +10,7 @@ export interface Connection {
   gatewayUrl: string;
   agentId: string;
   token?: string;
+  role?: 'owner' | 'user' | 'guest';
 }
 
 export interface TokenExchangeResult {
