@@ -1,7 +1,5 @@
 import type { AgentLocalClient } from '@openhermit/sdk';
-import { userInfo } from 'node:os';
 import process from 'node:process';
-import readline from 'node:readline';
 import { Key, matchesKey } from '@mariozechner/pi-tui';
 
 import { HELP_TEXT, OPENHERMIT_ASCII_ART } from '../constants.js';
@@ -28,28 +26,15 @@ export interface TuiChatLoopOptions {
   client: AgentLocalClient;
   token: string;
   agentId: string;
-  /** Base URL of the gateway, e.g. http://127.0.0.1:4000. Used for admin
-   *  endpoints (ownership probe / claim) that aren't in AgentLocalClient. */
-  gatewayUrl: string;
   workspaceRoot: string;
   startupSession: StartupSessionSelection;
   resumeFlag?: boolean | undefined;
 }
 
-const askYesNo = (question: string): Promise<boolean> =>
-  new Promise((resolve) => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    rl.question(question, (answer) => {
-      rl.close();
-      const a = answer.trim().toLowerCase();
-      resolve(a === 'y' || a === 'yes');
-    });
-  });
-
 // ─── Main loop ────────────────────────────────────────────────────────────────
 
 export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> => {
-  const { client, agentId, gatewayUrl, token, workspaceRoot, startupSession, resumeFlag } = opts;
+  const { client, agentId, workspaceRoot, startupSession, resumeFlag } = opts;
 
   const layout = createTuiLayout();
   const {
@@ -88,47 +73,6 @@ export const runTuiChatLoop = async (opts: TuiChatLoopOptions): Promise<void> =>
   // ── open initial session ──────────────────────────────────────────────────
 
   await client.openSession(createCliSessionSpec(currentSessionId));
-
-  // ── ownership claim prompt ────────────────────────────────────────────────
-  // openSession registered this CLI identity as a guest. If the agent has no
-  // owner yet (e.g. a web user signed up first and got auto-created as a
-  // guest), give the CLI user an explicit chance to claim ownership rather
-  // than silently leaving the agent ownerless.
-  try {
-    const osUser = userInfo().username;
-    const probe = await fetch(
-      `${gatewayUrl}/api/agents/${encodeURIComponent(agentId)}/ownership` +
-        `?channel=cli&channelUserId=${encodeURIComponent(osUser)}`,
-      { headers: token ? { authorization: `Bearer ${token}` } : {} },
-    );
-    if (probe.ok) {
-      const data = await probe.json() as {
-        hasOwner: boolean;
-        owner: { userId: string; name: string | null } | null;
-        me: { userId: string; role: string | null; name: string | null } | null;
-      };
-      if (!data.hasOwner && data.me && data.me.role !== 'owner') {
-        console.log(`\nAgent "${agentId}" has no owner yet.`);
-        const yes = await askYesNo(`Claim ownership as "${osUser}"? [y/N]: `);
-        if (yes) {
-          const promote = await fetch(
-            `${gatewayUrl}/api/agents/${encodeURIComponent(agentId)}/users/${encodeURIComponent(data.me.userId)}/promote-to-owner`,
-            { method: 'POST', headers: token ? { authorization: `Bearer ${token}` } : {} },
-          );
-          if (promote.ok) {
-            addText(green(`[ownership] You are now owner of "${agentId}".`));
-          } else {
-            const err = await promote.json().catch(() => ({})) as { error?: { message?: string } };
-            addText(red(`[ownership] failed to claim: ${err.error?.message ?? promote.status}`));
-          }
-        } else {
-          addText(gray('[ownership] declined; staying as guest.'));
-        }
-      }
-    }
-  } catch {
-    // Best-effort — don't block chat startup if the probe fails.
-  }
 
   if (startupSession.resumed) {
     try {

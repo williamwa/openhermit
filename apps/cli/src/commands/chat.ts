@@ -1,6 +1,7 @@
 import type { Command } from 'commander';
 
-import { listCliSessions, selectStartupSession } from '../sessions.js';
+import { maybeClaimOwnership } from '../ownership.js';
+import { createCliSessionSpec, listCliSessions, selectStartupSession } from '../sessions.js';
 import { runTuiChatLoop } from '../tui/index.js';
 import { createGateway, resolveGatewayUrl, handleError } from './shared.js';
 
@@ -34,11 +35,25 @@ export const registerChatCommand = (program: Command): void => {
           initialSessions,
         );
 
-        await runTuiChatLoop({
-          client,
-          token: process.env.OPENHERMIT_TOKEN ?? '',
+        // Open the session once up front so the agent registers our CLI
+        // identity (as guest). Then run the ownership probe — if we claim,
+        // the helper re-opens the session so resolvedUserRole refreshes
+        // before the TUI starts pumping requests through the runner.
+        await client.openSession(createCliSessionSpec(startupSession.sessionId));
+
+        const token = process.env.OPENHERMIT_TOKEN ?? '';
+        await maybeClaimOwnership({
           agentId: opts.agentId,
           gatewayUrl: resolveGatewayUrl(),
+          token,
+          client,
+          sessionId: startupSession.sessionId,
+        });
+
+        await runTuiChatLoop({
+          client,
+          token,
+          agentId: opts.agentId,
           workspaceRoot,
           startupSession,
           resumeFlag: opts.resume ?? false,

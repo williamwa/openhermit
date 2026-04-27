@@ -6,8 +6,9 @@ import { GatewayClient } from '@openhermit/sdk';
 import { parseChatCliArgs } from './args.js';
 import { parseSlashCommand } from './commands.js';
 import { formatSessionList } from './formatting.js';
+import { maybeClaimOwnership } from './ownership.js';
 import { waitForAssistantTurn, streamAssistantTurn } from './sse.js';
-import { listCliSessions, selectStartupSession } from './sessions.js';
+import { createCliSessionSpec, listCliSessions, selectStartupSession } from './sessions.js';
 import { runTuiChatLoop } from './tui/index.js';
 
 export {
@@ -41,11 +42,19 @@ export const main = async (): Promise<void> => {
   const initialSessions = await listCliSessions(client);
   const startupSession = selectStartupSession(options, initialSessions);
 
+  await client.openSession(createCliSessionSpec(startupSession.sessionId));
+  await maybeClaimOwnership({
+    agentId: options.agentId,
+    gatewayUrl,
+    token,
+    client,
+    sessionId: startupSession.sessionId,
+  });
+
   await runTuiChatLoop({
     client,
     token,
     agentId: options.agentId,
-    gatewayUrl,
     workspaceRoot,
     startupSession,
     resumeFlag: options.resume,
