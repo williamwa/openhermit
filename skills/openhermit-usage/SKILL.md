@@ -54,12 +54,14 @@ hermit chat --agent-id main
 |------|----------|
 | Setup | `hermit setup` |
 | Gateway | `hermit gateway start`, `stop`, `run`, `status` |
-| Agents | `hermit agents list`, `create`, `start`, `stop`, `remove` |
+| Agents | `hermit agents list`, `create`, `start`, `stop`, `restart`, `delete` |
 | Chat | `hermit chat`, `hermit chat --agent-id <id>`, `--resume`, `--session <id>` |
 | Config | `hermit config show`, `get`, `set` |
 | Secrets | `hermit config secrets list`, `set`, `remove` |
+| Skills | `hermit skills list`, `assignments`, `scan`, `register`, `delete`, `enable`, `disable` |
+| MCP | `hermit mcp list`, `assignments`, `enable`, `disable` |
 | Schedules | `hermit schedules list`, `create`, `pause`, `resume`, `delete`, `runs` |
-| Ops | `hermit status`, `hermit doctor`, `hermit logs` |
+| Ops | `hermit status`, `hermit stats`, `hermit doctor`, `hermit logs` |
 
 ## Agent Config
 

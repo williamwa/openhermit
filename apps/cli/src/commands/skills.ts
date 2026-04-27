@@ -98,4 +98,70 @@ export const registerSkillsCommand = (program: Command): void => {
         handleError(error);
       }
     });
+
+  skills
+    .command('scan')
+    .description('Scan the gateway skills directory for skill manifests')
+    .action(async () => {
+      try {
+        const gateway = createGateway();
+        const found = (await gateway.scanSkills()) as any[];
+        if (found.length === 0) {
+          console.log('No skills found.');
+          return;
+        }
+        printTable(
+          found.map((s: any) => ({
+            id: s.id,
+            name: s.name ?? '',
+            path: s.path ?? '',
+            description: s.description
+              ? (s.description.length > 60 ? s.description.slice(0, 60) + '…' : s.description)
+              : '',
+          })),
+          [
+            { key: 'id', label: 'ID' },
+            { key: 'name', label: 'Name' },
+            { key: 'path', label: 'Path' },
+            { key: 'description', label: 'Description' },
+          ],
+        );
+      } catch (error) {
+        handleError(error);
+      }
+    });
+
+  skills
+    .command('register <skillId>')
+    .description('Register a skill in the global registry')
+    .requiredOption('--name <name>', 'Display name')
+    .requiredOption('--description <text>', 'Skill description')
+    .requiredOption('--path <path>', 'Filesystem path to skill directory')
+    .action(async (skillId: string, opts: { name: string; description: string; path: string }) => {
+      try {
+        const gateway = createGateway();
+        await gateway.registerSkill({
+          id: skillId,
+          name: opts.name,
+          description: opts.description,
+          path: opts.path,
+        });
+        console.log(`Registered skill ${skillId}.`);
+      } catch (error) {
+        handleError(error);
+      }
+    });
+
+  skills
+    .command('delete <skillId>')
+    .description('Delete a skill from the global registry')
+    .action(async (skillId: string) => {
+      try {
+        const gateway = createGateway();
+        await gateway.deleteSkill(skillId);
+        console.log(`Deleted skill ${skillId}.`);
+      } catch (error) {
+        handleError(error);
+      }
+    });
 };

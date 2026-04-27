@@ -358,6 +358,24 @@ export class GatewayClient {
     return this.getJson(`/api/admin/skills`);
   }
 
+  async scanSkills(): Promise<unknown[]> {
+    return this.getJson(`/api/admin/skills/scan`);
+  }
+
+  async registerSkill(input: {
+    id: string;
+    name: string;
+    description: string;
+    path: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<void> {
+    await this.postJson(`/api/admin/skills`, input);
+  }
+
+  async deleteSkill(skillId: string): Promise<void> {
+    await this.deleteJson(`/api/admin/skills/${encodeURIComponent(skillId)}`);
+  }
+
   async listSkillAssignments(): Promise<Array<{ agentId: string; skillId: string; enabled: boolean }>> {
     return this.getJson(`/api/admin/skills/assignments`);
   }
@@ -368,6 +386,17 @@ export class GatewayClient {
 
   async disableSkill(skillId: string, agentId: string): Promise<void> {
     await this.postJson(`/api/admin/skills/${encodeURIComponent(skillId)}/disable`, { agentId });
+  }
+
+  // --- admin stats ---
+
+  async getAdminStats(): Promise<{
+    uptime: number;
+    memory: { rss: number; heapUsed: number; heapTotal: number };
+    agents: { running: number };
+    counts: { users: number; sessions: number; sessionEvents: number };
+  }> {
+    return this.getJson(`/api/admin/stats`);
   }
 
   // --- mcp servers (admin) ---

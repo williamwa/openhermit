@@ -33,12 +33,14 @@ hermit chat --agent-id main
 |------|----------|
 | Setup | `hermit setup` |
 | Gateway | `hermit gateway start`, `stop`, `run`, `status` |
-| Agents | `hermit agents list`, `create <agentId> [--name] [--config-dir] [--workspace-dir] [--owner]`, `start`, `stop`, `remove` |
+| Agents | `hermit agents list`, `create <agentId> [--name] [--workspace-dir] [--owner]`, `start`, `stop`, `restart`, `delete` |
 | Chat | `hermit chat [--agent-id <id>] [--resume] [--session <sessionId>]` |
 | Config | `hermit config show`, `get <key>`, `set <key> <value>` |
 | Secrets | `hermit config secrets list`, `set <key> <value>`, `remove <key>` |
+| Skills | `hermit skills list`, `assignments`, `scan`, `register <id> --name --description --path`, `delete <id>`, `enable <id> --agent <id>`, `disable <id> --agent <id>` |
+| MCP | `hermit mcp list`, `assignments`, `enable <id> --agent <id>`, `disable <id> --agent <id>` |
 | Schedules | `hermit schedules list [--status]`, `create --prompt ... [--cron ... | --run-at ...]`, `pause`, `resume`, `delete`, `runs` |
-| Operations | `hermit status`, `hermit doctor`, `hermit logs [-f] [-n N] [--json]` |
+| Operations | `hermit status`, `hermit stats`, `hermit doctor`, `hermit logs [-f] [-n N] [--json]` |
 
 Agent-scoped commands default to `OPENHERMIT_AGENT_ID` or `main`.
 

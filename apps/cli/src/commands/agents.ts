@@ -94,15 +94,28 @@ export const registerAgentsCommand = (program: Command): void => {
       }
     });
 
-  // --- remove ---
+  // --- restart ---
   agents
-    .command('remove <agentId>')
-    .description('Remove an agent (must be stopped first)')
+    .command('restart <agentId>')
+    .description('Restart an agent')
+    .action(async (agentId: string) => {
+      try {
+        const gateway = createGateway();
+        const result = await gateway.manageAgent(agentId, 'restart');
+        console.log(`Agent ${result.agentId}: ${result.status}`);
+      } catch (error) {
+        handleError(error);
+      }
+    });
+
+  // --- delete ---
+  agents
+    .command('delete <agentId>')
+    .description('Delete an agent and all its data (must be stopped first)')
     .action(async (agentId: string) => {
       try {
         const gateway = createGateway();
 
-        // Check agent is stopped before removing.
         const health = await gateway.agentHealth(agentId);
         if (health.status === 'running') {
           console.error(`Agent ${agentId} is still running. Stop it first with: hermit agents stop ${agentId}`);
@@ -110,7 +123,7 @@ export const registerAgentsCommand = (program: Command): void => {
         }
 
         await gateway.deleteAgent(agentId);
-        console.log(`Agent removed: ${agentId}`);
+        console.log(`Agent deleted: ${agentId}`);
       } catch (error) {
         handleError(error);
       }

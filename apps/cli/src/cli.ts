@@ -13,6 +13,7 @@ import { registerConfigCommand } from './commands/config.js';
 import { registerSchedulesCommand } from './commands/schedules.js';
 import { registerSkillsCommand } from './commands/skills.js';
 import { registerMcpCommand } from './commands/mcp.js';
+import { registerStatsCommand } from './commands/stats.js';
 import { registerMigrateAgentConfigCommand } from './commands/migrate-agent-config.js';
 
 await loadEnv();
@@ -38,6 +39,7 @@ registerLogsCommand(program);
 registerSchedulesCommand(program);
 registerSkillsCommand(program);
 registerMcpCommand(program);
+registerStatsCommand(program);
 registerMigrateAgentConfigCommand(program);
 
 await program.parseAsync(process.argv);

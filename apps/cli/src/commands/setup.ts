@@ -323,7 +323,8 @@ export const registerSetupCommand = (program: Command): void => {
       }
 
       console.log('\nNext steps:');
-      console.log('  hermit gateway run     Start the gateway');
+      console.log('  hermit gateway start   Start the gateway (background)');
+      console.log('  hermit web start       Start the web UI (background)');
       console.log('  hermit status          Check platform status');
       console.log('  hermit doctor          Verify environment');
     });
