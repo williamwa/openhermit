@@ -48,7 +48,8 @@ OpenHermit keeps internal runtime state separate from external task state.
 - skills and skill assignments
 - MCP server definitions and assignments
 - schedules and schedule runs
-- per-agent `config.json`, `security.json`, and `secrets.json`
+- per-agent runtime config and security policy (`agents.config_json` / `agents.security_json` columns)
+- per-agent secrets (still file-backed in `secrets.json`; accessed only through `SecretStore`)
 
 **External state** is the user's work surface:
 
@@ -58,21 +59,22 @@ OpenHermit keeps internal runtime state separate from external task state.
 - mounted data under the workspace
 - workspace-installed skills under `.openhermit/skills`
 
-## Per-Agent Files
+## Per-Agent State
 
-Managed agents default to:
+Runtime config and security policy are stored in PostgreSQL on the `agents` row (`config_json`, `security_json`) and managed through the admin UI, REST API, or `hermit config ... / hermit security ...`. Channels live in `agent_channels` with encrypted tokens, managed through `/api/agents/{agentId}/channels/...`.
+
+Per-agent files under `~/.openhermit/agents/{agentId}/` are runtime/local state only:
 
 ```text
 ~/.openhermit/
 ├── agents/{agentId}/
-│   ├── config.json
-│   ├── security.json
-│   ├── secrets.json
-│   └── skill-mounts/
+│   ├── runtime.json     # runtime port + token written by the agent process
+│   ├── secrets.json     # file-backed via SecretStore; referenced as ${{KEY}}
+│   └── skill-mounts/    # generated symlinks to enabled skills
 └── workspaces/{agentId}/
 ```
 
-`config.json` controls model, exec backend, web provider, channels, and memory introspection. `security.json` controls autonomy level, approval policy, access level, access token, and optional channel tokens. `secrets.json` stores provider and integration secrets interpolated into config values with `${{SECRET_NAME}}`.
+`config_json` controls model, exec backend, web provider, and memory introspection. `security_json` controls autonomy level, approval policy, access level, and access token. `secrets.json` stores provider and integration secrets interpolated into config values with `${{SECRET_NAME}}` (see [storage-model.md](storage-model.md) for the future plan to move secrets into the DB).
 
 ## Gateway Runtime
 

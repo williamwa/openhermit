@@ -16,27 +16,13 @@
 
 ## Configuration
 
-Add the channel to an agent's `config.json`:
-
-```json
-{
-  "channels": {
-    "telegram": {
-      "enabled": true,
-      "bot_token": "${{TELEGRAM_BOT_TOKEN}}",
-      "mode": "polling"
-    }
-  }
-}
-```
-
-Store the token separately:
+Channels are stored in the `agent_channels` table with encrypted tokens. Add via admin UI, REST API, or CLI:
 
 ```bash
-hermit config secrets set TELEGRAM_BOT_TOKEN <token>
+hermit channels enable telegram --agent <agentId> --token <bot-token> --mode polling
 ```
 
-Optional keys:
+Stored config keys:
 
 - `mode`: `polling` or `webhook`
 - `webhook_url`: public webhook URL

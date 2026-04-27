@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   fetchChannels,
   patchChannel,
@@ -32,6 +32,19 @@ export function ChannelsPanel() {
   const [newNamespace, setNewNamespace] = useState('');
   const [newLabel, setNewLabel] = useState('');
   const [createdToken, setCreatedToken] = useState<CreatedChannel | null>(null);
+
+  const editDialogRef = useRef<HTMLDialogElement>(null);
+  const createDialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    if (editing) editDialogRef.current?.showModal();
+    else editDialogRef.current?.close();
+  }, [editing]);
+
+  useEffect(() => {
+    if (creating) createDialogRef.current?.showModal();
+    else createDialogRef.current?.close();
+  }, [creating]);
 
   const load = useCallback(async () => {
     try {
@@ -188,89 +201,89 @@ export function ChannelsPanel() {
         />
       ))}
 
-      {creating ? (
-        <div className="manage__dialog">
-          <div className="manage__dialog-header">
-            <h3>New external channel</h3>
-            <button className="btn btn--sm btn--ghost" onClick={() => setCreating(false)}>Cancel</button>
+      <div className="manage__add-list">
+        <button className="btn btn--sm btn--outline" onClick={() => setCreating(true)}>
+          + Issue external channel token
+        </button>
+      </div>
+
+      <dialog ref={createDialogRef} className="manage__dialog" onClose={() => setCreating(false)}>
+        <div className="manage__dialog-header">
+          <h3>New external channel</h3>
+          <button className="btn btn--sm btn--ghost" onClick={() => setCreating(false)}>Cancel</button>
+        </div>
+        <div className="manage__dialog-body">
+          <div className="manage__field">
+            <label className="manage__field-label">Namespace</label>
+            <input
+              className="manage__field-input"
+              placeholder="e.g. telegram-bot, custom-slack"
+              value={newNamespace}
+              onChange={(e) => setNewNamespace(e.target.value)}
+            />
+            <span className="manage__field-hint">
+              The adapter will only be able to act in this namespace (sender.channel must match).
+            </span>
           </div>
-          <div className="manage__dialog-body">
-            <div className="manage__field">
-              <label className="manage__field-label">Namespace</label>
-              <input
-                className="manage__field-input"
-                placeholder="e.g. telegram-bot, custom-slack"
-                value={newNamespace}
-                onChange={(e) => setNewNamespace(e.target.value)}
-              />
-              <span className="manage__field-hint">
-                The adapter will only be able to act in this namespace (sender.channel must match).
-              </span>
-            </div>
-            <div className="manage__field">
-              <label className="manage__field-label">Label (optional)</label>
-              <input
-                className="manage__field-input"
-                placeholder="Human-readable name"
-                value={newLabel}
-                onChange={(e) => setNewLabel(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="manage__dialog-footer">
-            <button className="btn btn--primary" onClick={() => void handleCreateExternal()} disabled={saving}>
-              {saving ? 'Creating...' : 'Issue token'}
-            </button>
+          <div className="manage__field">
+            <label className="manage__field-label">Label (optional)</label>
+            <input
+              className="manage__field-input"
+              placeholder="Human-readable name"
+              value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)}
+            />
           </div>
         </div>
-      ) : (
-        <div className="manage__add-list">
-          <button className="btn btn--sm btn--outline" onClick={() => setCreating(true)}>
-            + Issue external channel token
+        <div className="manage__dialog-footer">
+          <button className="btn btn--primary" onClick={() => void handleCreateExternal()} disabled={saving}>
+            {saving ? 'Creating...' : 'Issue token'}
           </button>
         </div>
-      )}
+      </dialog>
 
-      {editingChannel && (
-        <div className="manage__dialog">
-          <div className="manage__dialog-header">
-            <h3>Edit {editingChannel.label ?? editingChannel.channelType}</h3>
-            <button className="btn btn--sm btn--ghost" onClick={() => setEditing(null)}>Cancel</button>
-          </div>
-          <div className="manage__dialog-body">
-            <div className="manage__field">
-              <label className="manage__field-label">Label</label>
-              <input
-                className="manage__field-input"
-                value={editLabel}
-                onChange={(e) => setEditLabel(e.target.value)}
-              />
+      <dialog ref={editDialogRef} className="manage__dialog" onClose={() => setEditing(null)}>
+        {editingChannel && (
+          <>
+            <div className="manage__dialog-header">
+              <h3>Edit {editingChannel.label ?? editingChannel.channelType}</h3>
+              <button className="btn btn--sm btn--ghost" onClick={() => setEditing(null)}>Cancel</button>
             </div>
-            <div className="manage__field">
-              <label className="manage__field-label">Config (JSON)</label>
-              <textarea
-                className="manage__field-input"
-                rows={10}
-                spellCheck={false}
-                style={{ fontFamily: 'var(--mono)', fontSize: 12 }}
-                value={editConfig}
-                onChange={(e) => setEditConfig(e.target.value)}
-              />
-              {editingChannel.secretKeys && editingChannel.secretKeys.length > 0 && (
-                <span className="manage__field-hint">
-                  Reference secrets with <code>{'${{NAME}}'}</code>. Expected:{' '}
-                  {editingChannel.secretKeys.map((sk) => sk.key).join(', ')}.
-                </span>
-              )}
+            <div className="manage__dialog-body">
+              <div className="manage__field">
+                <label className="manage__field-label">Label</label>
+                <input
+                  className="manage__field-input"
+                  value={editLabel}
+                  onChange={(e) => setEditLabel(e.target.value)}
+                />
+              </div>
+              <div className="manage__field">
+                <label className="manage__field-label">Config (JSON)</label>
+                <textarea
+                  className="manage__field-input"
+                  rows={10}
+                  spellCheck={false}
+                  style={{ fontFamily: 'var(--mono)', fontSize: 12 }}
+                  value={editConfig}
+                  onChange={(e) => setEditConfig(e.target.value)}
+                />
+                {editingChannel.secretKeys && editingChannel.secretKeys.length > 0 && (
+                  <span className="manage__field-hint">
+                    Reference secrets with <code>{'${{NAME}}'}</code>. Expected:{' '}
+                    {editingChannel.secretKeys.map((sk) => sk.key).join(', ')}.
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
-          <div className="manage__dialog-footer">
-            <button className="btn btn--primary" onClick={() => void handleSaveEdit()} disabled={saving}>
-              {saving ? 'Saving...' : 'Save'}
-            </button>
-          </div>
-        </div>
-      )}
+            <div className="manage__dialog-footer">
+              <button className="btn btn--primary" onClick={() => void handleSaveEdit()} disabled={saving}>
+                {saving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </>
+        )}
+      </dialog>
     </div>
   );
 }

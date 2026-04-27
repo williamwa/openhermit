@@ -1675,6 +1675,16 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     if (!body.namespace || typeof body.namespace !== 'string') {
       throw new ValidationError('namespace is required.');
     }
+    const namespace = body.namespace.trim();
+    if (!namespace) {
+      throw new ValidationError('namespace is required.');
+    }
+    const existing = await store.listForAgent(agentId);
+    if (existing.some((ch) => ch.namespace === namespace && !ch.revokedAt)) {
+      throw new ValidationError(
+        `A channel with namespace "${namespace}" already exists on this agent.`,
+      );
+    }
     let createdBy: string | undefined;
     if (auth.mode === 'user' && options.userStore) {
       const userId = await options.userStore.resolve(auth.channel, auth.channelUserId);
@@ -1682,7 +1692,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     }
     const created = await store.createExternal({
       agentId,
-      namespace: body.namespace,
+      namespace,
       ...(body.label ? { label: body.label } : {}),
       ...(body.config ? { config: body.config } : {}),
       ...(typeof body.enabled === 'boolean' ? { enabled: body.enabled } : {}),

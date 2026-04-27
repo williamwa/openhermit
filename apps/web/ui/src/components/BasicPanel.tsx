@@ -220,7 +220,7 @@ export function BasicPanel() {
               type="text"
               value={model}
               onChange={(e) => setModel(e.target.value)}
-              placeholder={modelsForProvider[0]?.id ?? 'e.g. claude-sonnet-4-6'}
+              placeholder={modelsForProvider[0]?.id ?? 'e.g. google/gemini-3-flash-preview'}
               autoComplete="off"
             />
             {modelsForProvider.length > 0 && (

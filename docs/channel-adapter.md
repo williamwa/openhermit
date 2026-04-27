@@ -48,28 +48,7 @@ Adapters register `ChannelOutbound` implementations. The `session_send` tool can
 
 ## Configuration
 
-Channels live under `channels` in the agent config. Secrets should be stored in `secrets.json` and referenced with `${{SECRET_NAME}}`.
-
-```json
-{
-  "channels": {
-    "telegram": {
-      "enabled": true,
-      "bot_token": "${{TELEGRAM_BOT_TOKEN}}",
-      "mode": "polling"
-    },
-    "discord": {
-      "enabled": true,
-      "bot_token": "${{DISCORD_BOT_TOKEN}}"
-    },
-    "slack": {
-      "enabled": true,
-      "bot_token": "${{SLACK_BOT_TOKEN}}",
-      "app_token": "${{SLACK_APP_TOKEN}}"
-    }
-  }
-}
-```
+Channels are stored in the `agent_channels` table (config + encrypted token columns) and managed through the admin UI, CLI (`hermit channels ...`), or the REST routes below. Tokens never live in `config.json`; they are encrypted at rest and decrypted only when an adapter starts.
 
 ## Runtime Management API
 

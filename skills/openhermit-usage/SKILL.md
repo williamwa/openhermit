@@ -65,15 +65,15 @@ hermit chat --agent-id main
 
 ## Agent Config
 
-Agent config is stored at `~/.openhermit/agents/<agentId>/config.json`.
+Agent config and security policy are stored in PostgreSQL (`agents.config_json` / `agents.security_json`) and managed through the admin UI, REST API, or `hermit config ...` / `hermit security ...`. The shapes below describe the JSON value stored in those columns.
 
 Model:
 
 ```json
 {
   "model": {
-    "provider": "anthropic",
-    "model": "claude-sonnet-4-20250514",
+    "provider": "openrouter",
+    "model": "google/gemini-3-flash-preview",
     "max_tokens": 8192
   }
 }
@@ -98,32 +98,11 @@ Exec:
 }
 ```
 
-Channels:
+Channels are not part of `config.json` — they live in the `agent_channels` table with encrypted tokens. Manage them via the admin UI, the `/api/agents/{agentId}/channels/...` routes, or `hermit channels ...`.
 
-```json
-{
-  "channels": {
-    "telegram": {
-      "enabled": true,
-      "bot_token": "${{TELEGRAM_BOT_TOKEN}}",
-      "mode": "polling"
-    },
-    "discord": {
-      "enabled": true,
-      "bot_token": "${{DISCORD_BOT_TOKEN}}"
-    },
-    "slack": {
-      "enabled": true,
-      "bot_token": "${{SLACK_BOT_TOKEN}}",
-      "app_token": "${{SLACK_APP_TOKEN}}"
-    }
-  }
-}
-```
+Provider/integration secrets are stored per-agent in `secrets.json` (file-backed via `SecretStore`). Set with `hermit config secrets set KEY value` and reference them in config values as `${{KEY}}`.
 
-Store secrets with `hermit config secrets set KEY value` and reference them as `${{KEY}}`.
-
-Security policy is stored separately in `security.json`:
+Security policy is the JSON in `agents.security_json`:
 
 ```json
 {

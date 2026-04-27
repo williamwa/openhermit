@@ -145,8 +145,8 @@ export type AgentConfig = AgentRuntimeConfig;
 export const buildDefaultAgentConfig = (workspaceRoot: string): AgentRuntimeConfig => ({
   workspace_root: workspaceRoot,
   model: {
-    provider: 'anthropic',
-    model: 'claude-sonnet-4-6',
+    provider: 'openrouter',
+    model: 'google/gemini-3-flash-preview',
     max_tokens: 8192,
   },
   exec: {

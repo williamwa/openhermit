@@ -1,6 +1,6 @@
 # Tools
 
-OpenHermit builds toolsets per turn from available runtime capabilities and the resolved user role. Tools are wrapped by the approval gate according to `security.json`.
+OpenHermit builds toolsets per turn from available runtime capabilities and the resolved user role. Tools are wrapped by the approval gate according to the agent's security policy (`agents.security_json`).
 
 ## Built-In Tools
 
@@ -72,7 +72,7 @@ The exact set is assembled in `AgentRunner.createAgent()` from the resolved role
 
 ## Approval
 
-`security.json` controls approval behavior:
+The security policy (`agents.security_json`, edited via admin UI / `hermit security ...`) controls approval behavior:
 
 ```json
 {

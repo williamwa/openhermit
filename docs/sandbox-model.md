@@ -62,7 +62,7 @@ Stop policy:
 
 ## Security Policy
 
-`security.json` controls model autonomy and approval gating:
+The security policy (`agents.security_json` in the DB, managed via admin UI or CLI) controls model autonomy and approval gating:
 
 ```json
 {

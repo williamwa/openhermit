@@ -14,22 +14,12 @@
 
 ## Configuration
 
-```json
-{
-  "channels": {
-    "discord": {
-      "enabled": true,
-      "bot_token": "${{DISCORD_BOT_TOKEN}}",
-      "allowed_channel_ids": ["1234567890"]
-    }
-  }
-}
-```
+Channels live in the `agent_channels` table (encrypted tokens). Manage via admin UI, the `/api/agents/{agentId}/channels/discord` REST routes, or CLI:
 
 ```bash
-hermit config secrets set DISCORD_BOT_TOKEN <token>
+hermit channels enable discord --agent <agentId> --token <bot-token>
 ```
 
-The bot needs message content access and the gateway intents required for guild messages and direct messages.
+Optional config: `allowed_channel_ids` allow-list. The bot needs message content access and the gateway intents required for guild messages and direct messages.
 
 See [../../../docs/channel-adapter.md](../../../docs/channel-adapter.md).
