@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { internalStateFiles } from '@openhermit/shared';
 import { DbInternalStateStore, standaloneScope } from '@openhermit/store';
 
 import { createSecurityFixture } from './helpers.js';
@@ -55,9 +54,11 @@ test('DbInternalStateStore supports basic CRUD with FK integrity', async (t) => 
   assert.equal(readBack?.content, 'remember this');
 });
 
-test('AgentSecurity exposes per-agent internal state paths outside the workspace', async (t) => {
+test('AgentSecurity rootDir lives outside the workspace', async (t) => {
   const { security, root } = await createSecurityFixture(t);
 
-  assert.match(security.runtimeFilePath, new RegExp(`${internalStateFiles.runtime.replace('.', '\\.')}$`));
-  assert.equal(security.runtimeFilePath.startsWith(root), false);
+  // rootDir is where skill-mounts symlinks live; it must never be inside
+  // the agent's workspace, so workspace cleanup can't blow it away.
+  assert.ok(security.rootDir.length > 0);
+  assert.equal(security.rootDir.startsWith(root), false);
 });

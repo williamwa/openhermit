@@ -44,11 +44,10 @@ export const resolveOpenHermitHome = (): string =>
   process.env['OPENHERMIT_HOME'] || path.join(homedir(), '.openhermit');
 
 /**
- * Per-agent local-data directory, used for things that still legitimately
- * live on disk (skill-mount symlinks, runtime.json). Config / security
- * policy / secrets are all in the database now, so this path is purely
- * derivable from the agent id and OPENHERMIT_HOME — no longer stored on
- * the agents row.
+ * Per-agent local-data directory, used for skill-mount symlinks. Config,
+ * security policy, and secrets all live in the database now, so this
+ * path is purely derivable from the agent id and OPENHERMIT_HOME — no
+ * longer stored on the agents row.
  */
 export const resolveAgentDataDir = (agentId: string): string =>
   path.join(resolveOpenHermitHome(), 'agents', agentId);

@@ -443,8 +443,8 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
         500,
       );
     }
-    // Make sure the per-agent local data dir (skill-mounts, runtime.json)
-    // exists. Path is derived from OPENHERMIT_HOME + agentId.
+    // Make sure the per-agent local data dir (skill-mounts) exists.
+    // Path is derived from OPENHERMIT_HOME + agentId.
     await fs.mkdir(resolveAgentDataDir(record.agentId), { recursive: true });
 
     const templateConfig = buildDefaultAgentConfig(record.workspaceDir);

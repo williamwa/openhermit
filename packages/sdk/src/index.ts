@@ -194,8 +194,7 @@ export class AgentLocalClient {
 
     return new OpenHermitError(
       `Agent local API is unavailable at ${joinUrl(this.options.baseUrl, path)}. `
-      + `Make sure the agent is running and runtime.json is current. `
-      + `If you are developing locally, start it with \`npm run dev:agent\`. `
+      + `Make sure the gateway is running and the agent is started. `
       + `Underlying error: ${message}`,
       'agent_api_error',
       500,

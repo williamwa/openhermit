@@ -4,7 +4,6 @@ import path from 'node:path';
 
 import { z } from 'zod';
 
-import { internalStateFiles } from '@openhermit/shared';
 import { NotFoundError, ValidationError } from '@openhermit/shared';
 import type { AgentConfigStore, SecretStore } from '@openhermit/store';
 
@@ -144,10 +143,8 @@ export class AgentSecurity {
 
   private secrets: SecretsMap = {};
 
+  /** Local on-disk dir, used only for skill-mounts symlinks now. */
   readonly rootDir: string;
-
-  /** Skill mounts and runtime.json still live on disk under this dir. */
-  readonly runtimeFilePath: string;
 
   readonly agentId: string;
 
@@ -165,7 +162,6 @@ export class AgentSecurity {
       path.join(os.homedir(), '.openhermit');
 
     this.rootDir = path.join(baseDir, options.agentId);
-    this.runtimeFilePath = path.join(this.rootDir, internalStateFiles.runtime);
   }
 
   getSkillMountsDir(): string {
@@ -173,10 +169,9 @@ export class AgentSecurity {
   }
 
   /**
-   * Ensure the agent's local directory exists for runtime.json and
-   * skill-mounts. Config and security policy live in the DB and are
-   * seeded by the gateway's create-agent flow; secrets live in
-   * SecretStore (currently file-backed at <rootDir>/secrets.json).
+   * Ensure the agent's local directory exists. Config / security policy /
+   * secrets all live in the database; the only thing on disk now is the
+   * skill-mounts symlink tree, which lives under this rootDir.
    */
   async init(): Promise<void> {
     await fs.mkdir(this.rootDir, { recursive: true });

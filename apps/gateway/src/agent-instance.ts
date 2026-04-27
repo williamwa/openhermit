@@ -102,7 +102,7 @@ export class AgentInstanceManager {
       );
     }
 
-    // 2. Security — local data dir (skill-mounts, runtime.json) lives at
+    // 2. Security — local data dir (skill-mounts) lives at
     //    OPENHERMIT_HOME/agents/<agentId>; AgentSecurity derives it.
     const security = new AgentSecurity({
       agentId,
