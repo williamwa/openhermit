@@ -65,6 +65,33 @@ export const sessionEvents = pgTable('session_events', {
 ]);
 
 /**
+ * Owner-registered external channel adapters (Telegram bots, Slack
+ * workspaces, etc.) that connect from outside the gateway process. Each
+ * row carries an AES-256-GCM-encrypted access token issued at creation
+ * time; the channel adapter sends it as `Bearer …` and is resolved into
+ * a ChannelRegistration scoped to the row's namespace.
+ *
+ * Built-in channels (started in-process by the gateway) get their token
+ * generated in memory and never touch this table.
+ */
+export const agentChannels = pgTable('agent_channels', {
+  id: text('id').primaryKey(),
+  agentId: text('agent_id').notNull(),
+  namespace: text('namespace').notNull(),
+  label: text('label'),
+  /** Plaintext prefix (first 12 chars) for display in admin UI. */
+  tokenPrefix: text('token_prefix').notNull(),
+  /** Full token, encrypted with OPENHERMIT_SECRETS_KEY. */
+  tokenCiphertext: text('token_ciphertext').notNull(),
+  createdBy: text('created_by'),
+  createdAt: text('created_at').notNull(),
+  lastUsedAt: text('last_used_at'),
+  revokedAt: text('revoked_at'),
+}, (table) => [
+  index('idx_agent_channels_agent').on(table.agentId),
+]);
+
+/**
  * Per-agent secrets, encrypted at rest with AES-256-GCM. The wire format
  * stored in `value_ciphertext` is `iv:authTag:ciphertext` (base64), and
  * the encryption key comes from the OPENHERMIT_SECRETS_KEY env var (32

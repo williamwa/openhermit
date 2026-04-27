@@ -58,6 +58,7 @@ export {
   DbMcpServerStore,
   FileSecretStore,
   DbSecretStore,
+  DbAgentChannelStore,
   generateSecretsKey,
   runMigrations,
 } from './impl/index.js';

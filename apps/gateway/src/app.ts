@@ -25,7 +25,9 @@ import type {
   DbScheduleStore,
   DbSkillStore,
   DbUserStore,
+  DbAgentChannelStore,
 } from '@openhermit/store';
+import type { ChannelRegistry } from './auth.js';
 import {
   ConflictError,
   NotFoundError,
@@ -173,6 +175,9 @@ export interface GatewayAppOptions {
   mcpServerStore?: DbMcpServerStore | undefined;
   userStore?: DbUserStore | undefined;
   configStore?: DbAgentConfigStore | undefined;
+  agentChannelStore?: DbAgentChannelStore | undefined;
+  /** Live ChannelRegistry — handlers mutate this when channels are created/revoked. */
+  channelRegistry?: ChannelRegistry | undefined;
   auth?: AuthResolverOptions | undefined;
   adminToken?: string | undefined;
   logger?: ((message: string) => void) | undefined;
@@ -1556,6 +1561,76 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const channels = (config.channels ?? {}) as Record<string, Record<string, unknown>>;
     delete channels[channelId];
     await runner.security.writeConfig({ ...config, channels });
+    return c.json({ ok: true });
+  });
+
+  // ── External channel tokens ───────────────────────────────────────────
+  // These are owner-issued tokens for channel adapters that run OUTSIDE the
+  // gateway process (a Telegram bot deployed on another machine, etc.).
+  // Built-in channels register their own ephemeral in-memory tokens at
+  // agent boot — they don't go through this API.
+
+  const requireAgentChannelStore = (): DbAgentChannelStore => {
+    if (!options.agentChannelStore) {
+      throw new OpenHermitError(
+        'External channel store unavailable (DATABASE_URL or OPENHERMIT_SECRETS_KEY missing).',
+        'not_configured',
+        500,
+      );
+    }
+    return options.agentChannelStore;
+  };
+
+  app.get('/api/agents/:agentId/external-channels', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    await requireOwnerOrAdmin(c, agentId);
+    const store = requireAgentChannelStore();
+    const rows = await store.listForAgent(agentId);
+    return c.json(rows);
+  });
+
+  app.post('/api/agents/:agentId/external-channels', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    const auth = await requireOwnerOrAdmin(c, agentId);
+    const store = requireAgentChannelStore();
+    const body = await c.req.json().catch(() => ({})) as { namespace?: string; label?: string };
+    if (!body.namespace || typeof body.namespace !== 'string') {
+      throw new ValidationError('namespace is required (e.g. "telegram", "my-bot").');
+    }
+    // Resolve the creator — admin auth has no resolved user, so leave it null.
+    let createdBy: string | undefined;
+    if (auth.mode === 'user' && options.userStore) {
+      const userId = await options.userStore.resolve(auth.channel, auth.channelUserId);
+      if (userId) createdBy = userId;
+    }
+    const created = await store.create({
+      agentId,
+      namespace: body.namespace,
+      ...(body.label ? { label: body.label } : {}),
+      ...(createdBy ? { createdBy } : {}),
+    });
+    // Plug the new token into the live registry so it's usable immediately.
+    options.channelRegistry?.register({
+      channelId: created.id,
+      apiKey: created.token,
+      namespace: created.namespace,
+      agentId,
+    });
+    // Plaintext token is returned ONCE — caller has to save it now.
+    return c.json(created, 201);
+  });
+
+  app.delete('/api/agents/:agentId/external-channels/:channelId', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    const channelId = c.req.param('channelId') ?? '';
+    await requireOwnerOrAdmin(c, agentId);
+    const store = requireAgentChannelStore();
+    const existing = await store.get(channelId);
+    if (!existing || existing.agentId !== agentId) {
+      throw new NotFoundError(`External channel ${channelId} not found on agent ${agentId}.`);
+    }
+    await store.revoke(channelId);
+    options.channelRegistry?.unregister(channelId);
     return c.json({ ok: true });
   });
 

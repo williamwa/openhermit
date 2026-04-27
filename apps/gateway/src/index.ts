@@ -16,6 +16,7 @@ import {
   DbUserStore,
   FileSecretStore,
   DbSecretStore,
+  DbAgentChannelStore,
   runMigrations,
 } from '@openhermit/store';
 import { scanSkillDirectory } from '@openhermit/agent/skills';
@@ -101,6 +102,7 @@ export const main = async (): Promise<void> => {
   let mcpServerStore: DbMcpServerStore | undefined;
   let userStore: DbUserStore | undefined;
   let configStore: DbAgentConfigStore | undefined;
+  let agentChannelStore: DbAgentChannelStore | undefined;
   if (process.env.DATABASE_URL) {
     try {
       await runMigrations();
@@ -111,6 +113,9 @@ export const main = async (): Promise<void> => {
       mcpServerStore = await DbMcpServerStore.open();
       userStore = await DbUserStore.open();
       configStore = await DbAgentConfigStore.open();
+      if (process.env.OPENHERMIT_SECRETS_KEY) {
+        agentChannelStore = await DbAgentChannelStore.open();
+      }
       logStartup('agent store connected');
     } catch (error) {
       logStartup(`agent store unavailable: ${error instanceof Error ? error.message : String(error)}`);
@@ -119,6 +124,29 @@ export const main = async (): Promise<void> => {
 
   // Auth configuration (secrets stay in env).
   const channels = new ChannelRegistry();
+
+  // Seed registry with owner-registered external-channel tokens (DB-backed).
+  // Built-in (in-process) channels register themselves later in
+  // AgentInstanceManager.start() with ephemeral in-memory tokens.
+  if (agentChannelStore) {
+    try {
+      const loaded = await agentChannelStore.loadActive();
+      for (const entry of loaded) {
+        channels.register({
+          channelId: entry.id,
+          apiKey: entry.token,
+          namespace: entry.namespace,
+          agentId: entry.agentId,
+        });
+      }
+      if (loaded.length > 0) {
+        logStartup(`loaded ${loaded.length} external channel token(s) from DB`);
+      }
+    } catch (error) {
+      logStartup(`failed to load external channel tokens: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   const jwtConfig = createJwtConfig(process.env.GATEWAY_JWT_SECRET);
   if (!process.env.GATEWAY_JWT_SECRET) {
     logStartup('GATEWAY_JWT_SECRET not set — using ephemeral secret (tokens will not survive restarts)');
@@ -227,6 +255,8 @@ export const main = async (): Promise<void> => {
     ...(mcpServerStore ? { mcpServerStore } : {}),
     ...(userStore ? { userStore } : {}),
     ...(configStore ? { configStore } : {}),
+    ...(agentChannelStore ? { agentChannelStore } : {}),
+    channelRegistry: channels,
     auth,
     adminToken,
     logger: logStartup,
