@@ -220,6 +220,85 @@ Operability for teams, not just one root user.
 
 ---
 
+## Milestone 5 — Bridging cloud agents and the user's world
+
+The agent runs in the cloud (or some box that isn't the user's laptop), but
+useful work usually involves files and applications that live on the user's
+local machine. Today there's no smooth path between the two — users paste
+content into chat, copy outputs back out by hand. This milestone closes that
+loop with two complementary primitives.
+
+### M5.1 — Shared file drop ("hermit drive")
+
+A small object-store-backed namespace for moving files between users and
+their agents in either direction.
+
+Capabilities:
+
+- **User → agent**: drag a file into the chat / web UI, agent gets a stable
+  URI it can pass to tools (`drive://<agent>/<id>/<filename>`).
+- **Agent → user**: agent produces a report / dataset / image, drops it into
+  the same namespace, user gets a shareable link in chat with a short TTL.
+- **Per-agent isolation**: each agent has its own bucket prefix; cross-agent
+  access requires an explicit grant.
+- **Storage backend** is pluggable — local filesystem, S3, MinIO, R2 —
+  behind a single interface in `@openhermit/store`.
+
+Open questions:
+
+- Encryption at rest. Same key as agent secrets, or per-file keys?
+- Retention. Default TTL vs explicit pin from owner.
+- Quotas — per agent, per user, or fleet-wide.
+
+### M5.2 — Computer node (local agent capability host)
+
+A small daemon the user runs on their own machine that **registers with the
+gateway** and exposes a narrow, authenticated set of capabilities the cloud
+agent can call. Conceptually: a channel adapter, but for "computer" instead
+of Telegram or Slack.
+
+Initial capability surface:
+
+- **Filesystem** — read / write within an allowlisted root (e.g. `~/agent-scratch`).
+- **Browser** — open URL, take screenshot, scrape DOM (likely via Playwright
+  embedded in the node, or by attaching to the user's existing browser).
+- **Process** — run a whitelisted command in a constrained working dir,
+  stream stdout/stderr back.
+
+Trust model:
+
+- The node ships its own Ed25519 key, registers with the gateway via the
+  same auth flow as a web device key. Owner of the agent must explicitly
+  link the node to their account before any capability calls work.
+- Every capability invocation is **policy-gated and logged**, identical to
+  agent tool calls today. The owner sees a stream of "agent X read file Y"
+  / "agent X navigated to Z" entries and can revoke at any time.
+- Default: prompt-on-each-call. Auto-approve only after the owner
+  explicitly trusts a given (agent, capability, scope) tuple.
+- Channel-token isolation already gives us the right shape: the node
+  authenticates with a per-node token issued to the owner; the agent's
+  permission to call those capabilities is independent and revocable.
+
+Open questions:
+
+- Wire format. JSON-RPC over WebSocket (long-lived connection, agent calls
+  arrive as messages) is the leading candidate.
+- How to surface progress / streaming results — extend the existing tool
+  event stream so a "node tool call" looks identical to a built-in tool
+  call from the agent's perspective.
+- Cross-platform: macOS / Linux first, Windows once the rest is stable.
+- Co-existence with the workspace's container-based exec — when does an
+  agent reach for the node vs the container?
+
+### Why both, and in this order
+
+Drive (M5.1) is mostly storage plumbing — straightforward but high value
+and low risk. Computer node (M5.2) is the bigger architectural lift
+(local daemon, OS integration, trust model) and benefits from drive
+already existing as the file-transfer primitive between cloud and node.
+
+---
+
 ## Out of scope (for now)
 
 These are valuable but deliberately deferred until the milestones above land:
@@ -233,7 +312,7 @@ These are valuable but deliberately deferred until the milestones above land:
 
 ## Sequencing
 
-The suggested order is M1 → M2 → M3 → M4. The reasoning:
+The suggested order is M1 → M2 → M3 → M4 → M5. The reasoning:
 
 - **M1** turns the brand promise into reality and is the most visible to
   users evaluating the project. It is also the smallest milestone — most of
@@ -245,3 +324,7 @@ The suggested order is M1 → M2 → M3 → M4. The reasoning:
   declarative wildcard assignments from M1.
 - **M4** unlocks team adoption but assumes the single-operator story is
   already polished.
+- **M5** is what makes the agent feel like it's actually *with you* —
+  share files, touch your real machine. Best built on top of the
+  multi-tenant + audit foundations from M3/M4 because it expands the
+  trust surface considerably.
