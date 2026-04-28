@@ -69,7 +69,6 @@ Per-agent files under `~/.openhermit/agents/{agentId}/` are runtime/local state 
 ```text
 ~/.openhermit/
 ├── agents/{agentId}/
-│   ├── runtime.json     # runtime port + token written by the agent process
 │   └── skill-mounts/    # generated symlinks to enabled skills
 └── workspaces/{agentId}/
 ```

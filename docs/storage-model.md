@@ -128,9 +128,8 @@ not configuration:
 
 | File / Dir | Purpose |
 |------------|---------|
-| `runtime.json` | runtime port + token written by the running agent process |
-| `secrets.json` | only present in the file-fallback dev mode (no `OPENHERMIT_SECRETS_KEY`); otherwise unused |
 | `skill-mounts/` | generated symlinks to enabled DB-managed skills |
+| `secrets.json` | only present in the file-fallback dev mode (no `OPENHERMIT_SECRETS_KEY`); otherwise unused |
 
 Workspace files under `~/.openhermit/workspaces/{agentId}/` are external
 task state, unchanged.
