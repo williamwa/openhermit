@@ -21,6 +21,7 @@ import {
 } from './core/index.js';
 import { ApprovalGate } from './agent-runner/approval-gate.js';
 import { buildSystemPrompt } from './agent-runner/prompt.js';
+import { AgentEventBus } from './events.js';
 import { buildSessionSummaries, createPersistedSessionIndexEntry } from './agent-runner/session-index.js';
 import type { AgentRunnerOptions, RunnerSession } from './agent-runner/types.js';
 import {
@@ -88,6 +89,8 @@ const addUserIdToList = (existing: string[], userId: string | undefined): string
 
 export class AgentRunner implements SessionRuntime {
   readonly events = new SessionEventBroker();
+  /** Per-agent typed event bus — subscribed to by future plugins. */
+  readonly bus = new AgentEventBus();
   readonly security: import('./core/index.js').AgentSecurity;
   readonly workspace: import('./core/index.js').AgentWorkspace;
 
@@ -141,7 +144,12 @@ export class AgentRunner implements SessionRuntime {
     AgentRunner.DEBUG = Boolean(process.env.OPENHERMIT_DEBUG);
     const store = options.store
       ?? await DbInternalStateStore.open();
-    return new AgentRunner(options, store);
+    const runner = new AgentRunner(options, store);
+    await runner.bus.emit('agent.started@v1', {
+      agentId: runner.scope.agentId,
+      at: new Date().toISOString(),
+    });
+    return runner;
   }
 
   async startScheduler(): Promise<void> {
@@ -313,6 +321,11 @@ export class AgentRunner implements SessionRuntime {
     } else {
       await this.containerManager.stopWorkspaceContainer(this.scope.agentId).catch(() => {});
     }
+
+    await this.bus.emit('agent.stopped@v1', {
+      agentId: this.scope.agentId,
+      at: new Date().toISOString(),
+    });
   }
 
   private static STALE_SESSION_DAYS = 3;
@@ -486,6 +499,15 @@ export class AgentRunner implements SessionRuntime {
       });
     }
     this.logRuntime(`session opened: ${effectiveSpec.sessionId}`);
+
+    await this.bus.emit('session.opened@v1', {
+      agentId: this.scope.agentId,
+      sessionId: effectiveSpec.sessionId,
+      sessionType: effectiveSpec.source.type ?? 'direct',
+      sourceKind: effectiveSpec.source.kind,
+      ...(effectiveSpec.source.platform ? { sourcePlatform: effectiveSpec.source.platform } : {}),
+      participants: session.userIds,
+    });
 
     return {
       spec: session.spec,
@@ -1390,6 +1412,11 @@ export class AgentRunner implements SessionRuntime {
       },
       currentUser,
       skills,
+      {
+        bus: this.bus,
+        agentId: this.scope.agentId,
+        sessionId: input.contextSessionId,
+      },
     );
     const systemPrompt = input.extraSystemPrompt
       ? `${baseSystemPrompt}\n\n${input.extraSystemPrompt}`.trim()

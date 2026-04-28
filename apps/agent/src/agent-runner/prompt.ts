@@ -2,6 +2,7 @@ import type { SessionType } from '@openhermit/protocol';
 import type { InstructionStore, StoreScope } from '@openhermit/store';
 
 import type { AgentRuntimeConfig, AgentSecurity } from '../core/index.js';
+import type { AgentEventBus } from '../events.js';
 import type { SkillIndexEntry } from '../skills.js';
 import type { Toolset } from '../tools/shared.js';
 
@@ -37,6 +38,12 @@ export interface InstructionSource {
   storeScope?: StoreScope;
 }
 
+export interface PromptAssembleHookContext {
+  bus: AgentEventBus;
+  agentId: string;
+  sessionId: string;
+}
+
 export const buildSystemPrompt = async (
   config: AgentRuntimeConfig,
   security: AgentSecurity,
@@ -44,11 +51,12 @@ export const buildSystemPrompt = async (
   instructionSource?: InstructionSource,
   currentUser?: CurrentUserContext,
   skills?: SkillIndexEntry[],
+  hook?: PromptAssembleHookContext,
 ): Promise<string> => {
-  const sections: string[] = [];
+  const keyedSections: { key: string; content: string }[] = [];
 
   // 1. PREAMBLE
-  sections.push(PREAMBLE);
+  keyedSections.push({ key: 'preamble', content: PREAMBLE });
 
   // 2. INSTRUCTIONS (from store)
   let instructionText: string;
@@ -60,17 +68,17 @@ export const buildSystemPrompt = async (
   } else {
     instructionText = '(no instructions configured)';
   }
-  sections.push(`## Instructions\n\n${instructionText}`);
+  keyedSections.push({ key: 'instructions', content: `## Instructions\n\n${instructionText}` });
 
   // 3. PRINCIPLES
-  sections.push(PRINCIPLES);
+  keyedSections.push({ key: 'principles', content: PRINCIPLES });
 
   // 4. TOOLSET DESCRIPTIONS
   const descriptions = toolsets
     .filter((ts) => ts.description)
     .map((ts) => ts.description);
   if (descriptions.length > 0) {
-    sections.push(`## Tools\n\n${descriptions.join('\n\n')}`);
+    keyedSections.push({ key: 'tools', content: `## Tools\n\n${descriptions.join('\n\n')}` });
   }
 
   // 5. SKILLS
@@ -78,7 +86,7 @@ export const buildSystemPrompt = async (
     const { formatSkillsPromptSection } = await import('../skills.js');
     const skillSection = formatSkillsPromptSection(skills);
     if (skillSection) {
-      sections.push(skillSection);
+      keyedSections.push({ key: 'skills', content: skillSection });
     }
   }
 
@@ -115,9 +123,22 @@ export const buildSystemPrompt = async (
   }
   contextParts.push(`### Runtime\n\n${runtimeLines.join('\n')}`);
 
-  sections.push(`## Context\n\n${contextParts.join('\n\n')}`);
+  keyedSections.push({ key: 'context', content: `## Context\n\n${contextParts.join('\n\n')}` });
 
-  // 6. TASK INSTRUCTIONS appended by caller (extraSystemPrompt)
+  // Plugin transform hook — fires before joining. Plugins may rewrite,
+  // append, or drop sections by key. No-op when no bus is supplied
+  // (e.g. in unit tests that exercise the prompt builder directly).
+  let finalSections = keyedSections;
+  if (hook) {
+    const transformed = await hook.bus.transform('prompt.assemble@v1', {
+      agentId: hook.agentId,
+      sessionId: hook.sessionId,
+      sections: keyedSections,
+    });
+    finalSections = transformed.sections;
+  }
 
-  return sections.join('\n\n').trim();
+  // 7. TASK INSTRUCTIONS appended by caller (extraSystemPrompt)
+
+  return finalSections.map((s) => s.content).join('\n\n').trim();
 };

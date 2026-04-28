@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { AgentEventBus } from '../src/events.js';
+import { AgentEventBus, type VetoHandler, type ToolBeforePayload } from '../src/events.js';
 
 test('listener events run in priority order', async () => {
   const bus = new AgentEventBus();
@@ -31,8 +31,10 @@ test('transform events thread the payload through handlers', async () => {
 test('veto event short-circuits on the first denial', async () => {
   const bus = new AgentEventBus();
   let allowedRan = false;
-  bus.on('tool.before@v1', () => { allowedRan = true; return { allow: true }; }, { priority: 500 });
-  bus.on('tool.before@v1', () => ({ allow: false, reason: 'blocked by policy' }), { priority: 100 });
+  const allowAll: VetoHandler<ToolBeforePayload> = () => { allowedRan = true; return { allow: true }; };
+  const denyAll: VetoHandler<ToolBeforePayload> = () => ({ allow: false, reason: 'blocked by policy' });
+  bus.on('tool.before@v1', allowAll, { priority: 500 });
+  bus.on('tool.before@v1', denyAll, { priority: 100 });
   const decision = await bus.veto('tool.before@v1', {
     agentId: 'x', sessionId: 's', toolName: 'exec', toolCallId: 'tc1', args: {},
   });
