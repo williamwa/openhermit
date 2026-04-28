@@ -201,6 +201,8 @@ export const createMemoryAddTool = ({
   security,
   memoryProvider,
   storeScope,
+  hookBus,
+  agentId,
 }: ToolContext): AgentTool<typeof MemoryAddParams> => ({
   name: 'memory_add',
   label: 'Add Memory',
@@ -225,6 +227,15 @@ export const createMemoryAddTool = ({
       ...(args.metadata ? { metadata: args.metadata as Record<string, unknown> } : {}),
     });
 
+    if (hookBus && agentId) {
+      await hookBus.emit('memory.upsert@v1', {
+        agentId,
+        key: entry.id,
+        content: entry.content ?? content,
+        metadata: (entry.metadata ?? args.metadata ?? {}) as Record<string, unknown>,
+      });
+    }
+
     return {
       content: asTextContent(formatJson(entry)),
       details: entry,
@@ -236,6 +247,8 @@ export const createMemoryUpdateTool = ({
   security,
   memoryProvider,
   storeScope,
+  hookBus,
+  agentId,
 }: ToolContext): AgentTool<typeof MemoryUpdateParams> => ({
   name: 'memory_update',
   label: 'Update Memory',
@@ -258,6 +271,15 @@ export const createMemoryUpdateTool = ({
       ...(args.content?.trim() ? { content: args.content.trim() } : {}),
       ...(args.metadata ? { metadata: args.metadata as Record<string, unknown> } : {}),
     });
+
+    if (hookBus && agentId) {
+      await hookBus.emit('memory.upsert@v1', {
+        agentId,
+        key,
+        content: entry.content ?? args.content?.trim() ?? '',
+        metadata: (entry.metadata ?? args.metadata ?? {}) as Record<string, unknown>,
+      });
+    }
 
     return {
       content: asTextContent(formatJson(entry)),

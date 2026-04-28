@@ -162,7 +162,23 @@ export class AgentRunner implements SessionRuntime {
         });
       },
       postMessage: async (sessionId, text, metadata) => {
-        await this.postMessage(sessionId, { text, ...(metadata ? { metadata } : {}) });
+        // If this is a scheduled job firing, run the schedule.fired@v1
+        // transform first — plugins can rewrite the prompt before it
+        // hits the model, e.g. add a [delivery] preamble or veto-by-substitute.
+        let finalText = text;
+        const scheduleId = metadata?.schedule_id;
+        const scheduleType = metadata?.schedule_type;
+        if (typeof scheduleId === 'string' && (scheduleType === 'cron' || scheduleType === 'once')) {
+          const out = await this.bus.transform('schedule.fired@v1', {
+            agentId: this.scope.agentId,
+            scheduleId,
+            type: scheduleType,
+            prompt: text,
+            sessionId,
+          });
+          finalText = out.prompt;
+        }
+        await this.postMessage(sessionId, { text: finalText, ...(metadata ? { metadata } : {}) });
       },
       postSystemMessage: async (sessionId, text) => {
         await this.store.messages.appendLogEntry(this.scope, sessionId, {
@@ -182,6 +198,11 @@ export class AgentRunner implements SessionRuntime {
         } else {
           await this.store.sessions.updateStatus(this.scope, sessionId, 'inactive');
         }
+        await this.bus.emit('session.closed@v1', {
+          agentId: this.scope.agentId,
+          sessionId,
+          reason: 'idle',
+        });
       },
     };
 
@@ -295,6 +316,20 @@ export class AgentRunner implements SessionRuntime {
 
   /** Stop workspace container, scheduler, and clean up exec backend state. */
   async shutdown(): Promise<void> {
+    // Fire session.closed@v1 for every still-active session before tearing
+    // down. Plugins can use this to flush session-scoped state.
+    for (const sessionId of [...this.sessions.keys()]) {
+      try {
+        await this.bus.emit('session.closed@v1', {
+          agentId: this.scope.agentId,
+          sessionId,
+          reason: 'shutdown',
+        });
+      } catch (err) {
+        this.logRuntime(`session.closed hook error for ${sessionId}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
     if (this.scheduler) {
       await this.scheduler.stop();
       this.scheduler = undefined;
@@ -563,6 +598,11 @@ export class AgentRunner implements SessionRuntime {
     }
     this.sessions.delete(sessionId);
     await this.store.sessions.delete(this.scope, sessionId);
+    await this.bus.emit('session.closed@v1', {
+      agentId: this.scope.agentId,
+      sessionId,
+      reason: 'user',
+    });
   }
 
   async listSessionMessages(sessionId: string, callerUserId?: string): Promise<SessionHistoryMessage[]> {
@@ -786,6 +826,23 @@ export class AgentRunner implements SessionRuntime {
     });
     if (transformed.text !== message.text) {
       message = { ...message, text: transformed.text };
+    }
+
+    // If this message arrived via a channel adapter, additionally fire
+    // channel.message.in@v1 so channel-specific plugins (e.g. Slack
+    // signature filtering, Telegram /command parsing) can transform it.
+    if (session.spec.source.kind === 'channel' && session.spec.source.platform) {
+      const channelTransformed = await this.bus.transform('channel.message.in@v1', {
+        agentId: this.scope.agentId,
+        sessionId,
+        channel: session.spec.source.platform,
+        direction: 'in',
+        text: message.text,
+        ...(message.metadata ? { metadata: message.metadata } : {}),
+      });
+      if (channelTransformed.text !== message.text) {
+        message = { ...message, text: channelTransformed.text };
+      }
     }
 
     this.clearIdleSummaryTimer(session);
@@ -1959,7 +2016,7 @@ export class AgentRunner implements SessionRuntime {
 
       case 'agent_end': {
         const ts = new Date().toISOString();
-        const finalText = session.latestAssistantText;
+        let finalText = session.latestAssistantText;
         const lastUserMessageText = session.lastUserMessageText;
         session.completedTurnCount += 1;
         session.updatedAt = ts;
@@ -1988,6 +2045,25 @@ export class AgentRunner implements SessionRuntime {
         });
 
         void (async () => {
+          // For channel-bound sessions, run the channel.message.out@v1
+          // transform so plugins can scrub/rewrite outbound text (e.g.
+          // PII unmasking, brand-voice enforcement) before adapters
+          // receive it.
+          if (
+            finalText
+            && session.spec.source.kind === 'channel'
+            && session.spec.source.platform
+          ) {
+            const out = await this.bus.transform('channel.message.out@v1', {
+              agentId: this.scope.agentId,
+              sessionId: session.spec.sessionId,
+              channel: session.spec.source.platform,
+              direction: 'out',
+              text: finalText,
+            });
+            finalText = out.text;
+          }
+
           if (finalText) {
             await this.events.publish({
               type: 'text_final',
