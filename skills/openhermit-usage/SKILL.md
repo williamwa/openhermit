@@ -100,7 +100,7 @@ Exec:
 
 Channels are not part of `config.json` — they live in the `agent_channels` table with encrypted tokens. Manage them via the admin UI, the `/api/agents/{agentId}/channels/...` routes, or `hermit channels ...`.
 
-Provider/integration secrets are stored per-agent in `secrets.json` (file-backed via `SecretStore`). Set with `hermit config secrets set KEY value` and reference them in config values as `${{KEY}}`.
+Provider/integration secrets are stored per-agent in the `agent_secrets` table, encrypted with `OPENHERMIT_SECRETS_KEY`. Set with `hermit config secrets set KEY value` and reference them in config values as `${{KEY}}`.
 
 Security policy is the JSON in `agents.security_json`:
 

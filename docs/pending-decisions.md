@@ -12,7 +12,7 @@ Roles are implemented. Fine-grained per-session capability sets are not. The ope
 
 ## Hosted Secrets
 
-Agent secrets currently live in per-agent `secrets.json`, while DB-managed MCP headers can include sensitive values. Hosted deployments need a stronger secret-store integration model.
+Agent secrets are stored in the encrypted `agent_secrets` table; MCP headers (DB-managed) can include sensitive values that are not currently routed through the same encryption path. Hosted deployments need a unified secret-store integration model (KMS-backed keys, per-org scoping, audit logs on read).
 
 ## External Channel Adapter API
 

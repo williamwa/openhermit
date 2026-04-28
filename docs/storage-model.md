@@ -106,20 +106,31 @@ gateway's `POST /agents` flow seeds these columns with the default
 template; `PUT /api/agents/:id/config` and `PUT /api/agents/:id/secrets`
 also write through the stores.
 
+## Per-Agent Secrets
+
+Secrets are stored in the `agent_secrets` table, encrypted at rest with
+`OPENHERMIT_SECRETS_KEY` (AES-GCM). The `DbSecretStore` is the default
+implementation of the `SecretStore` interface. If no key is configured
+the gateway logs a warning and falls back to `FileSecretStore`, which
+writes a plaintext `secrets.json` under each agent's data dir — this
+fallback is for local development only; `hermit setup` provisions the
+key and enables the encrypted store.
+
+Secrets are accessed exclusively through `SecretStore`. Config
+interpolation (`${{SECRET_NAME}}`), channel-token resolution, and the
+admin/owner APIs all go through the same interface — values are never
+returned to clients in plaintext after they are written.
+
 ## Per-Agent Files
 
-Files under `~/.openhermit/agents/{agentId}/` are runtime/local state, not
-configuration:
+Files under `~/.openhermit/agents/{agentId}/` are runtime/local state,
+not configuration:
 
 | File / Dir | Purpose |
 |------------|---------|
 | `runtime.json` | runtime port + token written by the running agent process |
-| `secrets.json` | provider/channel/MCP secrets (still file-backed via `FileSecretStore`; future work may move this into the DB through the same `SecretStore` interface) |
+| `secrets.json` | only present in the file-fallback dev mode (no `OPENHERMIT_SECRETS_KEY`); otherwise unused |
 | `skill-mounts/` | generated symlinks to enabled DB-managed skills |
-
-Secrets are accessed exclusively through the `SecretStore` interface;
-gateway endpoints, config interpolation (`${{SECRET_NAME}}`), and
-admin/owner APIs never read `secrets.json` directly.
 
 Workspace files under `~/.openhermit/workspaces/{agentId}/` are external
 task state, unchanged.

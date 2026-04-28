@@ -172,8 +172,10 @@ applied.
 
 ### M3.2 — Org-level secrets
 
-- Replace per-agent `secrets.json` with a shared encrypted store (DB column
-  encrypted at rest, key from env or KMS).
+- Per-agent secrets already encrypted at rest (`agent_secrets` table,
+  AES-GCM with `OPENHERMIT_SECRETS_KEY`). Next: shared org-scoped
+  secrets — one row referenced by many agents, with KMS-backed key
+  management for hosted deployments.
 - Manifests reference secrets by name (`secretRef: TELEGRAM_TOKEN`); multiple
   agents can share one secret.
 - Audit log entry on every secret read.

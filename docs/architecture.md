@@ -49,7 +49,8 @@ OpenHermit keeps internal runtime state separate from external task state.
 - MCP server definitions and assignments
 - schedules and schedule runs
 - per-agent runtime config and security policy (`agents.config_json` / `agents.security_json` columns)
-- per-agent secrets (still file-backed in `secrets.json`; accessed only through `SecretStore`)
+- per-agent secrets (encrypted in the `agent_secrets` table when `OPENHERMIT_SECRETS_KEY` is set; falls back to per-agent `secrets.json` only when no key is configured)
+- channel rows with encrypted tokens (`agent_channels`)
 
 **External state** is the user's work surface:
 
@@ -61,7 +62,7 @@ OpenHermit keeps internal runtime state separate from external task state.
 
 ## Per-Agent State
 
-Runtime config and security policy are stored in PostgreSQL on the `agents` row (`config_json`, `security_json`) and managed through the admin UI, REST API, or `hermit config ... / hermit security ...`. Channels live in `agent_channels` with encrypted tokens, managed through `/api/agents/{agentId}/channels/...`.
+Runtime config, security policy, and per-agent secrets are stored in PostgreSQL (`agents.config_json`, `agents.security_json`, `agent_secrets`) and managed through the admin UI, REST API, or `hermit config ... / hermit security ...`. Channels live in `agent_channels` with encrypted tokens, managed through `/api/agents/{agentId}/channels/...`. Secrets are encrypted at rest with `OPENHERMIT_SECRETS_KEY`; if no key is configured the gateway falls back to a plaintext `secrets.json` per agent (local-dev only — `hermit setup` enables the encrypted DB store).
 
 Per-agent files under `~/.openhermit/agents/{agentId}/` are runtime/local state only:
 
@@ -69,12 +70,11 @@ Per-agent files under `~/.openhermit/agents/{agentId}/` are runtime/local state 
 ~/.openhermit/
 ├── agents/{agentId}/
 │   ├── runtime.json     # runtime port + token written by the agent process
-│   ├── secrets.json     # file-backed via SecretStore; referenced as ${{KEY}}
 │   └── skill-mounts/    # generated symlinks to enabled skills
 └── workspaces/{agentId}/
 ```
 
-`config_json` controls model, exec backend, web provider, and memory introspection. `security_json` controls autonomy level, approval policy, access level, and access token. `secrets.json` stores provider and integration secrets interpolated into config values with `${{SECRET_NAME}}` (see [storage-model.md](storage-model.md) for the future plan to move secrets into the DB).
+`config_json` controls model, exec backend, web provider, and memory introspection. `security_json` controls autonomy level, approval policy, access level, and access token. Secrets are referenced from config values with `${{SECRET_NAME}}` and resolved through `SecretStore` at adapter-start time.
 
 ## Gateway Runtime
 
