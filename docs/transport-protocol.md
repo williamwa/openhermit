@@ -217,7 +217,7 @@ Owner or admin routes:
 
 Admin fan-out:
 
-- `POST /api/admin/instructions/append` — body `{ key, content }`. Appends `content` as a new line to the named instruction on every registered agent, creating the row if missing. Useful for org-wide policy additions like a new rule.
+- `POST /api/admin/instructions/fanout` — body `{ mode: 'set' | 'append' | 'remove', key, content? }`. Applies the same mutation to every registered agent's row at `key`. `set` replaces; `append` reads-then-appends a newline + content (creating the row if missing); `remove` deletes. Returns `{ ok, mode, key, agents: [...] }`.
 
 Admin routes:
 

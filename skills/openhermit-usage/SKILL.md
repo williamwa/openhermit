@@ -58,7 +58,7 @@ hermit chat --agent-id main
 | Chat | `hermit chat`, `hermit chat --agent-id <id>`, `--resume`, `--session <id>` |
 | Config | `hermit config show`, `get`, `set` |
 | Secrets | `hermit config secrets list`, `set`, `remove` |
-| Instructions | `hermit instructions list`, `get`, `set`, `remove` (per-agent), `append --key <k> --content <text>` (admin fan-out) |
+| Instructions | `hermit instructions list`, `get`, `set`, `append`, `remove` — single-agent (`--agent <id>`) or admin fan-out (`--all`) |
 | Skills | `hermit skills list`, `assignments`, `scan`, `register`, `delete`, `enable`, `disable` |
 | MCP | `hermit mcp list`, `assignments`, `enable`, `disable` |
 | Schedules | `hermit schedules list`, `create`, `pause`, `resume`, `delete`, `runs` |

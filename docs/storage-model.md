@@ -76,7 +76,7 @@ This means:
 | `agent_mcp_servers` | ✅ | gateway calls `runner.reloadMcpServers()` |
 | `schedules` | ❌ — each schedule is owned by exactly one agent | n/a |
 | `agent_channels` | ❌ — adapters bind to a specific bot identity | n/a |
-| `instructions` | ❌ — owners edit their own per-agent rows. Org-wide additions land via the admin `instructions append` fan-out (one row written per agent). | n/a |
+| `instructions` | ❌ — owners edit their own per-agent rows. Org-wide changes use the admin `--all` fan-out (`set` / `append` / `remove`), which writes one row per agent. | n/a |
 
 The admin UI, REST API, and CLI all accept `*` in the `agentId` field to
 write or remove a wildcard assignment. Example:

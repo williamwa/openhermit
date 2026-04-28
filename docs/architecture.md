@@ -75,7 +75,7 @@ Per-agent files under `~/.openhermit/agents/{agentId}/` are runtime/local state 
 
 `config_json` controls model, exec backend, web provider, and memory introspection. `security_json` controls autonomy level, approval policy, access level, and access token. Secrets are referenced from config values with `${{SECRET_NAME}}` and resolved through `SecretStore` at adapter-start time.
 
-Per-agent **instructions** (the keyed sections of the system prompt) live in the `instructions` table, scoped by `agent_id` like schedules — there is no shared/global row. Each new agent is auto-seeded with three rows on creation: `identity`, `soul`, and `rules`. Owners edit their own; admins can use `hermit instructions append --key <k> --content <text>` (or `POST /api/admin/instructions/append`) to append a line to a given key on every agent at once.
+Per-agent **instructions** (the keyed sections of the system prompt) live in the `instructions` table, scoped by `agent_id` like schedules — there is no shared/global row. Each new agent is auto-seeded with three rows on creation: `identity`, `soul`, and `rules`. Owners edit their own; admins can apply the same mutation across every agent with `--all` (e.g. `hermit instructions append rules "Always cite the source URL." --all`), backed by `POST /api/admin/instructions/fanout` with `{ mode: 'set' | 'append' | 'remove', key, content? }`.
 
 ## Gateway Runtime
 
