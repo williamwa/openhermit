@@ -5,7 +5,21 @@ import { createGateway, handleError, printTable } from './shared.js';
 export const registerSkillsCommand = (program: Command): void => {
   const skills = program
     .command('skills')
-    .description('Manage skills (use --agent "*" to target all agents)');
+    .description('Manage skills');
+
+  /** Resolve --agent | --all into the wildcard-or-id the API expects. */
+  const resolveTarget = (opts: { agent?: string; all?: boolean }): string => {
+    if (opts.agent && opts.all) {
+      console.error('Pass either --agent <id> or --all, not both.');
+      process.exit(1);
+    }
+    if (opts.all) return '*';
+    if (opts.agent) return opts.agent;
+    console.error('Pass --agent <id> or --all.');
+    process.exit(1);
+  };
+  const targetLabel = (target: string): string =>
+    target === '*' ? 'all agents' : `agent ${target}`;
 
   skills
     .command('list')
@@ -69,15 +83,16 @@ export const registerSkillsCommand = (program: Command): void => {
 
   skills
     .command('enable')
-    .description('Enable a skill for an agent (use --agent "*" for all agents)')
+    .description('Enable a skill. Targets one agent (--agent) or every agent (--all).')
     .argument('<skillId>', 'Skill ID')
-    .requiredOption('--agent <id>', 'Agent ID, or "*" for all agents')
-    .action(async (skillId: string, opts: { agent: string }) => {
+    .option('--agent <id>', 'Agent ID')
+    .option('--all', 'Apply to every agent (writes a wildcard assignment row)')
+    .action(async (skillId: string, opts: { agent?: string; all?: boolean }) => {
       try {
+        const target = resolveTarget(opts);
         const gateway = createGateway();
-        await gateway.enableSkill(skillId, opts.agent);
-        const target = opts.agent === '*' ? 'all agents' : `agent ${opts.agent}`;
-        console.log(`Enabled skill ${skillId} for ${target}.`);
+        await gateway.enableSkill(skillId, target);
+        console.log(`Enabled skill ${skillId} for ${targetLabel(target)}.`);
       } catch (error) {
         handleError(error);
       }
@@ -85,15 +100,16 @@ export const registerSkillsCommand = (program: Command): void => {
 
   skills
     .command('disable')
-    .description('Disable a skill for an agent (use --agent "*" for all agents)')
+    .description('Disable a skill. Targets one agent (--agent) or every agent (--all).')
     .argument('<skillId>', 'Skill ID')
-    .requiredOption('--agent <id>', 'Agent ID, or "*" for all agents')
-    .action(async (skillId: string, opts: { agent: string }) => {
+    .option('--agent <id>', 'Agent ID')
+    .option('--all', 'Apply to every agent (removes the wildcard assignment row)')
+    .action(async (skillId: string, opts: { agent?: string; all?: boolean }) => {
       try {
+        const target = resolveTarget(opts);
         const gateway = createGateway();
-        await gateway.disableSkill(skillId, opts.agent);
-        const target = opts.agent === '*' ? 'all agents' : `agent ${opts.agent}`;
-        console.log(`Disabled skill ${skillId} for ${target}.`);
+        await gateway.disableSkill(skillId, target);
+        console.log(`Disabled skill ${skillId} for ${targetLabel(target)}.`);
       } catch (error) {
         handleError(error);
       }

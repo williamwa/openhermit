@@ -13,10 +13,11 @@ agent-scoped commands also accept owner tokens issued by `/api/auth/token`.
 - **`--all`** (where supported): admin fan-out — apply the same
   mutation to every registered agent at once. Mutually exclusive with
   `--agent`.
-- **`'*'`** (legacy wildcard): for `skills` and `mcp` assignments only,
-  passing `--agent '*'` writes a single wildcard row that matches every
-  agent at query time. (Instructions and channels do not use the
-  wildcard model — see the relevant sections below.)
+- **Wildcard semantics under the hood**: for `skills` and `mcp`,
+  `--all` writes a single `agent_id = '*'` row that matches every agent
+  at query time (one write affects existing and future agents). For
+  `instructions`, `--all` is a fan-out — it writes one row per agent.
+  Channels and schedules do not support `--all`.
 - **`--file <path>`** (where supported): read content from a file;
   `--file -` reads stdin.
 
@@ -222,9 +223,9 @@ writes one row per agent — there is no shared/global row.
 ## `hermit skills`
 
 Manage the global skill registry and per-agent skill assignments.
-Wildcard `'*'` is supported on `enable` / `disable` and writes a single
-row that matches every agent at query time (per the `agent_skills`
-wildcard pattern).
+`enable` / `disable` take `--agent <id>` for a single agent or `--all`
+to write a wildcard `agent_id = '*'` row that matches every agent at
+query time (per the `agent_skills` wildcard pattern).
 
 | Subcommand | Description |
 |------------|-------------|
@@ -233,12 +234,12 @@ wildcard pattern).
 | `skills scan` | Scan the gateway's skills directory for new skill manifests. |
 | `skills register <skillId>` | Register a skill (requires `--name`, `--description`, `--path`). |
 | `skills delete <skillId>` | Remove a skill from the registry. |
-| `skills enable <skillId>` | Enable a skill for an agent (`--agent <id|*>`). |
-| `skills disable <skillId>` | Disable a skill for an agent (`--agent <id|*>`). |
+| `skills enable <skillId>` | Enable a skill (`--agent <id>` or `--all`). |
+| `skills disable <skillId>` | Disable a skill (`--agent <id>` or `--all`). |
 
 ```bash
 hermit skills scan
-hermit skills enable code-review --agent '*'
+hermit skills enable code-review --all
 hermit skills disable code-review --agent agent_oncall
 hermit skills assignments
 ```
@@ -247,18 +248,18 @@ hermit skills assignments
 
 ## `hermit mcp`
 
-Manage external MCP servers and per-agent assignments. Wildcard
-`'*'` works the same way as `skills`.
+Manage external MCP servers and per-agent assignments. `--all` works
+the same way as `skills` — writes a single wildcard assignment row.
 
 | Subcommand | Description |
 |------------|-------------|
 | `mcp list` | List every registered MCP server. |
 | `mcp assignments` | Print which servers are enabled for which agents. |
-| `mcp enable <mcpServerId>` | Enable an MCP server for an agent (`--agent <id|*>`). |
-| `mcp disable <mcpServerId>` | Disable an MCP server for an agent (`--agent <id|*>`). |
+| `mcp enable <mcpServerId>` | Enable an MCP server (`--agent <id>` or `--all`). |
+| `mcp disable <mcpServerId>` | Disable an MCP server (`--agent <id>` or `--all`). |
 
 ```bash
-hermit mcp enable mcp_github --agent '*'
+hermit mcp enable mcp_github --all
 hermit mcp disable mcp_github --agent agent_legal
 ```
 
@@ -371,7 +372,7 @@ hermit logs --json | jq 'select(.level=="error")'
 | Set a model API key | `hermit config secrets set OPENROUTER_API_KEY ... --agent main` |
 | Switch model | `hermit config set model.model google/gemini-3-flash-preview --agent main` |
 | Add a rule everywhere | `hermit instructions append rules "..." --all` |
-| Enable a skill on every agent | `hermit skills enable my-skill --agent '*'` |
+| Enable a skill on every agent | `hermit skills enable my-skill --all` |
 | Schedule a weekly task | `hermit schedules create --type cron --cron '0 17 * * FRI' --prompt "..." --agent main` |
 | See what's running | `hermit status` |
 | Diagnose a problem | `hermit doctor` then `hermit logs -f` |

@@ -5,7 +5,20 @@ import { createGateway, handleError, printTable } from './shared.js';
 export const registerMcpCommand = (program: Command): void => {
   const mcp = program
     .command('mcp')
-    .description('Manage MCP servers (use --agent "*" to target all agents)');
+    .description('Manage MCP servers');
+
+  const resolveTarget = (opts: { agent?: string; all?: boolean }): string => {
+    if (opts.agent && opts.all) {
+      console.error('Pass either --agent <id> or --all, not both.');
+      process.exit(1);
+    }
+    if (opts.all) return '*';
+    if (opts.agent) return opts.agent;
+    console.error('Pass --agent <id> or --all.');
+    process.exit(1);
+  };
+  const targetLabel = (target: string): string =>
+    target === '*' ? 'all agents' : `agent ${target}`;
 
   mcp
     .command('list')
@@ -69,15 +82,16 @@ export const registerMcpCommand = (program: Command): void => {
 
   mcp
     .command('enable')
-    .description('Enable an MCP server for an agent (use --agent "*" for all agents)')
+    .description('Enable an MCP server. Targets one agent (--agent) or every agent (--all).')
     .argument('<mcpServerId>', 'MCP server ID')
-    .requiredOption('--agent <id>', 'Agent ID, or "*" for all agents')
-    .action(async (mcpServerId: string, opts: { agent: string }) => {
+    .option('--agent <id>', 'Agent ID')
+    .option('--all', 'Apply to every agent (writes a wildcard assignment row)')
+    .action(async (mcpServerId: string, opts: { agent?: string; all?: boolean }) => {
       try {
+        const target = resolveTarget(opts);
         const gateway = createGateway();
-        await gateway.enableMcpServer(mcpServerId, opts.agent);
-        const target = opts.agent === '*' ? 'all agents' : `agent ${opts.agent}`;
-        console.log(`Enabled MCP server ${mcpServerId} for ${target}.`);
+        await gateway.enableMcpServer(mcpServerId, target);
+        console.log(`Enabled MCP server ${mcpServerId} for ${targetLabel(target)}.`);
       } catch (error) {
         handleError(error);
       }
@@ -85,15 +99,16 @@ export const registerMcpCommand = (program: Command): void => {
 
   mcp
     .command('disable')
-    .description('Disable an MCP server for an agent (use --agent "*" for all agents)')
+    .description('Disable an MCP server. Targets one agent (--agent) or every agent (--all).')
     .argument('<mcpServerId>', 'MCP server ID')
-    .requiredOption('--agent <id>', 'Agent ID, or "*" for all agents')
-    .action(async (mcpServerId: string, opts: { agent: string }) => {
+    .option('--agent <id>', 'Agent ID')
+    .option('--all', 'Apply to every agent (removes the wildcard assignment row)')
+    .action(async (mcpServerId: string, opts: { agent?: string; all?: boolean }) => {
       try {
+        const target = resolveTarget(opts);
         const gateway = createGateway();
-        await gateway.disableMcpServer(mcpServerId, opts.agent);
-        const target = opts.agent === '*' ? 'all agents' : `agent ${opts.agent}`;
-        console.log(`Disabled MCP server ${mcpServerId} for ${target}.`);
+        await gateway.disableMcpServer(mcpServerId, target);
+        console.log(`Disabled MCP server ${mcpServerId} for ${targetLabel(target)}.`);
       } catch (error) {
         handleError(error);
       }

@@ -82,8 +82,8 @@ The admin UI, REST API, and CLI all accept `*` in the `agentId` field to
 write or remove a wildcard assignment. Example:
 
 ```bash
-hermit skills enable my-skill --agent '*'
-hermit mcp enable my-mcp-server --agent '*'
+hermit skills enable my-skill --all
+hermit mcp enable my-mcp-server --all
 ```
 
 When designing a new assignment table, prefer the wildcard pattern unless
