@@ -41,7 +41,7 @@ Agent-scoped tables:
 | `session_events` | Full persisted event log for messages, tool calls/results, errors, and introspection |
 | `memories` | Long-term memories keyed by `memory_key` |
 | `containers` | Workspace container runtime inventory |
-| `instructions` | Prompt instructions by key, scoped to a single agent. Owners edit their own; admin "append" fans out to every agent's row. |
+| `instructions` | Prompt instructions by key, scoped to a single agent. Each new agent is seeded with `identity`, `soul`, `rules`. Owners edit their own; admin "append" fans out to every agent's row. |
 | `users` | User records and merge links |
 | `user_agents` | User role per agent |
 | `user_identities` | Channel identity to user mapping |
