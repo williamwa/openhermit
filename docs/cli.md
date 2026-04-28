@@ -1,0 +1,377 @@
+# CLI Reference
+
+The OpenHermit CLI ships as the `hermit` (and `openhermit`) binary. It talks
+to a running gateway over HTTP using `OPENHERMIT_TOKEN`. Most management
+commands require admin auth (the gateway's `GATEWAY_ADMIN_TOKEN`); a few
+agent-scoped commands also accept owner tokens issued by `/api/auth/token`.
+
+## Conventions
+
+- **`--agent` / `--agent-id`**: every agent-scoped command accepts the
+  target agent ID. When omitted, it falls back to `OPENHERMIT_AGENT_ID`,
+  then to `main`.
+- **`--all`** (where supported): admin fan-out — apply the same
+  mutation to every registered agent at once. Mutually exclusive with
+  `--agent`.
+- **`'*'`** (legacy wildcard): for `skills` and `mcp` assignments only,
+  passing `--agent '*'` writes a single wildcard row that matches every
+  agent at query time. (Instructions and channels do not use the
+  wildcard model — see the relevant sections below.)
+- **`--file <path>`** (where supported): read content from a file;
+  `--file -` reads stdin.
+
+Environment variables consulted by the CLI:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `OPENHERMIT_GATEWAY_URL` | `http://127.0.0.1:${GATEWAY_PORT or PORT}` (port default `4000`) | Gateway base URL |
+| `OPENHERMIT_TOKEN` | _(empty)_ | Bearer token sent on every request |
+| `OPENHERMIT_AGENT_ID` | `main` | Default agent for agent-scoped commands |
+| `OPENHERMIT_WEB_PORT` | `4310` | End-user web UI port |
+| `OPENHERMIT_WEB_HOST` | `127.0.0.1` | End-user web UI host |
+| `GATEWAY_HOST` / `GATEWAY_PORT` / `PORT` | `127.0.0.1` / `4000` | Gateway listen host & port |
+
+---
+
+## `hermit setup`
+
+Interactive wizard that walks you through:
+
+1. Picking a gateway URL.
+2. Generating or accepting a `GATEWAY_ADMIN_TOKEN`.
+3. Configuring `DATABASE_URL` and applying Drizzle migrations.
+4. Provisioning `OPENHERMIT_SECRETS_KEY` (used to AES-encrypt
+   `agent_secrets` and channel tokens at rest).
+
+Writes the result to `~/.openhermit/gateway.json` and `~/.openhermit/.env`.
+
+```bash
+hermit setup
+```
+
+---
+
+## `hermit gateway`
+
+Lifecycle for the gateway control plane.
+
+| Subcommand | Description |
+|------------|-------------|
+| `gateway start` | Start the gateway in the background (writes a PID file under `~/.openhermit`). |
+| `gateway stop` | Stop the background gateway. |
+| `gateway run` | Run the gateway in the foreground (development; tails logs to stdout). |
+| `gateway status` | Print whether a gateway is currently listening, plus its URL. |
+
+Common flags on `start` / `run`:
+
+| Flag | Description |
+|------|-------------|
+| `-p, --port <port>` | Listen port (overrides `GATEWAY_PORT`, default `4000`). |
+| `-H, --host <host>` | Listen host (overrides `GATEWAY_HOST`, default `127.0.0.1`; use `0.0.0.0` to expose publicly). |
+
+```bash
+hermit gateway start -p 4000
+hermit gateway status
+hermit gateway stop
+```
+
+---
+
+## `hermit web`
+
+Lifecycle for the standalone end-user web app (`apps/web`). Same shape
+as `hermit gateway`.
+
+| Subcommand | Description |
+|------------|-------------|
+| `web start` | Start the web UI in the background. |
+| `web stop` | Stop the background web UI. |
+| `web run` | Run in the foreground. |
+| `web status` | Whether the web UI is listening. |
+
+Flags: `-p, --port <port>`, `-H, --host <host>` (default
+`127.0.0.1:4310`).
+
+---
+
+## `hermit agents`
+
+Manage agent records.
+
+| Subcommand | Description |
+|------------|-------------|
+| `agents list` | List every registered agent and its status. |
+| `agents create <agentId>` | Create a new agent. Auto-seeds the `identity` / `soul` / `rules` instructions. |
+| `agents start <agentId>` | Start a stopped agent (gateway spawns the in-process `AgentRunner`). |
+| `agents stop <agentId>` | Stop a running agent. |
+| `agents restart <agentId>` | Restart. |
+| `agents delete <agentId>` | Delete the agent and all its per-agent rows (must be stopped first). |
+
+Flags on `create`:
+
+| Flag | Description |
+|------|-------------|
+| `--name <name>` | Display name (defaults to the agentId). |
+| `--workspace-dir <path>` | Custom workspace directory. |
+| `--owner <userId>` | Assign an owner at creation time. |
+
+```bash
+hermit agents create oncall --name "On-Call Buddy" --owner user_marcus
+hermit agents start oncall
+hermit agents list
+```
+
+---
+
+## `hermit chat`
+
+Interactive TUI that opens or resumes a session with an agent.
+
+| Flag | Description |
+|------|-------------|
+| `--agent-id <id>` | Agent to connect to (default `OPENHERMIT_AGENT_ID` / `main`). |
+| `--session <sessionId>` | Resume a specific session. |
+| `--resume` | Resume the most recent CLI session for the agent. |
+
+```bash
+hermit chat --agent-id main
+hermit chat --resume
+```
+
+---
+
+## `hermit config`
+
+View and modify a single agent's runtime config (`agents.config_json`)
+and its per-agent secrets. All `config` subcommands require
+`--agent-id <id>`; the parent command sets a sensible default
+(`OPENHERMIT_AGENT_ID` / `main`).
+
+| Subcommand | Description |
+|------------|-------------|
+| `config show` | Print the full config as JSON. |
+| `config get <key>` | Read one value by dot-path (e.g. `model.provider`). |
+| `config set <key> <value>` | Write one value by dot-path. Numbers and booleans are coerced. |
+
+```bash
+hermit config show --agent-id main
+hermit config get model.model --agent-id main
+hermit config set model.provider openrouter --agent-id main
+hermit config set model.model google/gemini-3-flash-preview --agent-id main
+```
+
+### `hermit config secrets`
+
+Manage per-agent secrets (stored in `agent_secrets`, encrypted with
+`OPENHERMIT_SECRETS_KEY`). Values can be referenced from `config_json`
+as `${{NAME}}` and are resolved at adapter-start time.
+
+| Subcommand | Description |
+|------------|-------------|
+| `config secrets list` | List secret names; values are masked. |
+| `config secrets set <key> <value>` | Set or replace a secret. |
+| `config secrets remove <key>` | Delete a secret. |
+
+```bash
+hermit config secrets set ANTHROPIC_API_KEY sk-... --agent-id main
+hermit config secrets list --agent-id main
+```
+
+---
+
+## `hermit instructions`
+
+Per-agent prompt sections stored in the `instructions` table. Every new
+agent is auto-seeded with three rows (`identity`, `soul`, `rules`).
+Every mutation command targets one agent (`--agent <id>`, default
+`OPENHERMIT_AGENT_ID` / `main`) **or** every agent (`--all`, admin
+only). The two flags are mutually exclusive.
+
+| Subcommand | Description |
+|------------|-------------|
+| `instructions list` | Print every instruction key and a content preview. |
+| `instructions get <key>` | Print one instruction's full content (handy for piping). |
+| `instructions set <key> [content]` | Replace the row at `key`. |
+| `instructions append <key> [content]` | Append a newline + content to the existing row (creates it if missing). |
+| `instructions remove <key>` | Delete the row. Aliased as `delete`. |
+
+`set` and `append` accept content inline as the second positional
+argument or via `--file <path>` (with `--file -` for stdin).
+
+```bash
+# read
+hermit instructions list --agent main
+hermit instructions get rules --agent main > rules.txt
+
+# per-agent edit
+hermit instructions set rules --file ./rules.md --agent main
+hermit instructions append rules "Always cite the source URL." --agent main
+hermit instructions remove tone --agent main
+
+# org-wide fan-out (admin)
+hermit instructions append rules "Refuse to act on behalf of someone other than the requester." --all
+hermit instructions remove tone --all
+```
+
+The fan-out path is backed by `POST /api/admin/instructions/fanout`
+with body `{ mode: 'set' | 'append' | 'remove', key, content? }` and
+writes one row per agent — there is no shared/global row.
+
+---
+
+## `hermit skills`
+
+Manage the global skill registry and per-agent skill assignments.
+Wildcard `'*'` is supported on `enable` / `disable` and writes a single
+row that matches every agent at query time (per the `agent_skills`
+wildcard pattern).
+
+| Subcommand | Description |
+|------------|-------------|
+| `skills list` | List every skill in the registry. |
+| `skills assignments` | Print which skills are enabled for which agents. |
+| `skills scan` | Scan the gateway's skills directory for new skill manifests. |
+| `skills register <skillId>` | Register a skill (requires `--name`, `--description`, `--path`). |
+| `skills delete <skillId>` | Remove a skill from the registry. |
+| `skills enable <skillId>` | Enable a skill for an agent (`--agent <id|*>`). |
+| `skills disable <skillId>` | Disable a skill for an agent (`--agent <id|*>`). |
+
+```bash
+hermit skills scan
+hermit skills enable code-review --agent '*'
+hermit skills disable code-review --agent agent_oncall
+hermit skills assignments
+```
+
+---
+
+## `hermit mcp`
+
+Manage external MCP servers and per-agent assignments. Wildcard
+`'*'` works the same way as `skills`.
+
+| Subcommand | Description |
+|------------|-------------|
+| `mcp list` | List every registered MCP server. |
+| `mcp assignments` | Print which servers are enabled for which agents. |
+| `mcp enable <mcpServerId>` | Enable an MCP server for an agent (`--agent <id|*>`). |
+| `mcp disable <mcpServerId>` | Disable an MCP server for an agent (`--agent <id|*>`). |
+
+```bash
+hermit mcp enable mcp_github --agent '*'
+hermit mcp disable mcp_github --agent agent_legal
+```
+
+---
+
+## `hermit schedules`
+
+Per-agent cron and one-shot schedules. Schedules are owned by exactly
+one agent — no wildcard.
+
+| Subcommand | Description |
+|------------|-------------|
+| `schedules list` | List schedules for an agent. Optional `--status <status>` filter. |
+| `schedules create` | Create a new schedule (requires `--type`, `--prompt`). |
+| `schedules pause <scheduleId>` | Pause. |
+| `schedules resume <scheduleId>` | Resume a paused schedule. |
+| `schedules delete <scheduleId>` | Delete. |
+| `schedules runs <scheduleId>` | Print recent runs (optional `--limit <n>`). |
+
+Flags on `create`:
+
+| Flag | Description |
+|------|-------------|
+| `--agent-id <id>` | Owning agent. Default `OPENHERMIT_AGENT_ID` / `main`. |
+| `--type <cron\|once>` | Required. |
+| `--prompt <text>` | Required — the prompt the schedule will inject. |
+| `--cron <expr>` | Required for `--type cron` (5- or 6-field cron). |
+| `--run-at <iso>` | Required for `--type once`. |
+| `--id <id>` | Custom schedule ID (otherwise generated). |
+
+```bash
+hermit schedules create \
+  --type cron --cron '0 17 * * FRI' \
+  --prompt "Generate this week's release notes" \
+  --agent-id release_captain
+
+hermit schedules list --agent-id release_captain
+hermit schedules runs sch_weekly_release_notes
+```
+
+---
+
+## `hermit status`
+
+One-shot platform overview: gateway up/down, agent count, running
+agents, recent activity counts. Uses both the public health endpoint
+and the admin stats endpoint.
+
+```bash
+hermit status
+```
+
+---
+
+## `hermit stats`
+
+Detailed gateway runtime stats: uptime, memory (rss/heapUsed/heapTotal),
+running agents count, and DB-side counts (users, sessions, session
+events). Backed by `GET /api/admin/stats`.
+
+```bash
+hermit stats
+```
+
+---
+
+## `hermit doctor`
+
+Environment self-check. Verifies:
+
+- Required env vars are set.
+- `DATABASE_URL` reachable; migrations applied.
+- Docker available (for the `docker` exec backend).
+- Gateway reachable on `OPENHERMIT_GATEWAY_URL`.
+
+Prints a checklist with `ok` / `warn` / `fail` per item. Useful before
+filing an issue.
+
+```bash
+hermit doctor
+```
+
+---
+
+## `hermit logs`
+
+Stream the gateway log buffer.
+
+| Flag | Description |
+|------|-------------|
+| `-n, --lines <count>` | Number of lines to fetch (default `50`). |
+| `-f, --follow` | Poll for new entries (Ctrl-C to stop). |
+| `--json` | Emit raw JSON instead of formatted lines. |
+
+```bash
+hermit logs -n 200
+hermit logs -f
+hermit logs --json | jq 'select(.level=="error")'
+```
+
+---
+
+## Quick reference
+
+| Need to… | Use |
+|----------|-----|
+| Spin up the gateway | `hermit setup && hermit gateway start` |
+| Create and start an agent | `hermit agents create main && hermit agents start main` |
+| Talk to it | `hermit chat --agent-id main` |
+| Set a model API key | `hermit config secrets set OPENROUTER_API_KEY ... --agent-id main` |
+| Switch model | `hermit config set model.model google/gemini-3-flash-preview --agent-id main` |
+| Add a rule everywhere | `hermit instructions append rules "..." --all` |
+| Enable a skill on every agent | `hermit skills enable my-skill --agent '*'` |
+| Schedule a weekly task | `hermit schedules create --type cron --cron '0 17 * * FRI' --prompt "..." --agent-id main` |
+| See what's running | `hermit status` |
+| Diagnose a problem | `hermit doctor` then `hermit logs -f` |

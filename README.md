@@ -161,6 +161,7 @@ Important environment variables:
 
 ## Documentation
 
+- [CLI Reference](docs/cli.md)
 - [Architecture](docs/architecture.md)
 - [Storage Model](docs/storage-model.md)
 - [Session Model](docs/session-model.md)
