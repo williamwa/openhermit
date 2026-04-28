@@ -65,6 +65,10 @@ export const createBuiltInToolsets = (
   // working_memory_update is intentionally excluded from the main agent —
   // it is only available to the introspection agent to prevent overwrite conflicts.
 
+  const hookCtx = context.hookBus && context.agentId && context.sessionId
+    ? { bus: context.hookBus, agentId: context.agentId, sessionId: context.sessionId }
+    : undefined;
+
   // Apply withApproval to all tools in all toolsets
   return toolsets.map((ts) => ({
     ...ts,
@@ -75,6 +79,7 @@ export const createBuiltInToolsets = (
         approvalCallback,
         onToolCall,
         approvedCache,
+        hookCtx,
       ),
     ),
   }));

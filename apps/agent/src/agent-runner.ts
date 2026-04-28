@@ -773,6 +773,21 @@ export class AgentRunner implements SessionRuntime {
     message: SessionMessage,
   ): Promise<{ sessionId: string; messageId?: string; triggered: boolean }> {
     const session = this.getRequiredSession(sessionId);
+
+    // Plugin transform hook — plugins may rewrite (or scrub) the
+    // incoming text before it lands in the session log.
+    const transformed = await this.bus.transform('session.message.received@v1', {
+      agentId: this.scope.agentId,
+      sessionId,
+      text: message.text,
+      ...(session.resolvedUserId ? { senderUserId: session.resolvedUserId } : {}),
+      ...(session.resolvedUserRole ? { senderRole: session.resolvedUserRole } : {}),
+      ...(message.sender?.channel ? { senderChannel: message.sender.channel } : {}),
+    });
+    if (transformed.text !== message.text) {
+      message = { ...message, text: transformed.text };
+    }
+
     this.clearIdleSummaryTimer(session);
     session.updatedAt = new Date().toISOString();
     session.status = 'running';
@@ -1352,6 +1367,7 @@ export class AgentRunner implements SessionRuntime {
         ...(input.approvalCallback ? { approvalCallback: input.approvalCallback } : {}),
         ...(input.approvedCache ? { approvedCache: input.approvedCache } : {}),
         ...(input.onToolCall ? { onToolCall: input.onToolCall } : {}),
+        hookBus: this.bus,
       });
 
       // Connect to enabled MCP servers and add their toolsets
@@ -1363,10 +1379,15 @@ export class AgentRunner implements SessionRuntime {
             await this.mcpClientManager.connectAll(mcpServers);
           }
         }
+        const toolHookCtx = {
+          bus: this.bus,
+          agentId: this.scope.agentId,
+          sessionId: input.contextSessionId,
+        };
         const wrapToolset = (ts: Toolset): Toolset => ({
           ...ts,
           tools: ts.tools.map((tool) =>
-            withApproval(tool, this.options.security, input.approvalCallback, input.onToolCall, input.approvedCache),
+            withApproval(tool, this.options.security, input.approvalCallback, input.onToolCall, input.approvedCache, toolHookCtx),
           ),
         });
         for (const ts of this.mcpClientManager.getToolsets()) {

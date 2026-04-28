@@ -70,6 +70,9 @@ export interface ToolContext {
   approvalCallback?: ApprovalCallback;
   approvedCache?: Set<string>;
   onToolCall?: ToolCallCallback;
+  /** Optional plugin/hook bus — when supplied, every tool call goes
+   * through tool.before@v1 (vetoable) and tool.after@v1 (listener). */
+  hookBus?: import('../events.js').AgentEventBus;
 }
 
 /** Maximum characters for a single tool result text block (~256 KB). */
