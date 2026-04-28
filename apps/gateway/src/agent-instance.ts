@@ -7,7 +7,7 @@ import {
   createLangfuseShutdownHandler,
   type LangfuseClientLike,
 } from '@openhermit/agent/langfuse';
-import { startChannels, startSingleChannel, stopChannels, type ChannelStatus } from '@openhermit/agent/channels';
+import { startChannels, startSingleChannel, stopChannels, type ChannelStatus, type WebhookRequest, type WebhookResponse } from '@openhermit/agent/channels';
 import type { AgentConfigStore, McpServerStore, SecretStore, SkillStore } from '@openhermit/store';
 
 import type { ChannelRegistry } from './auth.js';
@@ -19,6 +19,7 @@ const log = (message: string): void => {
 interface ChannelHandle {
   name: string;
   stop: () => Promise<void>;
+  handleWebhook?: (req: WebhookRequest) => Promise<WebhookResponse>;
 }
 
 export class AgentInstanceManager {
@@ -215,6 +216,20 @@ export class AgentInstanceManager {
 
   getChannelStatuses(agentId: string): ChannelStatus[] {
     return this.channelStatuses.get(agentId) ?? [];
+  }
+
+  /**
+   * Dispatch an incoming webhook request to the named channel adapter
+   * for `agentId`. Returns 404 if the agent isn't running, the channel
+   * isn't enabled, or the adapter doesn't accept webhooks.
+   */
+  async dispatchWebhook(agentId: string, channelName: string, req: WebhookRequest): Promise<WebhookResponse> {
+    const handles = this.channelHandles.get(agentId) ?? [];
+    const handle = handles.find((h) => h.name === channelName);
+    if (!handle || !handle.handleWebhook) {
+      return { status: 404, body: 'channel not active or does not accept webhooks' };
+    }
+    return handle.handleWebhook(req);
   }
 
   async stopSingleChannel(agentId: string, channelName: string, log: (msg: string) => void): Promise<void> {

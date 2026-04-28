@@ -319,7 +319,7 @@ export class AgentSecurity {
     const doc = await this.configStore.getConfig(this.agentId);
     if (!doc) {
       throw new ValidationError(
-        `Agent config missing for ${this.agentId}. Run hermit migrate-agent-config to import legacy files.`,
+        `Agent config missing for ${this.agentId}.`,
       );
     }
     return doc;

@@ -142,10 +142,11 @@ export class TelegramApi {
     });
   }
 
-  async setWebhook(url: string): Promise<boolean> {
+  async setWebhook(url: string, secretToken?: string): Promise<boolean> {
     return this.call<boolean>('setWebhook', {
       url,
       allowed_updates: ['message'],
+      ...(secretToken ? { secret_token: secretToken } : {}),
     });
   }
 

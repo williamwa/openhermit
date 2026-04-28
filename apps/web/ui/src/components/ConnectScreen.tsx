@@ -35,8 +35,13 @@ export function ConnectScreen({ defaultGatewayUrl, defaultAgentId, defaultToken,
         <p className="eyebrow">OpenHermit</p>
         <h1>Connect to Agent</h1>
         <p className="hint">
-          Signed in as <strong>{getDisplayName() || 'Unknown'}</strong>
-          {getUserId() && <span className="hint__uid"> · {getUserId()}</span>}
+          <span>
+            Signed in as <strong>{getDisplayName() || 'Unknown'}</strong>
+            {getUserId() && <span className="hint__uid"> · {getUserId()}</span>}
+          </span>
+          <br />
+          <span style={{ color: 'var(--muted)' }}>at </span>
+          <code style={{ fontSize: 12 }}>{typeof window !== 'undefined' ? window.location.origin : ''}</code>
         </p>
 
         <label className="field">

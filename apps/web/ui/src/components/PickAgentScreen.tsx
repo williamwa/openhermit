@@ -27,6 +27,7 @@ export function PickAgentScreen({ gatewayUrl, onPick, onSignOut }: Props) {
   const [joinAgentId, setJoinAgentId] = useState('');
   const [joinToken, setJoinToken] = useState('');
   const [busy, setBusy] = useState(false);
+  const [joinOpen, setJoinOpen] = useState(false);
 
   const refresh = async (): Promise<void> => {
     try {
@@ -75,9 +76,12 @@ export function PickAgentScreen({ gatewayUrl, onPick, onSignOut }: Props) {
         <p className="eyebrow">OpenHermit</p>
         <h1>Pick an agent</h1>
         <p className="hint">
-          Signed in as <strong>{getDisplayName() || 'Unknown'}</strong>
-          {getUserId() && <span className="hint__uid"> · {getUserId()}</span>}
-          <span style={{ color: 'var(--muted)' }}> at </span>
+          <span>
+            Signed in as <strong>{getDisplayName() || 'Unknown'}</strong>
+            {getUserId() && <span className="hint__uid"> · {getUserId()}</span>}
+          </span>
+          <br />
+          <span style={{ color: 'var(--muted)' }}>gateway: </span>
           <code style={{ fontSize: 12 }}>{gatewayUrl}</code>
         </p>
 
@@ -122,39 +126,68 @@ export function PickAgentScreen({ gatewayUrl, onPick, onSignOut }: Props) {
           </div>
         )}
 
-        <h3 style={{ fontSize: 13, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 24, marginBottom: 8 }}>
-          Join another agent
-        </h3>
-        <form onSubmit={handleJoin}>
-          <label className="field">
-            <span className="field__label">Agent ID</span>
-            <input
-              className="field__input"
-              type="text"
-              placeholder="e.g. one"
-              required
-              value={joinAgentId}
-              onChange={(e) => setJoinAgentId(e.target.value)}
-            />
-          </label>
-          <label className="field">
-            <span className="field__label">Access Token</span>
-            <input
-              className="field__input"
-              type="password"
-              placeholder="Only if the agent is protected"
-              value={joinToken}
-              onChange={(e) => setJoinToken(e.target.value)}
-            />
-          </label>
+        {!joinOpen ? (
           <button
-            className="btn btn--primary btn--full"
-            type="submit"
-            disabled={!joinAgentId.trim() || busy}
+            className="btn btn--ghost btn--full"
+            type="button"
+            onClick={() => setJoinOpen(true)}
+            style={{ marginTop: 16 }}
           >
-            {busy ? 'Joining...' : 'Join'}
+            + Join another agent
           </button>
-        </form>
+        ) : (
+          <>
+            <h3 style={{ fontSize: 13, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 24, marginBottom: 8 }}>
+              Join another agent
+            </h3>
+            <form onSubmit={handleJoin}>
+              <label className="field">
+                <span className="field__label">Agent ID</span>
+                <input
+                  className="field__input"
+                  type="text"
+                  placeholder="e.g. one"
+                  required
+                  autoFocus
+                  value={joinAgentId}
+                  onChange={(e) => setJoinAgentId(e.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span className="field__label">Access Token</span>
+                <input
+                  className="field__input"
+                  type="password"
+                  placeholder="Only if the agent is protected"
+                  value={joinToken}
+                  onChange={(e) => setJoinToken(e.target.value)}
+                />
+              </label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  className="btn btn--ghost"
+                  type="button"
+                  onClick={() => {
+                    setJoinOpen(false);
+                    setJoinAgentId('');
+                    setJoinToken('');
+                  }}
+                  disabled={busy}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn btn--primary"
+                  type="submit"
+                  disabled={!joinAgentId.trim() || busy}
+                  style={{ flex: 1 }}
+                >
+                  {busy ? 'Joining...' : 'Join'}
+                </button>
+              </div>
+            </form>
+          </>
+        )}
 
         <button
           className="btn btn--ghost btn--sm"

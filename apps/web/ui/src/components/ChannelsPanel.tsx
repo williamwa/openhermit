@@ -4,9 +4,38 @@ import {
   patchChannel,
   removeChannel,
   createExternalChannel,
+  setAgentSecret,
   type ChannelInfo,
   type CreatedChannel,
 } from '../api';
+
+/**
+ * Fixed config skeletons for built-in channels. Token fields are kept as
+ * `${{SECRET}}` placeholders that resolve at adapter-start time; the actual
+ * secret is written via setAgentSecret.
+ */
+const BUILTIN_CONFIG_TEMPLATES: Record<string, (extras: Record<string, unknown>) => Record<string, unknown>> = {
+  telegram: (extras) => ({
+    bot_token: '${{TELEGRAM_BOT_TOKEN}}',
+    mode: extras.mode ?? 'polling',
+    ...(Array.isArray(extras.allowed_chat_ids) && extras.allowed_chat_ids.length
+      ? { allowed_chat_ids: extras.allowed_chat_ids }
+      : {}),
+  }),
+  discord: (extras) => ({
+    bot_token: '${{DISCORD_BOT_TOKEN}}',
+    ...(Array.isArray(extras.allowed_channel_ids) && extras.allowed_channel_ids.length
+      ? { allowed_channel_ids: extras.allowed_channel_ids }
+      : {}),
+  }),
+  slack: (extras) => ({
+    bot_token: '${{SLACK_BOT_TOKEN}}',
+    app_token: '${{SLACK_APP_TOKEN}}',
+    ...(Array.isArray(extras.allowed_channel_ids) && extras.allowed_channel_ids.length
+      ? { allowed_channel_ids: extras.allowed_channel_ids }
+      : {}),
+  }),
+};
 
 /**
  * Unified channel management — covers both built-in adapters
@@ -25,6 +54,8 @@ export function ChannelsPanel() {
   const [editing, setEditing] = useState<string | null>(null);
   const [editConfig, setEditConfig] = useState('');
   const [editLabel, setEditLabel] = useState('');
+  const [editSecrets, setEditSecrets] = useState<Record<string, string>>({});
+  const [editExtras, setEditExtras] = useState<Record<string, unknown>>({});
   const [saving, setSaving] = useState(false);
 
   // Create-external flow
@@ -83,27 +114,61 @@ export function ChannelsPanel() {
 
   const startEdit = (ch: ChannelInfo) => {
     setEditing(ch.id);
-    setEditConfig(JSON.stringify(ch.config, null, 2));
     setEditLabel(ch.label ?? '');
+    setEditSecrets({});
     setError('');
+    if (ch.kind === 'builtin') {
+      // Pre-fill structured extras from existing config (token fields stay
+      // as placeholders; secrets are entered fresh).
+      const cfg = ch.config ?? {};
+      const extras: Record<string, unknown> = {};
+      if (ch.channelType === 'telegram') {
+        extras.mode = cfg.mode ?? 'polling';
+        if (Array.isArray(cfg.allowed_chat_ids)) extras.allowed_chat_ids = cfg.allowed_chat_ids;
+      } else if (ch.channelType === 'discord' || ch.channelType === 'slack') {
+        if (Array.isArray(cfg.allowed_channel_ids)) extras.allowed_channel_ids = cfg.allowed_channel_ids;
+      }
+      setEditExtras(extras);
+      setEditConfig('');
+    } else {
+      setEditExtras({});
+      setEditConfig(JSON.stringify(ch.config, null, 2));
+    }
   };
 
   const handleSaveEdit = async () => {
     if (!editing) return;
-    let parsedConfig: Record<string, unknown>;
-    try {
-      parsedConfig = JSON.parse(editConfig || '{}') as Record<string, unknown>;
-      if (typeof parsedConfig !== 'object' || parsedConfig === null) {
-        throw new Error('Config must be a JSON object');
-      }
-    } catch (err) {
-      setError(`Invalid JSON: ${(err as Error).message}`);
-      return;
-    }
+    const ch = channels.find((c) => c.id === editing);
+    if (!ch) return;
+
     setSaving(true);
     try {
+      let nextConfig: Record<string, unknown>;
+      if (ch.kind === 'builtin') {
+        // 1. Persist any newly-entered secrets first.
+        for (const [key, value] of Object.entries(editSecrets)) {
+          if (value.trim()) {
+            await setAgentSecret(key, value.trim());
+          }
+        }
+        // 2. Build a fixed config skeleton from the channel-type template.
+        const tmpl = BUILTIN_CONFIG_TEMPLATES[ch.channelType];
+        nextConfig = tmpl ? tmpl(editExtras) : (ch.config ?? {});
+      } else {
+        try {
+          nextConfig = JSON.parse(editConfig || '{}') as Record<string, unknown>;
+          if (typeof nextConfig !== 'object' || nextConfig === null) {
+            throw new Error('Config must be a JSON object');
+          }
+        } catch (err) {
+          setError(`Invalid JSON: ${(err as Error).message}`);
+          setSaving(false);
+          return;
+        }
+      }
+
       await patchChannel(editing, {
-        config: parsedConfig,
+        config: nextConfig,
         label: editLabel.trim() === '' ? null : editLabel.trim(),
       });
       setEditing(null);
@@ -258,23 +323,27 @@ export function ChannelsPanel() {
                   onChange={(e) => setEditLabel(e.target.value)}
                 />
               </div>
-              <div className="manage__field">
-                <label className="manage__field-label">Config (JSON)</label>
-                <textarea
-                  className="manage__field-input"
-                  rows={10}
-                  spellCheck={false}
-                  style={{ fontFamily: 'var(--mono)', fontSize: 12 }}
-                  value={editConfig}
-                  onChange={(e) => setEditConfig(e.target.value)}
+              {editingChannel.kind === 'builtin' ? (
+                <BuiltinChannelFields
+                  channel={editingChannel}
+                  secrets={editSecrets}
+                  setSecrets={setEditSecrets}
+                  extras={editExtras}
+                  setExtras={setEditExtras}
                 />
-                {editingChannel.secretKeys && editingChannel.secretKeys.length > 0 && (
-                  <span className="manage__field-hint">
-                    Reference secrets with <code>{'${{NAME}}'}</code>. Expected:{' '}
-                    {editingChannel.secretKeys.map((sk) => sk.key).join(', ')}.
-                  </span>
-                )}
-              </div>
+              ) : (
+                <div className="manage__field">
+                  <label className="manage__field-label">Config (JSON)</label>
+                  <textarea
+                    className="manage__field-input"
+                    rows={10}
+                    spellCheck={false}
+                    style={{ fontFamily: 'var(--mono)', fontSize: 12 }}
+                    value={editConfig}
+                    onChange={(e) => setEditConfig(e.target.value)}
+                  />
+                </div>
+              )}
             </div>
             <div className="manage__dialog-footer">
               <button className="btn btn--primary" onClick={() => void handleSaveEdit()} disabled={saving}>
@@ -285,6 +354,98 @@ export function ChannelsPanel() {
         )}
       </dialog>
     </div>
+  );
+}
+
+function BuiltinChannelFields({ channel, secrets, setSecrets, extras, setExtras }: {
+  channel: ChannelInfo;
+  secrets: Record<string, string>;
+  setSecrets: (s: Record<string, string>) => void;
+  extras: Record<string, unknown>;
+  setExtras: (e: Record<string, unknown>) => void;
+}) {
+  const setSecret = (key: string, value: string) => setSecrets({ ...secrets, [key]: value });
+  const setExtra = (key: string, value: unknown) => setExtras({ ...extras, [key]: value });
+
+  return (
+    <>
+      {(channel.secretKeys ?? []).map((sk) => (
+        <div className="manage__field" key={sk.key}>
+          <label className="manage__field-label">{sk.label}</label>
+          <input
+            className="manage__field-input"
+            type="password"
+            placeholder={sk.placeholder}
+            value={secrets[sk.key] ?? ''}
+            onChange={(e) => setSecret(sk.key, e.target.value)}
+            autoComplete="off"
+          />
+          <span className="manage__field-hint">
+            Stored as secret <code>{sk.key}</code>. Leave blank to keep the existing value.
+          </span>
+        </div>
+      ))}
+
+      {channel.channelType === 'telegram' && (
+        <>
+          <div className="manage__field">
+            <label className="manage__field-label">Mode</label>
+            <select
+              className="manage__field-input"
+              value={(extras.mode as string) ?? 'polling'}
+              onChange={(e) => setExtra('mode', e.target.value)}
+            >
+              <option value="polling">Polling</option>
+              <option value="webhook">Webhook</option>
+            </select>
+          </div>
+          {extras.mode === 'webhook' && (
+            <div className="manage__field">
+              <label className="manage__field-label">Webhook URL</label>
+              <code style={{ display: 'block', padding: '8px 10px', background: 'var(--surface, #f4f4f5)', borderRadius: 4, fontSize: 12, wordBreak: 'break-all' }}>
+                {`${typeof window !== 'undefined' ? window.location.origin : ''}/api/agents/${channel.agentId}/channels/${channel.namespace}/webhook`}
+              </code>
+              <span className="manage__field-hint">
+                Auto-derived from the gateway URL. Telegram is registered with a per-channel secret_token, so requests are verified server-side.
+              </span>
+            </div>
+          )}
+          <div className="manage__field">
+            <label className="manage__field-label">Allowed Chat IDs (optional)</label>
+            <input
+              className="manage__field-input"
+              placeholder="comma-separated, e.g. 12345, 67890"
+              value={Array.isArray(extras.allowed_chat_ids) ? extras.allowed_chat_ids.join(', ') : ''}
+              onChange={(e) => {
+                const ids = e.target.value
+                  .split(',')
+                  .map((s) => s.trim())
+                  .filter(Boolean)
+                  .map((s) => (Number.isNaN(Number(s)) ? s : Number(s)));
+                setExtra('allowed_chat_ids', ids);
+              }}
+            />
+            <span className="manage__field-hint">Leave blank to allow all chats.</span>
+          </div>
+        </>
+      )}
+
+      {(channel.channelType === 'discord' || channel.channelType === 'slack') && (
+        <div className="manage__field">
+          <label className="manage__field-label">Allowed Channel IDs (optional)</label>
+          <input
+            className="manage__field-input"
+            placeholder="comma-separated, e.g. C0123, C0456"
+            value={Array.isArray(extras.allowed_channel_ids) ? extras.allowed_channel_ids.join(', ') : ''}
+            onChange={(e) => {
+              const ids = e.target.value.split(',').map((s) => s.trim()).filter(Boolean);
+              setExtra('allowed_channel_ids', ids);
+            }}
+          />
+          <span className="manage__field-hint">Leave blank to allow all channels.</span>
+        </div>
+      )}
+    </>
   );
 }
 

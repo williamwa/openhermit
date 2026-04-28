@@ -1,8 +1,8 @@
 /**
- * Telegram bot with polling and webhook modes.
+ * Telegram bot. Polling mode runs a local long-poll loop; webhook mode
+ * registers a Telegram webhook against a gateway-hosted URL and exposes
+ * `handleWebhookRequest` for the gateway dispatcher to call.
  */
-
-import { createServer, type Server } from 'node:http';
 
 import { TelegramApi, type TelegramUpdate } from './telegram-api.js';
 import type { TelegramBridge } from './bridge.js';
@@ -11,10 +11,23 @@ export interface BotOptions {
   botToken: string;
   bridge: TelegramBridge;
   mode: 'polling' | 'webhook';
+  /** Public HTTPS URL where Telegram should POST updates (webhook mode). */
   webhookUrl?: string;
-  webhookPort?: number;
+  /** Secret expected in `X-Telegram-Bot-Api-Secret-Token`; we set this on Telegram and verify on incoming. */
+  webhookSecret?: string;
   pollingInterval?: number;
   logger?: (message: string) => void;
+}
+
+export interface WebhookRequestLike {
+  headers: Record<string, string>;
+  rawBody: string;
+}
+
+export interface WebhookResponseLike {
+  status: number;
+  body?: string;
+  headers?: Record<string, string>;
 }
 
 export class TelegramBot {
@@ -24,7 +37,6 @@ export class TelegramBot {
   private running = false;
   private pollOffset: number | undefined;
   private pollAbort: AbortController | undefined;
-  private webhookServer: Server | undefined;
 
   constructor(private readonly options: BotOptions) {
     this.api = new TelegramApi(options.botToken);
@@ -49,12 +61,13 @@ export class TelegramBot {
     this.running = false;
     this.pollAbort?.abort();
 
-    if (this.webhookServer) {
-      await new Promise<void>((resolve) => {
-        this.webhookServer!.close(() => resolve());
-      });
-      await this.api.deleteWebhook();
-      this.log('webhook server stopped');
+    if (this.options.mode === 'webhook') {
+      try {
+        await this.api.deleteWebhook();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.log(`error deleting webhook: ${message}`);
+      }
     }
 
     this.log('bot stopped');
@@ -82,7 +95,6 @@ export class TelegramBot {
         const message =
           error instanceof Error ? error.message : String(error);
         this.log(`polling error: ${message}`);
-        // Back off on error.
         await new Promise((resolve) => setTimeout(resolve, this.options.pollingInterval ?? 1000));
       }
     }
@@ -91,43 +103,38 @@ export class TelegramBot {
   // --- Webhook mode ---
 
   private async startWebhook(): Promise<void> {
-    const port = this.options.webhookPort ?? 8443;
     const url = this.options.webhookUrl;
-
     if (!url) {
-      throw new Error('TELEGRAM_WEBHOOK_URL is required in webhook mode.');
+      throw new Error('webhook_url is required in webhook mode (gateway should derive it).');
     }
 
-    this.webhookServer = createServer(async (req, res) => {
-      if (req.method !== 'POST') {
-        res.writeHead(405);
-        res.end();
-        return;
+    await this.api.setWebhook(url, this.options.webhookSecret);
+    this.log(`webhook mode started → ${url}`);
+  }
+
+  /**
+   * Called by the gateway's webhook dispatcher. Verifies the
+   * `X-Telegram-Bot-Api-Secret-Token` header (if configured) and
+   * processes the update asynchronously.
+   */
+  async handleWebhookRequest(req: WebhookRequestLike): Promise<WebhookResponseLike> {
+    if (this.options.webhookSecret) {
+      const got = req.headers['x-telegram-bot-api-secret-token'];
+      if (got !== this.options.webhookSecret) {
+        return { status: 401, body: 'unauthorized' };
       }
+    }
 
-      try {
-        const chunks: Buffer[] = [];
-        for await (const chunk of req) {
-          chunks.push(chunk as Buffer);
-        }
-        const body = Buffer.concat(chunks).toString('utf8');
-        const update = JSON.parse(body) as TelegramUpdate;
-        // Handle asynchronously — respond to Telegram immediately.
-        void this.handleUpdate(update);
-        res.writeHead(200, { 'content-type': 'application/json' });
-        res.end('{"ok":true}');
-      } catch {
-        res.writeHead(400);
-        res.end();
-      }
-    });
+    let update: TelegramUpdate;
+    try {
+      update = JSON.parse(req.rawBody) as TelegramUpdate;
+    } catch {
+      return { status: 400, body: 'invalid json' };
+    }
 
-    await new Promise<void>((resolve) => {
-      this.webhookServer!.listen(port, () => resolve());
-    });
-
-    await this.api.setWebhook(url);
-    this.log(`webhook mode started on port ${port} → ${url}`);
+    // Dispatch asynchronously so we ack Telegram immediately.
+    void this.handleUpdate(update);
+    return { status: 200, body: '{"ok":true}', headers: { 'content-type': 'application/json' } };
   }
 
   // --- Update handling ---
@@ -143,8 +150,6 @@ export class TelegramBot {
       const message =
         error instanceof Error ? error.message : String(error);
       this.log(`error handling message from chat ${update.message.chat.id}: ${message}`);
-
-      // Try to notify the user.
       try {
         await this.api.sendMessage(
           update.message.chat.id,

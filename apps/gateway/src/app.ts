@@ -1624,6 +1624,36 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     return options.agentChannelStore;
   };
 
+  /**
+   * Public webhook ingress. Each enabled channel can register a
+   * `handleWebhook` on its bridge; this route forwards the raw POST to
+   * that handler. Authentication is the adapter's responsibility (e.g.
+   * Telegram secret_token, Slack signing secret, Discord ed25519).
+   */
+  app.post('/api/agents/:agentId/channels/:namespace/webhook', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    const namespace = c.req.param('namespace') ?? '';
+    const store = requireAgentChannelStore();
+    const rows = await store.listForAgent(agentId);
+    const row = rows.find((r) => r.namespace === namespace && !r.revokedAt);
+    if (!row || !row.enabled) {
+      return c.json({ error: { code: 'not_found', message: 'channel not found' } }, 404);
+    }
+
+    // Collect headers as a flat lowercase-keyed map for the adapter.
+    const headers: Record<string, string> = {};
+    c.req.raw.headers.forEach((value, key) => {
+      headers[key.toLowerCase()] = value;
+    });
+    const rawBody = await c.req.text();
+
+    const result = await instances.dispatchWebhook(agentId, row.channelType, { headers, rawBody });
+    return new Response(result.body ?? '', {
+      status: result.status,
+      headers: result.headers ?? {},
+    });
+  });
+
   app.get('/api/agents/:agentId/channels', async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     await requireOwnerOrAdmin(c, agentId);

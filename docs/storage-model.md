@@ -106,16 +106,6 @@ gateway's `POST /agents` flow seeds these columns with the default
 template; `PUT /api/agents/:id/config` and `PUT /api/agents/:id/secrets`
 also write through the stores.
 
-To import a freshly-checked-out repo whose agents predate this change,
-run the one-shot CLI:
-
-```bash
-hermit migrate-agent-config       # imports config.json + security.json into the DB
-hermit migrate-agent-config --force  # overwrite even if columns are populated
-```
-
-After migration the legacy files can be deleted.
-
 ## Per-Agent Files
 
 Files under `~/.openhermit/agents/{agentId}/` are runtime/local state, not

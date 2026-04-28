@@ -13,10 +13,30 @@ export interface ChannelContext {
   logger: (channel: string, message: string) => void;
 }
 
+export interface WebhookRequest {
+  headers: Record<string, string>;
+  rawBody: string;
+}
+
+export interface WebhookResponse {
+  status: number;
+  body?: string;
+  headers?: Record<string, string>;
+}
+
+export type WebhookHandler = (req: WebhookRequest) => Promise<WebhookResponse>;
+
 export interface ChannelHandle {
   name: string;
   outbound?: ChannelOutbound;
   stop: () => Promise<void>;
+  /**
+   * Optional webhook handler. When present, the gateway forwards POSTs
+   * received at /api/agents/:agentId/channels/:namespace/webhook here.
+   * The adapter is responsible for verifying authenticity (e.g.
+   * Telegram secret_token, Slack HMAC, Discord ed25519).
+   */
+  handleWebhook?: WebhookHandler;
 }
 
 export interface ChannelStatus {
@@ -207,23 +227,35 @@ async function startTelegram(
       token: context.agentTokens['telegram'] ?? '',
     }, log);
 
+    const mode = config.mode ?? 'polling';
     const botOptions: ConstructorParameters<typeof TelegramBot>[0] = {
       botToken: config.bot_token,
       bridge,
-      mode: config.mode ?? 'polling',
+      mode,
       logger: log,
     };
-    if (config.webhook_url) botOptions.webhookUrl = config.webhook_url;
-    if (config.webhook_port) botOptions.webhookPort = config.webhook_port;
+    if (mode === 'webhook') {
+      // Gateway-hosted webhook URL (single port, single TLS cert).
+      const derivedUrl = config.webhook_url || `${context.agentBaseUrl}/channels/telegram/webhook`;
+      botOptions.webhookUrl = derivedUrl;
+      // Use the per-channel token as Telegram's secret_token; we verify
+      // X-Telegram-Bot-Api-Secret-Token on each incoming request.
+      const secret = context.agentTokens['telegram'];
+      if (secret) botOptions.webhookSecret = secret;
+    }
 
     const bot = new TelegramBot(botOptions);
     await bot.start();
 
-    return {
+    const handle: ChannelHandle = {
       name: 'telegram',
       outbound: bridge,
       stop: () => bot.stop(),
     };
+    if (mode === 'webhook') {
+      handle.handleWebhook = (req) => bot.handleWebhookRequest(req);
+    }
+    return handle;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     log(`failed to start telegram channel: ${message}`);
