@@ -33,6 +33,7 @@ import {
   createUserMessage,
   extractAssistantText,
   extractThinkingText,
+  extractThinkingSignature,
   hasMeaningfulAssistantText,
   extractToolResultDetails,
   extractToolResultText,
@@ -1590,7 +1591,14 @@ export class AgentRunner implements SessionRuntime {
       if (entry.role === 'assistant' && typeof entry.content === 'string') {
         const content: import('@mariozechner/pi-ai').AssistantMessage['content'] = [];
         if (typeof entry.thinking === 'string' && entry.thinking) {
-          content.push({ type: 'thinking', thinking: entry.thinking });
+          const thinkingBlock: { type: 'thinking'; thinking: string; thinkingSignature?: string } = {
+            type: 'thinking',
+            thinking: entry.thinking,
+          };
+          if (typeof entry.thinkingSignature === 'string' && entry.thinkingSignature) {
+            thinkingBlock.thinkingSignature = entry.thinkingSignature;
+          }
+          content.push(thinkingBlock as import('@mariozechner/pi-ai').AssistantMessage['content'][number]);
         }
         if (entry.content) {
           content.push({ type: 'text', text: entry.content });
@@ -1885,6 +1893,7 @@ export class AgentRunner implements SessionRuntime {
 
         const assistantText = extractAssistantText(event.message);
         const thinkingText = extractThinkingText(event.message);
+        const thinkingSignature = extractThinkingSignature(event.message);
         const assistantMessage = event.message;
 
         // Handle error responses from the model provider.
@@ -1910,6 +1919,7 @@ export class AgentRunner implements SessionRuntime {
               role: 'assistant',
               content: assistantText ?? '',
               ...(thinkingText ? { thinking: thinkingText } : {}),
+              ...(thinkingSignature ? { thinkingSignature } : {}),
               provider: assistantMessage.provider,
               model: assistantMessage.model,
               usage: assistantMessage.usage,
@@ -1962,6 +1972,7 @@ export class AgentRunner implements SessionRuntime {
             role: 'assistant',
             content: effectiveText,
             ...(effectiveThinking ? { thinking: effectiveThinking } : {}),
+            ...(effectiveThinking && thinkingSignature ? { thinkingSignature } : {}),
             provider: assistantMessage.provider,
             model: assistantMessage.model,
             usage: assistantMessage.usage,

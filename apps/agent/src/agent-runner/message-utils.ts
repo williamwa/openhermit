@@ -30,6 +30,20 @@ export const extractThinkingText = (message: AssistantMessage): string => {
   return parts.join('\n\n');
 };
 
+// Some OpenAI-compatible providers (e.g. DeepSeek with reasoning_content,
+// llama.cpp, gpt-oss) require the prior reasoning to be passed back on the
+// exact provider-specific field. The pi-ai provider records that field name
+// on the thinking block as `thinkingSignature` so it can echo it correctly.
+// We need to persist it so resumed sessions don't lose it.
+export const extractThinkingSignature = (message: AssistantMessage): string | undefined => {
+  for (const block of message.content) {
+    if (block.type !== 'thinking') continue;
+    const sig = (block as { thinkingSignature?: unknown }).thinkingSignature;
+    if (typeof sig === 'string' && sig.length > 0) return sig;
+  }
+  return undefined;
+};
+
 export const hasMeaningfulAssistantText = (text: string): boolean =>
   text.trim().length > 0;
 
