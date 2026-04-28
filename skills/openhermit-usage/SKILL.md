@@ -30,7 +30,7 @@ hermit setup
 hermit gateway start
 hermit agents create main
 hermit agents start main
-hermit chat --agent-id main
+hermit chat --agent main
 ```
 
 `hermit setup` configures `.env`, can start local PostgreSQL through Docker Compose, applies Drizzle SQL migrations, and writes `OPENHERMIT_TOKEN` from the admin token for CLI use.
@@ -55,7 +55,7 @@ hermit chat --agent-id main
 | Setup | `hermit setup` |
 | Gateway | `hermit gateway start`, `stop`, `run`, `status` |
 | Agents | `hermit agents list`, `create`, `start`, `stop`, `restart`, `delete` |
-| Chat | `hermit chat`, `hermit chat --agent-id <id>`, `--resume`, `--session <id>` |
+| Chat | `hermit chat`, `hermit chat --agent <id>`, `--resume`, `--session <id>` |
 | Config | `hermit config show`, `get`, `set` |
 | Secrets | `hermit config secrets list`, `set`, `remove` |
 | Instructions | `hermit instructions list`, `get`, `set`, `append`, `remove` — single-agent (`--agent <id>`) or admin fan-out (`--all`) |

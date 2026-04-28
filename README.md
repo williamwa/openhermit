@@ -71,7 +71,7 @@ hermit agents create main
 hermit agents start main
 
 # Chat through the CLI.
-hermit chat --agent-id main
+hermit chat --agent main
 ```
 
 The gateway defaults to `http://127.0.0.1:4000`. The admin UI is served by the gateway at `/admin/`. The separate end-user web app runs on `http://127.0.0.1:4310` when started with `npm run dev:web`.
@@ -83,7 +83,7 @@ The gateway defaults to `http://127.0.0.1:4000`. The admin UI is served by the g
 | Setup | `hermit setup` |
 | Gateway | `hermit gateway start`, `stop`, `run`, `status` |
 | Agents | `hermit agents list`, `create`, `start`, `stop`, `restart`, `delete` |
-| Chat | `hermit chat`, `hermit chat --agent-id <id>`, `hermit chat --resume`, `hermit chat --session <sessionId>` |
+| Chat | `hermit chat`, `hermit chat --agent <id>`, `hermit chat --resume`, `hermit chat --session <sessionId>` |
 | Config | `hermit config show`, `get <key>`, `set <key> <value>` |
 | Secrets | `hermit config secrets list`, `set <key> <value>`, `remove <key>` |
 | Instructions | `hermit instructions list`, `get`, `set`, `append`, `remove` — single-agent (`--agent <id>`) or admin fan-out (`--all`) |
@@ -92,7 +92,7 @@ The gateway defaults to `http://127.0.0.1:4000`. The admin UI is served by the g
 | Schedules | `hermit schedules list`, `create`, `pause`, `resume`, `delete`, `runs` |
 | Operations | `hermit status`, `hermit stats`, `hermit doctor`, `hermit logs [-f] [-n N]` |
 
-Agent-scoped commands accept `--agent-id <id>` and default to `OPENHERMIT_AGENT_ID` or `main`.
+Agent-scoped commands accept `--agent <id>` and default to `OPENHERMIT_AGENT_ID` or `main`.
 
 ## API Overview
 

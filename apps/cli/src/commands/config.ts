@@ -4,12 +4,12 @@ import { createGateway, handleError } from './shared.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
-/** Walk up the commander parent chain to find --agent-id. */
+/** Walk up the commander parent chain to find --agent. */
 const resolveAgentId = (cmd: Command): string => {
   let current: Command | null = cmd;
   while (current) {
     const opts = current.opts() as Record<string, unknown>;
-    if (typeof opts.agentId === 'string') return opts.agentId;
+    if (typeof opts.agent === 'string') return opts.agent;
     current = current.parent;
   }
   return process.env.OPENHERMIT_AGENT_ID ?? 'main';
@@ -76,7 +76,7 @@ export const registerConfigCommand = (program: Command): void => {
   const cfg = program
     .command('config')
     .description('View and modify agent configuration')
-    .requiredOption('--agent-id <id>', 'Agent to configure', process.env.OPENHERMIT_AGENT_ID ?? 'main');
+    .requiredOption('--agent <id>', 'Agent to configure', process.env.OPENHERMIT_AGENT_ID ?? 'main');
 
   // --- show ---
   cfg

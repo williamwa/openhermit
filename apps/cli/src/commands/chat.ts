@@ -9,10 +9,10 @@ export const registerChatCommand = (program: Command): void => {
   program
     .command('chat')
     .description('Interactive TUI chat with an agent')
-    .option('--agent-id <id>', 'Agent to connect to', process.env.OPENHERMIT_AGENT_ID ?? 'main')
+    .option('--agent <id>', 'Agent to connect to', process.env.OPENHERMIT_AGENT_ID ?? 'main')
     .option('--session <sessionId>', 'Resume a specific session')
     .option('--resume', 'Resume the most recent CLI session')
-    .action(async (opts: { agentId: string; session?: string; resume?: boolean }) => {
+    .action(async (opts: { agent: string; session?: string; resume?: boolean }) => {
       try {
         if (opts.resume && opts.session) {
           console.error('Cannot use --resume together with --session.');
@@ -20,10 +20,10 @@ export const registerChatCommand = (program: Command): void => {
         }
 
         const gateway = createGateway();
-        const client = gateway.agent(opts.agentId);
+        const client = gateway.agent(opts.agent);
 
         const agents = await gateway.listAgents();
-        const agentInfo = agents.find((a) => a.agentId === opts.agentId);
+        const agentInfo = agents.find((a) => a.agentId === opts.agent);
         const workspaceRoot = agentInfo?.workspaceDir ?? process.cwd();
 
         const initialSessions = await listCliSessions(client);
@@ -41,10 +41,10 @@ export const registerChatCommand = (program: Command): void => {
         // Step 1: register CLI identity at the gateway (global user + agent
         // membership). Step 2: open session so the runner picks up the
         // resolved role. Step 3: ownership prompt if no owner yet.
-        await registerCliIdentity({ agentId: opts.agentId, gatewayUrl, token });
+        await registerCliIdentity({ agentId: opts.agent, gatewayUrl, token });
         await client.openSession(createCliSessionSpec(startupSession.sessionId));
         await maybeClaimOwnership({
-          agentId: opts.agentId,
+          agentId: opts.agent,
           gatewayUrl,
           token,
           client,
@@ -54,7 +54,7 @@ export const registerChatCommand = (program: Command): void => {
         await runTuiChatLoop({
           client,
           token,
-          agentId: opts.agentId,
+          agentId: opts.agent,
           workspaceRoot,
           startupSession,
           resumeFlag: opts.resume ?? false,

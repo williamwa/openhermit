@@ -14,12 +14,12 @@ export const registerSchedulesCommand = (program: Command): void => {
   schedules
     .command('list')
     .description('List schedules for an agent')
-    .option('--agent-id <id>', 'Agent ID', defaultAgentId())
+    .option('--agent <id>', 'Agent ID', defaultAgentId())
     .option('--status <status>', 'Filter by status')
-    .action(async (opts: { agentId: string; status?: string }) => {
+    .action(async (opts: { agent: string; status?: string }) => {
       try {
         const gateway = createGateway();
-        let list = (await gateway.listSchedules(opts.agentId)) as any[];
+        let list = (await gateway.listSchedules(opts.agent)) as any[];
 
         if (opts.status) {
           list = list.filter((s: any) => s.status === opts.status);
@@ -60,14 +60,14 @@ export const registerSchedulesCommand = (program: Command): void => {
   schedules
     .command('create')
     .description('Create a new schedule')
-    .option('--agent-id <id>', 'Agent ID', defaultAgentId())
+    .option('--agent <id>', 'Agent ID', defaultAgentId())
     .requiredOption('--type <type>', 'Schedule type (cron or once)')
     .requiredOption('--prompt <prompt>', 'Prompt to execute')
     .option('--cron <expr>', 'Cron expression (for cron type)')
     .option('--run-at <iso>', 'ISO datetime to run at (for once type)')
     .option('--id <id>', 'Custom schedule ID')
     .action(async (opts: {
-      agentId: string;
+      agent: string;
       type: string;
       prompt: string;
       cron?: string;
@@ -76,7 +76,7 @@ export const registerSchedulesCommand = (program: Command): void => {
     }) => {
       try {
         const gateway = createGateway();
-        const result = await gateway.createSchedule(opts.agentId, {
+        const result = await gateway.createSchedule(opts.agent, {
           type: opts.type as 'cron' | 'once',
           prompt: opts.prompt,
           ...(opts.cron ? { cronExpression: opts.cron } : {}),
@@ -93,11 +93,11 @@ export const registerSchedulesCommand = (program: Command): void => {
   schedules
     .command('pause <scheduleId>')
     .description('Pause a schedule')
-    .option('--agent-id <id>', 'Agent ID', defaultAgentId())
-    .action(async (scheduleId: string, opts: { agentId: string }) => {
+    .option('--agent <id>', 'Agent ID', defaultAgentId())
+    .action(async (scheduleId: string, opts: { agent: string }) => {
       try {
         const gateway = createGateway();
-        await gateway.updateSchedule(opts.agentId, scheduleId, { status: 'paused' });
+        await gateway.updateSchedule(opts.agent, scheduleId, { status: 'paused' });
         console.log(`Schedule ${scheduleId} paused.`);
       } catch (error) {
         handleError(error);
@@ -108,11 +108,11 @@ export const registerSchedulesCommand = (program: Command): void => {
   schedules
     .command('resume <scheduleId>')
     .description('Resume a paused schedule')
-    .option('--agent-id <id>', 'Agent ID', defaultAgentId())
-    .action(async (scheduleId: string, opts: { agentId: string }) => {
+    .option('--agent <id>', 'Agent ID', defaultAgentId())
+    .action(async (scheduleId: string, opts: { agent: string }) => {
       try {
         const gateway = createGateway();
-        await gateway.updateSchedule(opts.agentId, scheduleId, { status: 'active' });
+        await gateway.updateSchedule(opts.agent, scheduleId, { status: 'active' });
         console.log(`Schedule ${scheduleId} resumed.`);
       } catch (error) {
         handleError(error);
@@ -123,11 +123,11 @@ export const registerSchedulesCommand = (program: Command): void => {
   schedules
     .command('delete <scheduleId>')
     .description('Delete a schedule')
-    .option('--agent-id <id>', 'Agent ID', defaultAgentId())
-    .action(async (scheduleId: string, opts: { agentId: string }) => {
+    .option('--agent <id>', 'Agent ID', defaultAgentId())
+    .action(async (scheduleId: string, opts: { agent: string }) => {
       try {
         const gateway = createGateway();
-        await gateway.deleteSchedule(opts.agentId, scheduleId);
+        await gateway.deleteSchedule(opts.agent, scheduleId);
         console.log(`Schedule ${scheduleId} deleted.`);
       } catch (error) {
         handleError(error);
@@ -138,13 +138,13 @@ export const registerSchedulesCommand = (program: Command): void => {
   schedules
     .command('runs <scheduleId>')
     .description('List runs for a schedule')
-    .option('--agent-id <id>', 'Agent ID', defaultAgentId())
+    .option('--agent <id>', 'Agent ID', defaultAgentId())
     .option('--limit <n>', 'Max number of runs to show')
-    .action(async (scheduleId: string, opts: { agentId: string; limit?: string }) => {
+    .action(async (scheduleId: string, opts: { agent: string; limit?: string }) => {
       try {
         const gateway = createGateway();
         const limit = opts.limit ? Number(opts.limit) : undefined;
-        const runs = (await gateway.listScheduleRuns(opts.agentId, scheduleId, limit)) as any[];
+        const runs = (await gateway.listScheduleRuns(opts.agent, scheduleId, limit)) as any[];
 
         if (runs.length === 0) {
           console.log('No runs found.');

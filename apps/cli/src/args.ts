@@ -26,8 +26,8 @@ export const parseChatCliArgs = (
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
 
-    if (arg === '--agent-id') {
-      agentId = parseFlagValue(argv, index, '--agent-id');
+    if (arg === '--agent') {
+      agentId = parseFlagValue(argv, index, '--agent');
       index += 1;
       continue;
     }

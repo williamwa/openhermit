@@ -1,5 +1,5 @@
 export const HELP_TEXT = [
-  'Usage: npm run chat:agent -- [--agent-id <id>] [--session <sessionId>] [--resume]',
+  'Usage: npm run chat:agent -- [--agent <id>] [--session <sessionId>] [--resume]',
   '',
   'Commands:',
   '  /new              Create and switch to a new CLI session',

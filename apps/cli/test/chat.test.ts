@@ -15,7 +15,7 @@ import {
 
 test('parseChatCliArgs resolves agent id and session', () => {
   const parsed = parseChatCliArgs(
-    ['--agent-id', 'agent-a', '--session', 'cli:123'],
+    ['--agent', 'agent-a', '--session', 'cli:123'],
     {},
   );
 

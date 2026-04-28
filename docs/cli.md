@@ -7,7 +7,7 @@ agent-scoped commands also accept owner tokens issued by `/api/auth/token`.
 
 ## Conventions
 
-- **`--agent` / `--agent-id`**: every agent-scoped command accepts the
+- **`--agent <id>`**: every agent-scoped command accepts the
   target agent ID. When omitted, it falls back to `OPENHERMIT_AGENT_ID`,
   then to `main`.
 - **`--all`** (where supported): admin fan-out — apply the same
@@ -129,12 +129,12 @@ Interactive TUI that opens or resumes a session with an agent.
 
 | Flag | Description |
 |------|-------------|
-| `--agent-id <id>` | Agent to connect to (default `OPENHERMIT_AGENT_ID` / `main`). |
+| `--agent <id>` | Agent to connect to (default `OPENHERMIT_AGENT_ID` / `main`). |
 | `--session <sessionId>` | Resume a specific session. |
 | `--resume` | Resume the most recent CLI session for the agent. |
 
 ```bash
-hermit chat --agent-id main
+hermit chat --agent main
 hermit chat --resume
 ```
 
@@ -144,7 +144,7 @@ hermit chat --resume
 
 View and modify a single agent's runtime config (`agents.config_json`)
 and its per-agent secrets. All `config` subcommands require
-`--agent-id <id>`; the parent command sets a sensible default
+`--agent <id>`; the parent command sets a sensible default
 (`OPENHERMIT_AGENT_ID` / `main`).
 
 | Subcommand | Description |
@@ -154,10 +154,10 @@ and its per-agent secrets. All `config` subcommands require
 | `config set <key> <value>` | Write one value by dot-path. Numbers and booleans are coerced. |
 
 ```bash
-hermit config show --agent-id main
-hermit config get model.model --agent-id main
-hermit config set model.provider openrouter --agent-id main
-hermit config set model.model google/gemini-3-flash-preview --agent-id main
+hermit config show --agent main
+hermit config get model.model --agent main
+hermit config set model.provider openrouter --agent main
+hermit config set model.model google/gemini-3-flash-preview --agent main
 ```
 
 ### `hermit config secrets`
@@ -173,8 +173,8 @@ as `${{NAME}}` and are resolved at adapter-start time.
 | `config secrets remove <key>` | Delete a secret. |
 
 ```bash
-hermit config secrets set ANTHROPIC_API_KEY sk-... --agent-id main
-hermit config secrets list --agent-id main
+hermit config secrets set ANTHROPIC_API_KEY sk-... --agent main
+hermit config secrets list --agent main
 ```
 
 ---
@@ -282,7 +282,7 @@ Flags on `create`:
 
 | Flag | Description |
 |------|-------------|
-| `--agent-id <id>` | Owning agent. Default `OPENHERMIT_AGENT_ID` / `main`. |
+| `--agent <id>` | Owning agent. Default `OPENHERMIT_AGENT_ID` / `main`. |
 | `--type <cron\|once>` | Required. |
 | `--prompt <text>` | Required — the prompt the schedule will inject. |
 | `--cron <expr>` | Required for `--type cron` (5- or 6-field cron). |
@@ -293,9 +293,9 @@ Flags on `create`:
 hermit schedules create \
   --type cron --cron '0 17 * * FRI' \
   --prompt "Generate this week's release notes" \
-  --agent-id release_captain
+  --agent release_captain
 
-hermit schedules list --agent-id release_captain
+hermit schedules list --agent release_captain
 hermit schedules runs sch_weekly_release_notes
 ```
 
@@ -367,11 +367,11 @@ hermit logs --json | jq 'select(.level=="error")'
 |----------|-----|
 | Spin up the gateway | `hermit setup && hermit gateway start` |
 | Create and start an agent | `hermit agents create main && hermit agents start main` |
-| Talk to it | `hermit chat --agent-id main` |
-| Set a model API key | `hermit config secrets set OPENROUTER_API_KEY ... --agent-id main` |
-| Switch model | `hermit config set model.model google/gemini-3-flash-preview --agent-id main` |
+| Talk to it | `hermit chat --agent main` |
+| Set a model API key | `hermit config secrets set OPENROUTER_API_KEY ... --agent main` |
+| Switch model | `hermit config set model.model google/gemini-3-flash-preview --agent main` |
 | Add a rule everywhere | `hermit instructions append rules "..." --all` |
 | Enable a skill on every agent | `hermit skills enable my-skill --agent '*'` |
-| Schedule a weekly task | `hermit schedules create --type cron --cron '0 17 * * FRI' --prompt "..." --agent-id main` |
+| Schedule a weekly task | `hermit schedules create --type cron --cron '0 17 * * FRI' --prompt "..." --agent main` |
 | See what's running | `hermit status` |
 | Diagnose a problem | `hermit doctor` then `hermit logs -f` |
