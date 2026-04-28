@@ -14,6 +14,8 @@ Global tables:
 - `skills`
 - `mcp_servers`
 
+(`meta` is the Drizzle migrations bookkeeping table; the rest are owned data.)
+
 Agent-scoped tables:
 
 - `agents`
@@ -25,6 +27,8 @@ Agent-scoped tables:
 - `user_agents`
 - `agent_skills`
 - `agent_mcp_servers`
+- `agent_channels`
+- `agent_secrets`
 - `schedules`
 - `schedule_runs`
 
@@ -32,7 +36,7 @@ Agent-scoped tables:
 
 | Table | Purpose |
 |-------|---------|
-| `agents` | Registered agents — runtime config, security policy, config & workspace directories |
+| `agents` | Registered agents — runtime config (`config_json`), security policy (`security_json`), workspace directory |
 | `sessions` | Durable session index: source, metadata, status, participants, descriptions, working memory |
 | `session_events` | Full persisted event log for messages, tool calls/results, errors, and introspection |
 | `memories` | Long-term memories keyed by `memory_key` |
@@ -45,6 +49,8 @@ Agent-scoped tables:
 | `agent_skills` | Global (`*`) and per-agent skill assignments |
 | `mcp_servers` | Registered external MCP HTTP servers |
 | `agent_mcp_servers` | Global (`*`) and per-agent MCP assignments |
+| `agent_channels` | Built-in and external channel rows with encrypted bearer tokens |
+| `agent_secrets` | Per-agent provider/integration secrets, encrypted with `OPENHERMIT_SECRETS_KEY` |
 | `schedules` | Cron and one-shot schedule definitions |
 | `schedule_runs` | Schedule execution history |
 

@@ -117,18 +117,18 @@ Security policy is the JSON in `agents.security_json`:
 
 Core routes:
 
-- `POST /agents/{id}/sessions`
-- `GET /agents/{id}/sessions`
-- `POST /agents/{id}/sessions/{sessionId}/messages`
-- `POST /agents/{id}/sessions/{sessionId}/messages?wait=true`
-- `POST /agents/{id}/sessions/{sessionId}/messages?stream=true`
-- `GET /agents/{id}/sessions/{sessionId}/events`
-- `ws://host/agents/{id}/ws`
+- `POST /api/agents/{id}/sessions`
+- `GET /api/agents/{id}/sessions`
+- `POST /api/agents/{id}/sessions/{sessionId}/messages`
+- `POST /api/agents/{id}/sessions/{sessionId}/messages?wait=true`
+- `POST /api/agents/{id}/sessions/{sessionId}/messages?stream=true`
+- `GET /api/agents/{id}/sessions/{sessionId}/events`
+- `ws://host/api/agents/{id}/ws`
 
 Example:
 
 ```bash
-curl -X POST 'http://127.0.0.1:4000/agents/main/sessions/cli%3Adefault/messages?wait=true' \
+curl -X POST 'http://127.0.0.1:4000/api/agents/main/sessions/cli%3Adefault/messages?wait=true' \
   -H "authorization: Bearer $OPENHERMIT_TOKEN" \
   -H "content-type: application/json" \
   -d '{"text":"Hello"}'

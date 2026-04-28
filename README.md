@@ -150,7 +150,9 @@ Important environment variables:
 | `DATABASE_URL_TEST` | Test PostgreSQL connection string used by `npm test` |
 | `GATEWAY_ADMIN_TOKEN` | Bearer token for admin APIs and CLI management |
 | `GATEWAY_JWT_SECRET` | JWT signing secret for user/device tokens |
+| `GATEWAY_HOST` | Gateway listen host, default `127.0.0.1` |
 | `GATEWAY_PORT` / `PORT` | Gateway port, default `4000` |
+| `OPENHERMIT_SECRETS_KEY` | AES-256-GCM key used to encrypt `agent_secrets` and channel tokens at rest |
 | `OPENHERMIT_TOKEN` | CLI token, usually the admin token |
 | `OPENHERMIT_GATEWAY_URL` | Gateway URL, default `http://127.0.0.1:4000` |
 | `OPENHERMIT_AGENT_ID` | Default CLI agent ID, default `main` |
