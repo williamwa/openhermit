@@ -14,6 +14,7 @@ import { registerSchedulesCommand } from './commands/schedules.js';
 import { registerSkillsCommand } from './commands/skills.js';
 import { registerMcpCommand } from './commands/mcp.js';
 import { registerStatsCommand } from './commands/stats.js';
+import { registerInstructionsCommand } from './commands/instructions.js';
 
 await loadEnv();
 
@@ -24,7 +25,7 @@ const program = new Command();
 program
   .name('hermit')
   .description('OpenHermit — multi-agent platform CLI')
-  .version('0.4.2');
+  .version('0.4.4');
 
 registerSetupCommand(program);
 registerChatCommand(program);
@@ -39,5 +40,6 @@ registerSchedulesCommand(program);
 registerSkillsCommand(program);
 registerMcpCommand(program);
 registerStatsCommand(program);
+registerInstructionsCommand(program);
 
 await program.parseAsync(process.argv);

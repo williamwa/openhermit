@@ -9,6 +9,7 @@ import { createAdaptorServer } from '@hono/node-server';
 
 import {
   DbAgentStore,
+  DbInstructionStore,
   DbAgentConfigStore,
   DbMcpServerStore,
   DbScheduleStore,
@@ -103,6 +104,7 @@ export const main = async (): Promise<void> => {
   let userStore: DbUserStore | undefined;
   let configStore: DbAgentConfigStore | undefined;
   let agentChannelStore: DbAgentChannelStore | undefined;
+  let instructionStore: DbInstructionStore | undefined;
   if (process.env.DATABASE_URL) {
     try {
       await runMigrations();
@@ -113,6 +115,7 @@ export const main = async (): Promise<void> => {
       mcpServerStore = await DbMcpServerStore.open();
       userStore = await DbUserStore.open();
       configStore = await DbAgentConfigStore.open();
+      instructionStore = await DbInstructionStore.open();
       if (process.env.OPENHERMIT_SECRETS_KEY) {
         agentChannelStore = await DbAgentChannelStore.open();
       }
@@ -272,6 +275,7 @@ export const main = async (): Promise<void> => {
     ...(userStore ? { userStore } : {}),
     ...(configStore ? { configStore } : {}),
     ...(agentChannelStore ? { agentChannelStore } : {}),
+    ...(instructionStore ? { instructionStore } : {}),
     channelRegistry: channels,
     auth,
     adminToken,

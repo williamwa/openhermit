@@ -69,8 +69,19 @@ export interface MemoryProvider {
 
 export interface InstructionStore {
   get(scope: StoreScope, key: string): Promise<InstructionEntry | undefined>;
+  /**
+   * Resolved instructions for an agent: merges global rows
+   * (`agent_id = '*'`) with per-agent rows; per-agent overrides global
+   * on key collision.
+   */
   getAll(scope: StoreScope): Promise<InstructionEntry[]>;
+  /**
+   * List rows in a single scope without merging — pass `agentId: '*'`
+   * to read only global rows. Used by management endpoints/CLI.
+   */
+  listScope(scope: StoreScope): Promise<InstructionEntry[]>;
   set(scope: StoreScope, key: string, content: string, updatedAt: string): Promise<void>;
+  delete(scope: StoreScope, key: string): Promise<void>;
 }
 
 export interface UserStore {

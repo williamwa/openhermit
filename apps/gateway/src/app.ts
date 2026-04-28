@@ -182,6 +182,7 @@ export interface GatewayAppOptions {
   userStore?: DbUserStore | undefined;
   configStore?: DbAgentConfigStore | undefined;
   agentChannelStore?: DbAgentChannelStore | undefined;
+  instructionStore?: import('@openhermit/store').DbInstructionStore | undefined;
   /** Live ChannelRegistry — handlers mutate this when channels are created/revoked. */
   channelRegistry?: ChannelRegistry | undefined;
   auth?: AuthResolverOptions | undefined;
@@ -1561,6 +1562,70 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const store = requireSkillStore();
     await store.disable(agentId, c.req.param('skillId'));
     await syncAffectedAgentSkillMounts(agentId, store);
+    return c.json({ ok: true });
+  });
+
+  // --- instructions (per-agent + global) ---
+
+  const requireInstructionStore = () => {
+    if (!options.instructionStore) {
+      throw new ValidationError('Instruction store is not configured.');
+    }
+    return options.instructionStore;
+  };
+
+  /** Owner of `agentId`, or admin for any agent including the wildcard scope. */
+  const requireInstructionAccess = async (c: any, agentId: string): Promise<void> => {
+    if (agentId === '*') {
+      requireAdmin(c.req.header('authorization'));
+      return;
+    }
+    await requireOwnerOrAdmin(c, agentId);
+  };
+
+  app.get('/api/agents/:agentId/instructions', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    await requireInstructionAccess(c, agentId);
+    const merged = c.req.query('merged') === 'true';
+    const store = requireInstructionStore();
+    const rows = merged
+      ? await store.getAll({ agentId })
+      : await store.listScope({ agentId });
+    return c.json(rows);
+  });
+
+  app.get('/api/agents/:agentId/instructions/:key', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    const key = c.req.param('key') ?? '';
+    await requireInstructionAccess(c, agentId);
+    const store = requireInstructionStore();
+    const row = await store.get({ agentId }, key);
+    if (!row) {
+      return c.json({ error: { code: 'not_found', message: 'instruction not found' } }, 404);
+    }
+    return c.json(row);
+  });
+
+  app.put('/api/agents/:agentId/instructions/:key', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    const key = c.req.param('key') ?? '';
+    await requireInstructionAccess(c, agentId);
+    const body = await c.req.json().catch(() => ({}));
+    const content = typeof body.content === 'string' ? body.content : null;
+    if (content === null) {
+      throw new ValidationError('content (string) is required');
+    }
+    const store = requireInstructionStore();
+    await store.set({ agentId }, key, content, new Date().toISOString());
+    return c.json({ ok: true });
+  });
+
+  app.delete('/api/agents/:agentId/instructions/:key', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    const key = c.req.param('key') ?? '';
+    await requireInstructionAccess(c, agentId);
+    const store = requireInstructionStore();
+    await store.delete({ agentId }, key);
     return c.json({ ok: true });
   });
 

@@ -388,6 +388,30 @@ export class GatewayClient {
     await this.postJson(`/api/admin/skills/${encodeURIComponent(skillId)}/disable`, { agentId });
   }
 
+  // --- instructions ---
+
+  async listInstructions(agentId: string, opts?: { merged?: boolean }): Promise<Array<{ key: string; content: string; updatedAt: string }>> {
+    const qs = opts?.merged ? '?merged=true' : '';
+    return this.getJson(`/api/agents/${encodeURIComponent(agentId)}/instructions${qs}`);
+  }
+
+  async getInstruction(agentId: string, key: string): Promise<{ key: string; content: string; updatedAt: string } | undefined> {
+    try {
+      return await this.getJson(`/api/agents/${encodeURIComponent(agentId)}/instructions/${encodeURIComponent(key)}`);
+    } catch (err) {
+      if (err instanceof Error && /404|not_found/i.test(err.message)) return undefined;
+      throw err;
+    }
+  }
+
+  async setInstruction(agentId: string, key: string, content: string): Promise<void> {
+    await this.putJson(`/api/agents/${encodeURIComponent(agentId)}/instructions/${encodeURIComponent(key)}`, { content });
+  }
+
+  async deleteInstruction(agentId: string, key: string): Promise<void> {
+    await this.deleteJson(`/api/agents/${encodeURIComponent(agentId)}/instructions/${encodeURIComponent(key)}`);
+  }
+
   // --- admin stats ---
 
   async getAdminStats(): Promise<{
