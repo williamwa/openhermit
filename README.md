@@ -1,19 +1,181 @@
+<div align="center">
+
 # OpenHermit
 
-**Deploy, manage, and operate AI agents as production services.**
+**Agents, but operable.**
 
-OpenHermit is a TypeScript multi-agent platform with a gateway control plane, durable PostgreSQL state, browser and CLI clients, built-in channel adapters, schedules, skills, MCP servers, and sandboxed execution backends.
+Open-source platform for deploying fleets of AI agents as production services — durable state, sandboxed execution, managed at scale, and the channels you already use.
+
+[![npm](https://img.shields.io/npm/v/openhermit?color=cb3837&logo=npm)](https://www.npmjs.com/package/openhermit)
+[![License: MIT](https://img.shields.io/github/license/williamwa/openhermit?color=blue)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/williamwa/openhermit?style=social)](https://github.com/williamwa/openhermit/stargazers)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
+
+[**Website**](https://openhermit.ai) · [**Why OpenHermit**](https://openhermit.ai/blog/agents-but-operable) · [**Docs**](docs/) · [**npm**](https://www.npmjs.com/package/openhermit)
 
 ![OpenHermit](docs/assets/openhermit.jpg)
 
-## Current Shape
+</div>
 
-- **Gateway-managed agents.** `apps/gateway` owns agent records, starts/stops in-process `AgentRunner` instances, exposes `/agents/{agentId}/...`, serves the admin UI at `/admin/`, and auto-starts registered agents by default.
-- **Durable internal state.** Sessions, events, memories, instructions, users, skills, MCP servers, schedules, and container inventory live in PostgreSQL through Drizzle-based stores in `packages/store`.
-- **External workspace state.** User files and generated artifacts live in each agent workspace, usually mounted into a Docker exec backend at `/workspace`.
-- **Multi-user access.** CLI, web, API, and channel identities resolve to users with `owner`, `user`, or `guest` roles. Owners can manage users, sessions, schedules, MCP servers, and skills through tools and the gateway UI/API.
-- **Multiple transports.** The gateway supports JSON request/response, inline SSE streaming, durable SSE event streams, and WebSocket RPC/event subscriptions.
-- **Built-in integrations.** Telegram, Discord, and Slack adapters can be enabled per agent; schedules support cron and one-shot jobs; MCP servers add external tools at runtime; skills add prompt-based procedures and supporting files.
+---
+
+## Why OpenHermit
+
+Most CLI-based agents (Claude Code, OpenClaw, Hermes, …) keep their state in files: memories as markdown, sessions as JSONL, skills as folders, secrets as dotfiles. That's perfect for one human at one machine — but it falls apart the moment you stop being one human. Running an internal agent platform for your team, a SaaS where every customer gets their own agent, or a swarm of specialized roles? Files scatter, secrets leak, fleet operations turn into SSH-and-pray.
+
+OpenHermit makes one core design choice: **separate internal state from external state.**
+
+- **Internal state** — sessions, memories, instructions, skills, MCP servers, schedules, secrets, users — lives in shared **PostgreSQL**, scoped by `agent_id`.
+- **External state** — the workspace files an agent is currently working on — lives in a sandboxed **Docker container** per agent.
+
+Once internal state is centralized, fleet operations become trivial:
+
+```bash
+hermit skills enable standup-digest --all                       # roll a skill out to every agent
+hermit mcp enable mcp_github --all                              # add an MCP server to every agent
+hermit instructions append rules "Never share PII." --all       # push a rule to every agent
+hermit config secrets set OPENROUTER_API_KEY sk-... --agent main  # rotate a secret
+```
+
+📖 [Read the full reasoning →](https://openhermit.ai/blog/agents-but-operable)
+
+---
+
+## Features
+
+- 🚪 **Gateway control plane** — single Hono server. Agents start, attach, detach without orchestration. Admin UI at `/admin/`.
+- 🐘 **Postgres-backed state** — sessions, memories, instructions, skills, MCP, schedules, secrets — durable behind Drizzle.
+- 🐳 **Sandboxed execution** — per-agent Docker workspace or local backend. Code runs isolated from the host.
+- 💬 **Channels included** — Telegram, Discord, Slack adapters, plus CLI and Web UI. Enable, disable, reconfigure at runtime.
+- 🛠 **Skills & MCP servers** — install centrally, enable per-agent or fleet-wide, audit from one place.
+- ⏱ **Schedules & automation** — cron and one-shot jobs with timeout, concurrency policy, and error backoff.
+- 👥 **Multi-user with roles** — owner / user / guest. Identity reconciliation across CLI, web, and channels.
+- 🔌 **Multi-protocol transport** — HTTP sync, inline SSE streaming, durable SSE, WebSocket RPC.
+
+---
+
+## Architecture
+
+![Architecture](docs/assets/openhermit-architecture-diagram.png)
+
+- **Admin** — CLI + Web UI for deploying and operating agents.
+- **Client** — Web and CLI for end-users to chat with agents.
+- **Channels** — Telegram, Discord, Slack adapters wired into any agent.
+- **Gateway** — API, auth, routing, agent lifecycle, schedules.
+- **Agent** — Model loop, tools / skills / MCP, sandboxed Docker workspace.
+- **Storage** — PostgreSQL for every kind of internal state.
+
+---
+
+## Installation
+
+```bash
+npm install -g openhermit
+```
+
+This installs both `hermit` and `openhermit`.
+
+For local development:
+
+```bash
+git clone https://github.com/williamwa/openhermit.git
+cd openhermit
+npm install
+```
+
+---
+
+## Quick Start
+
+```bash
+# Configure DATABASE_URL, GATEWAY_ADMIN_TOKEN, GATEWAY_JWT_SECRET.
+hermit setup
+
+# Start the gateway and the end-user web app.
+hermit gateway start
+hermit web start
+
+# Check platform health.
+hermit status
+hermit doctor
+
+# Create and start an agent.
+hermit agents create main
+hermit agents start main
+
+# Chat through the CLI.
+hermit chat --agent main
+```
+
+The gateway defaults to `http://127.0.0.1:4000` and serves the admin UI at `/admin/`. The end-user web app runs on `http://127.0.0.1:4310`.
+
+---
+
+## CLI Reference
+
+| Area | Commands |
+|------|----------|
+| Setup | `hermit setup` |
+| Gateway | `hermit gateway start`, `stop`, `run`, `status` |
+| Web | `hermit web start`, `stop`, `run`, `status` |
+| Agents | `hermit agents list`, `create`, `start`, `stop`, `restart`, `delete` |
+| Chat | `hermit chat`, `--agent <id>`, `--resume`, `--session <sessionId>` |
+| Config | `hermit config show`, `get`, `set` |
+| Secrets | `hermit config secrets list`, `set`, `remove` |
+| Instructions | `hermit instructions list`, `get`, `set`, `append`, `remove` — single-agent (`--agent <id>`) or admin fan-out (`--all`) |
+| Skills | `hermit skills list`, `assignments`, `scan`, `register`, `delete`, `enable`, `disable` |
+| MCP | `hermit mcp list`, `assignments`, `enable`, `disable` |
+| Schedules | `hermit schedules list`, `create`, `pause`, `resume`, `delete`, `runs` |
+| Operations | `hermit status`, `hermit stats`, `hermit doctor`, `hermit logs [-f] [-n N]` |
+
+Agent-scoped commands accept `--agent <id>` and default to `OPENHERMIT_AGENT_ID` or `main`. Full reference: [docs/cli.md](docs/cli.md).
+
+---
+
+## API Overview
+
+Agent execution routes are exposed under `/api/agents/{agentId}`:
+
+- `POST /api/agents/{id}/sessions`
+- `GET /api/agents/{id}/sessions`
+- `POST /api/agents/{id}/sessions/{sessionId}/messages`
+- `POST /api/agents/{id}/sessions/{sessionId}/messages?wait=true`
+- `POST /api/agents/{id}/sessions/{sessionId}/messages?stream=true`
+- `GET /api/agents/{id}/sessions/{sessionId}/events`
+- `POST /api/agents/{id}/sessions/{sessionId}/approve`
+- `POST /api/agents/{id}/sessions/{sessionId}/checkpoint`
+- `DELETE /api/agents/{id}/sessions/{sessionId}`
+- `ws://host/api/agents/{id}/ws`
+
+Admin and owner-facing management endpoints live under `/api/admin/...` and `/api/agents/{agentId}/...`. Channel webhooks land at `POST /api/agents/{id}/channels/{namespace}/webhook`.
+
+See [docs/transport-protocol.md](docs/transport-protocol.md), [docs/skills.md](docs/skills.md), [docs/mcp-servers.md](docs/mcp-servers.md), and [docs/channel-adapter.md](docs/channel-adapter.md).
+
+---
+
+## Internal State
+
+All durable internal state is scoped by `agent_id` where applicable:
+
+| Store | Contents |
+|-------|----------|
+| Agents | Registered agents, runtime config, security policy, workspace dirs |
+| Sessions | Metadata, status, participants, working memory, descriptions |
+| Session events | User, assistant, tool, error, channel, and introspection events |
+| Memories | Long-term memory with PostgreSQL FTS plus ILIKE fallback |
+| Instructions | Agent identity, behavior, and rules included in prompts |
+| Users | Users, identities, roles, and merge links |
+| Containers | Workspace container inventory |
+| Skills | Skill library and per-agent/global assignments |
+| MCP servers | External MCP server definitions and assignments |
+| Channels | Built-in and external channel rows with encrypted tokens |
+| Secrets | Per-agent provider/integration secrets, encrypted at rest |
+| Schedules | Cron/once jobs and run history |
+
+Secrets are encrypted with `OPENHERMIT_SECRETS_KEY` (AES-256-GCM); without that key the gateway falls back to per-agent `secrets.json` for local dev. The only per-agent files on disk are `~/.openhermit/agents/{agentId}/skill-mounts/` (symlinks to enabled skills) and the workspace at `~/.openhermit/workspaces/{agentId}/`.
+
+---
 
 ## Repository Structure
 
@@ -34,103 +196,10 @@ openhermit/
 │   ├── shared/               # Common env, errors, URL helpers
 │   └── store/                # Drizzle schema and PostgreSQL store implementations
 ├── skills/                   # Built-in OpenHermit skills registered by the gateway
-└── docs/                     # Current architecture and operation docs
+└── docs/                     # Architecture and operation docs
 ```
 
-## Installation
-
-```bash
-npm install -g openhermit
-```
-
-This installs both `hermit` and `openhermit`.
-
-For local development:
-
-```bash
-git clone https://github.com/williamwa/openhermit.git
-cd openhermit
-npm install
-```
-
-## Quick Start
-
-```bash
-# Configure DATABASE_URL, GATEWAY_ADMIN_TOKEN, and GATEWAY_JWT_SECRET.
-hermit setup
-
-# Start the gateway in the background.
-hermit gateway start
-
-# Check platform health.
-hermit status
-hermit doctor
-
-# Create and start an agent if one does not already exist.
-hermit agents create main
-hermit agents start main
-
-# Chat through the CLI.
-hermit chat --agent main
-```
-
-The gateway defaults to `http://127.0.0.1:4000`. The admin UI is served by the gateway at `/admin/`. The separate end-user web app runs on `http://127.0.0.1:4310` when started with `npm run dev:web`.
-
-## CLI Reference
-
-| Area | Commands |
-|------|----------|
-| Setup | `hermit setup` |
-| Gateway | `hermit gateway start`, `stop`, `run`, `status` |
-| Agents | `hermit agents list`, `create`, `start`, `stop`, `restart`, `delete` |
-| Chat | `hermit chat`, `hermit chat --agent <id>`, `hermit chat --resume`, `hermit chat --session <sessionId>` |
-| Config | `hermit config show`, `get <key>`, `set <key> <value>` |
-| Secrets | `hermit config secrets list`, `set <key> <value>`, `remove <key>` |
-| Instructions | `hermit instructions list`, `get`, `set`, `append`, `remove` — single-agent (`--agent <id>`) or admin fan-out (`--all`) |
-| Skills | `hermit skills list`, `assignments`, `scan`, `register`, `delete`, `enable`, `disable` |
-| MCP | `hermit mcp list`, `assignments`, `enable`, `disable` |
-| Schedules | `hermit schedules list`, `create`, `pause`, `resume`, `delete`, `runs` |
-| Operations | `hermit status`, `hermit stats`, `hermit doctor`, `hermit logs [-f] [-n N]` |
-
-Agent-scoped commands accept `--agent <id>` and default to `OPENHERMIT_AGENT_ID` or `main`.
-
-## API Overview
-
-Agent execution routes are exposed under `/api/agents/{agentId}`:
-
-- `POST /api/agents/{id}/sessions`
-- `GET /api/agents/{id}/sessions`
-- `POST /api/agents/{id}/sessions/{sessionId}/messages`
-- `POST /api/agents/{id}/sessions/{sessionId}/messages?wait=true`
-- `POST /api/agents/{id}/sessions/{sessionId}/messages?stream=true`
-- `GET /api/agents/{id}/sessions/{sessionId}/events`
-- `POST /api/agents/{id}/sessions/{sessionId}/approve`
-- `POST /api/agents/{id}/sessions/{sessionId}/checkpoint`
-- `DELETE /api/agents/{id}/sessions/{sessionId}`
-- `ws://host/api/agents/{id}/ws`
-
-Admin and owner-facing management endpoints live under `/api/admin/...` and `/api/agents/{agentId}/...`. Channel webhooks land at `POST /api/agents/{id}/channels/{namespace}/webhook`. See [docs/transport-protocol.md](docs/transport-protocol.md), [docs/skills.md](docs/skills.md), [docs/mcp-servers.md](docs/mcp-servers.md), and [docs/channel-adapter.md](docs/channel-adapter.md).
-
-## Internal State
-
-All durable internal state is scoped by `agent_id` where applicable:
-
-| Store | Contents |
-|-------|----------|
-| Agents | Registered agents, runtime config (`config_json`), security policy (`security_json`), workspace directories |
-| Sessions | Metadata, status, participants, working memory, descriptions |
-| Session events | User, assistant, tool, error, channel, and introspection events |
-| Memories | Long-term memory with PostgreSQL FTS plus ILIKE fallback |
-| Instructions | Agent identity, behavior, and rules included in prompts |
-| Users | Users, identities, roles, and merge links |
-| Containers | Workspace container inventory |
-| Skills | Skill library and per-agent/global assignments |
-| MCP servers | External MCP server definitions and assignments |
-| Channels | Built-in and external channel rows with encrypted tokens |
-| Secrets | Per-agent provider/integration secrets, encrypted at rest, referenced as `${{KEY}}` |
-| Schedules | Cron/once jobs and run history |
-
-Runtime config, security policy, and secrets are stored in PostgreSQL (secrets are encrypted with `OPENHERMIT_SECRETS_KEY`; without that key the gateway falls back to per-agent `secrets.json` for local dev). The only per-agent files on disk are `~/.openhermit/agents/{agentId}/skill-mounts/` (symlinks to enabled skills) and the workspace at `~/.openhermit/workspaces/{agentId}/`.
+---
 
 ## Development
 
@@ -159,6 +228,8 @@ Important environment variables:
 | `OPENHERMIT_AGENT_ID` | Default CLI agent ID, default `main` |
 | `OPENHERMIT_WEB_PORT` | End-user web app port, default `4310` |
 
+---
+
 ## Documentation
 
 - [CLI Reference](docs/cli.md)
@@ -179,6 +250,20 @@ Important environment variables:
 - [Roadmap](docs/roadmap.md)
 - [Open Questions](docs/pending-decisions.md)
 
+---
+
+## Contributing
+
+OpenHermit is open source (MIT) and very much a work in progress. If the internal/external state split, the fleet operations model, or agents-as-services resonates with you — we'd love your help.
+
+Issues, PRs, design discussions, channel adapters, skills, MCP integrations, docs, and war stories from running it in your own setup are all welcome.
+
+- Open an issue: [github.com/williamwa/openhermit/issues](https://github.com/williamwa/openhermit/issues)
+- Start a discussion: [github.com/williamwa/openhermit/discussions](https://github.com/williamwa/openhermit/discussions)
+- Or just star the repo if you'd like to see where this goes ⭐
+
+---
+
 ## License
 
-MIT
+MIT © [William Wang](https://github.com/williamwa)
