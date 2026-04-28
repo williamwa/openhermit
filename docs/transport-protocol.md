@@ -7,7 +7,7 @@ The gateway exposes agent execution under `/api/agents/{agentId}`. All agent rou
 | Flow | Endpoint / token | Use |
 |------|------------------|-----|
 | Admin bearer | `Authorization: Bearer $GATEWAY_ADMIN_TOKEN` | agent lifecycle, admin APIs, full agent route access |
-| Device JWT | `POST /api/agents/{agentId}/auth/token` | browser/web user auth |
+| User JWT | `POST /api/auth/token` | browser/web user auth (identifies a person, not an agent) |
 | Channel bearer | generated or configured channel token | built-in/external channel adapters scoped to an agent/channel namespace |
 
 Protected agents require `agent_token` during device-token exchange.

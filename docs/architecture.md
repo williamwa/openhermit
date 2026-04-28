@@ -130,7 +130,7 @@ Container lifecycle supports:
 Admin APIs require `GATEWAY_ADMIN_TOKEN`. Agent routes use a resolver that accepts:
 
 - admin bearer token
-- browser/device JWTs issued by `POST /api/agents/{agentId}/auth/token`
+- browser/device JWTs issued by `POST /api/auth/token` (user-global; the JWT identifies a person, not an agent)
 - channel bearer tokens registered for built-in or external channel adapters
 
 Agent access can be `public` or `protected`. Protected agents require the agent access token during device-token exchange.

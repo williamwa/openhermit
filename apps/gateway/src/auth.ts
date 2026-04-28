@@ -7,8 +7,9 @@
  *    Used for agent CRUD and lifecycle operations.
  *
  * 2. **User auth (JWT)** — End-users exchange credentials (device-key, etc.)
- *    for a short-lived JWT via `POST /api/agents/:agentId/auth/token`.
- *    All subsequent agent API calls use `Authorization: Bearer <jwt>`.
+ *    for a short-lived JWT via `POST /api/auth/token` (user-global; the
+ *    JWT identifies a person, not an agent). All subsequent agent API
+ *    calls use `Authorization: Bearer <jwt>`.
  *
  * 3. **Channel auth** — External channels (Telegram, Discord, third-party bots)
  *    authenticate with a pre-shared API key.  The channel declares per-message
