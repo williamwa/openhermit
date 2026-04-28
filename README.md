@@ -126,9 +126,10 @@ All durable internal state is scoped by `agent_id` where applicable:
 | Skills | Skill library and per-agent/global assignments |
 | MCP servers | External MCP server definitions and assignments |
 | Channels | Built-in and external channel rows with encrypted tokens |
+| Secrets | Per-agent provider/integration secrets, encrypted at rest, referenced as `${{KEY}}` |
 | Schedules | Cron/once jobs and run history |
 
-Runtime config and security policy are stored in PostgreSQL on the `agents` row. Per-agent files under `~/.openhermit/agents/{agentId}/` are local-only state: `runtime.json` (port + token written by the running agent), `secrets.json` (provider/integration secrets, file-backed via `SecretStore`), and `skill-mounts/` (generated symlinks to enabled skills).
+Runtime config, security policy, and secrets are stored in PostgreSQL (secrets are encrypted with `OPENHERMIT_SECRETS_KEY`; without that key the gateway falls back to per-agent `secrets.json` for local dev). Per-agent files under `~/.openhermit/agents/{agentId}/` are local-only state: `runtime.json` (port + token written by the running agent) and `skill-mounts/` (generated symlinks to enabled skills).
 
 ## Development
 
