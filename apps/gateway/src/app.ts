@@ -1574,30 +1574,17 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     return options.instructionStore;
   };
 
-  /** Owner of `agentId`, or admin for any agent including the wildcard scope. */
-  const requireInstructionAccess = async (c: any, agentId: string): Promise<void> => {
-    if (agentId === '*') {
-      requireAdmin(c.req.header('authorization'));
-      return;
-    }
-    await requireOwnerOrAdmin(c, agentId);
-  };
-
   app.get('/api/agents/:agentId/instructions', async (c) => {
     const agentId = c.req.param('agentId') ?? '';
-    await requireInstructionAccess(c, agentId);
-    const merged = c.req.query('merged') === 'true';
+    await requireOwnerOrAdmin(c, agentId);
     const store = requireInstructionStore();
-    const rows = merged
-      ? await store.getAll({ agentId })
-      : await store.listScope({ agentId });
-    return c.json(rows);
+    return c.json(await store.getAll({ agentId }));
   });
 
   app.get('/api/agents/:agentId/instructions/:key', async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     const key = c.req.param('key') ?? '';
-    await requireInstructionAccess(c, agentId);
+    await requireOwnerOrAdmin(c, agentId);
     const store = requireInstructionStore();
     const row = await store.get({ agentId }, key);
     if (!row) {
@@ -1609,7 +1596,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   app.put('/api/agents/:agentId/instructions/:key', async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     const key = c.req.param('key') ?? '';
-    await requireInstructionAccess(c, agentId);
+    await requireOwnerOrAdmin(c, agentId);
     const body = await c.req.json().catch(() => ({}));
     const content = typeof body.content === 'string' ? body.content : null;
     if (content === null) {
@@ -1623,10 +1610,42 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   app.delete('/api/agents/:agentId/instructions/:key', async (c) => {
     const agentId = c.req.param('agentId') ?? '';
     const key = c.req.param('key') ?? '';
-    await requireInstructionAccess(c, agentId);
+    await requireOwnerOrAdmin(c, agentId);
     const store = requireInstructionStore();
     await store.delete({ agentId }, key);
     return c.json({ ok: true });
+  });
+
+  /**
+   * Admin-only fan-out: append `content` to the instruction at `key` on
+   * every registered agent. If a row at `key` does not exist for an
+   * agent, it is created with just the appended content. Idempotent
+   * only insofar as the operator avoids re-running with the same line.
+   */
+  app.post('/api/admin/instructions/append', async (c) => {
+    requireAdmin(c.req.header('authorization'));
+    if (!agentStore) {
+      throw new ValidationError('Agent store is not configured.');
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const key = typeof body.key === 'string' ? body.key.trim() : '';
+    const content = typeof body.content === 'string' ? body.content : '';
+    if (!key) throw new ValidationError('key (string) is required');
+    if (!content) throw new ValidationError('content (string) is required');
+
+    const store = requireInstructionStore();
+    const agents = await agentStore.list();
+    const now = new Date().toISOString();
+    const updated: string[] = [];
+    for (const agent of agents) {
+      const existing = await store.get({ agentId: agent.agentId }, key);
+      const next = existing && existing.content.length > 0
+        ? `${existing.content.replace(/\s+$/, '')}\n${content}`
+        : content;
+      await store.set({ agentId: agent.agentId }, key, next, now);
+      updated.push(agent.agentId);
+    }
+    return c.json({ ok: true, key, agents: updated });
   });
 
   app.post('/api/agents/:agentId/mcp-servers/:serverId/enable', async (c) => {

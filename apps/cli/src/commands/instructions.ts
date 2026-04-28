@@ -8,26 +8,22 @@ const resolveAgent = (opts: { agent?: string }): string => {
   return opts.agent ?? process.env.OPENHERMIT_AGENT_ID ?? 'main';
 };
 
-const targetLabel = (agent: string): string =>
-  agent === '*' ? 'all agents (global)' : `agent ${agent}`;
-
 export const registerInstructionsCommand = (program: Command): void => {
   const cmd = program
     .command('instructions')
-    .description('Manage agent instructions (use --agent "*" for global instructions)');
+    .description('Manage agent instructions (the keyed sections of the system prompt)');
 
   cmd
     .command('list')
-    .description('List instructions for an agent. Defaults to per-agent rows; use --merged to see effective set including globals.')
-    .option('--agent <id>', 'Agent ID, or "*" for global. Defaults to OPENHERMIT_AGENT_ID or "main".')
-    .option('--merged', 'Include global rows merged in (per-agent overrides global on key collision)')
-    .action(async (opts: { agent?: string; merged?: boolean }) => {
+    .description('List instructions for an agent')
+    .option('--agent <id>', 'Agent ID. Defaults to OPENHERMIT_AGENT_ID or "main".')
+    .action(async (opts: { agent?: string }) => {
       try {
         const agent = resolveAgent(opts);
         const gateway = createGateway();
-        const rows = await gateway.listInstructions(agent, opts.merged ? { merged: true } : undefined);
+        const rows = await gateway.listInstructions(agent);
         if (rows.length === 0) {
-          console.log(`No instructions for ${targetLabel(agent)}.`);
+          console.log(`No instructions for agent ${agent}.`);
           return;
         }
         printTable(
@@ -51,14 +47,14 @@ export const registerInstructionsCommand = (program: Command): void => {
     .command('get')
     .description('Print the full content of one instruction')
     .argument('<key>', 'Instruction key')
-    .option('--agent <id>', 'Agent ID, or "*" for global. Defaults to OPENHERMIT_AGENT_ID or "main".')
+    .option('--agent <id>', 'Agent ID. Defaults to OPENHERMIT_AGENT_ID or "main".')
     .action(async (key: string, opts: { agent?: string }) => {
       try {
         const agent = resolveAgent(opts);
         const gateway = createGateway();
         const row = await gateway.getInstruction(agent, key);
         if (!row) {
-          console.error(`Instruction "${key}" not found for ${targetLabel(agent)}.`);
+          console.error(`Instruction "${key}" not found for agent ${agent}.`);
           process.exit(1);
         }
         console.log(row.content);
@@ -72,7 +68,7 @@ export const registerInstructionsCommand = (program: Command): void => {
     .description('Set or replace an instruction (provide content inline or with --file)')
     .argument('<key>', 'Instruction key')
     .argument('[content]', 'Instruction content (omit when using --file)')
-    .option('--agent <id>', 'Agent ID, or "*" for global. Defaults to OPENHERMIT_AGENT_ID or "main".')
+    .option('--agent <id>', 'Agent ID. Defaults to OPENHERMIT_AGENT_ID or "main".')
     .option('--file <path>', 'Read content from a file (use "-" for stdin)')
     .action(async (key: string, content: string | undefined, opts: { agent?: string; file?: string }) => {
       try {
@@ -90,7 +86,7 @@ export const registerInstructionsCommand = (program: Command): void => {
         }
         const gateway = createGateway();
         await gateway.setInstruction(agent, key, value);
-        console.log(`Set instruction "${key}" for ${targetLabel(agent)}.`);
+        console.log(`Set instruction "${key}" for agent ${agent}.`);
       } catch (error) {
         handleError(error);
       }
@@ -101,13 +97,41 @@ export const registerInstructionsCommand = (program: Command): void => {
     .alias('delete')
     .description('Remove an instruction')
     .argument('<key>', 'Instruction key')
-    .option('--agent <id>', 'Agent ID, or "*" for global. Defaults to OPENHERMIT_AGENT_ID or "main".')
+    .option('--agent <id>', 'Agent ID. Defaults to OPENHERMIT_AGENT_ID or "main".')
     .action(async (key: string, opts: { agent?: string }) => {
       try {
         const agent = resolveAgent(opts);
         const gateway = createGateway();
         await gateway.deleteInstruction(agent, key);
-        console.log(`Removed instruction "${key}" for ${targetLabel(agent)}.`);
+        console.log(`Removed instruction "${key}" for agent ${agent}.`);
+      } catch (error) {
+        handleError(error);
+      }
+    });
+
+  cmd
+    .command('append')
+    .description('Append a line to <key> on every registered agent (admin only). Creates the row if missing.')
+    .requiredOption('--key <key>', 'Instruction key (e.g. rules, tone)')
+    .option('--content <text>', 'Content to append')
+    .option('--file <path>', 'Read content from a file (use "-" for stdin)')
+    .action(async (opts: { key: string; content?: string; file?: string }) => {
+      try {
+        let content: string;
+        if (opts.file) {
+          content = opts.file === '-'
+            ? readFileSync(0, 'utf8')
+            : readFileSync(opts.file, 'utf8');
+        } else if (opts.content) {
+          content = opts.content;
+        } else {
+          console.error('Provide --content or --file.');
+          process.exit(1);
+        }
+        const gateway = createGateway();
+        const result = await gateway.appendInstructionToAll(opts.key, content);
+        console.log(`Appended to "${opts.key}" on ${result.agents.length} agent(s):`);
+        for (const a of result.agents) console.log(`  - ${a}`);
       } catch (error) {
         handleError(error);
       }

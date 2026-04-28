@@ -41,7 +41,7 @@ Agent-scoped tables:
 | `session_events` | Full persisted event log for messages, tool calls/results, errors, and introspection |
 | `memories` | Long-term memories keyed by `memory_key` |
 | `containers` | Workspace container runtime inventory |
-| `instructions` | Prompt instructions by key. Supports global rows (`agent_id='*'`) that merge into every agent's prompt; per-agent rows override globals on key collision. |
+| `instructions` | Prompt instructions by key, scoped to a single agent. Owners edit their own; admin "append" fans out to every agent's row. |
 | `users` | User records and merge links |
 | `user_agents` | User role per agent |
 | `user_identities` | Channel identity to user mapping |
@@ -74,9 +74,9 @@ This means:
 |-------|--------------------|------------------------|
 | `agent_skills` | ✅ | gateway calls `syncAffectedAgentSkillMounts` |
 | `agent_mcp_servers` | ✅ | gateway calls `runner.reloadMcpServers()` |
-| `instructions` | ✅ — global rows merge into every agent's prompt; per-agent overrides on key collision | next prompt assembly |
 | `schedules` | ❌ — each schedule is owned by exactly one agent | n/a |
 | `agent_channels` | ❌ — adapters bind to a specific bot identity | n/a |
+| `instructions` | ❌ — owners edit their own per-agent rows. Org-wide additions land via the admin `instructions append` fan-out (one row written per agent). | n/a |
 
 The admin UI, REST API, and CLI all accept `*` in the `agentId` field to
 write or remove a wildcard assignment. Example:
@@ -84,7 +84,6 @@ write or remove a wildcard assignment. Example:
 ```bash
 hermit skills enable my-skill --agent '*'
 hermit mcp enable my-mcp-server --agent '*'
-hermit instructions set tone "Be brief and polite." --agent '*'
 ```
 
 When designing a new assignment table, prefer the wildcard pattern unless

@@ -213,7 +213,11 @@ Owner or admin routes:
 - `/api/agents/{agentId}/mcp-servers`
 - `/api/agents/{agentId}/channels`
 - `/api/agents/{agentId}/schedules`
-- `/api/agents/{agentId}/instructions` (CRUD on per-agent system-prompt sections; `agentId='*'` = global, admin only; `?merged=true` returns the effective set with global rows merged in)
+- `/api/agents/{agentId}/instructions` — CRUD on per-agent system-prompt sections (owner or admin)
+
+Admin fan-out:
+
+- `POST /api/admin/instructions/append` — body `{ key, content }`. Appends `content` as a new line to the named instruction on every registered agent, creating the row if missing. Useful for org-wide policy additions like a new rule.
 
 Admin routes:
 

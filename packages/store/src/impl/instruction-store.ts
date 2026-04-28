@@ -1,5 +1,5 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { eq, and, asc, inArray } from 'drizzle-orm';
+import { eq, and, asc } from 'drizzle-orm';
 import pg from 'pg';
 
 import type { InstructionStore } from '../interfaces.js';
@@ -7,8 +7,6 @@ import type { InstructionEntry, StoreScope } from '../types.js';
 import * as schema from '../schema.js';
 import { instructions } from '../schema.js';
 import type { DrizzleDb } from './index.js';
-
-const WILDCARD = '*';
 
 export class DbInstructionStore implements InstructionStore {
   private pool?: pg.Pool;
@@ -38,24 +36,6 @@ export class DbInstructionStore implements InstructionStore {
   }
 
   async getAll(scope: StoreScope): Promise<InstructionEntry[]> {
-    // Merge global ('*') with per-agent rows; per-agent wins on key collision.
-    const ids = scope.agentId === WILDCARD ? [WILDCARD] : [scope.agentId, WILDCARD];
-    const rows = await this.db.select().from(instructions)
-      .where(inArray(instructions.agentId, ids));
-    const merged = new Map<string, InstructionEntry>();
-    // Seed with global rows first, then override with per-agent.
-    for (const row of rows) {
-      if (row.agentId !== WILDCARD) continue;
-      merged.set(row.key, { key: row.key, content: row.content, updatedAt: row.updatedAt });
-    }
-    for (const row of rows) {
-      if (row.agentId === WILDCARD) continue;
-      merged.set(row.key, { key: row.key, content: row.content, updatedAt: row.updatedAt });
-    }
-    return [...merged.values()].sort((a, b) => a.key.localeCompare(b.key));
-  }
-
-  async listScope(scope: StoreScope): Promise<InstructionEntry[]> {
     const rows = await this.db.select().from(instructions)
       .where(eq(instructions.agentId, scope.agentId))
       .orderBy(asc(instructions.key));

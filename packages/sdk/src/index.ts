@@ -390,9 +390,12 @@ export class GatewayClient {
 
   // --- instructions ---
 
-  async listInstructions(agentId: string, opts?: { merged?: boolean }): Promise<Array<{ key: string; content: string; updatedAt: string }>> {
-    const qs = opts?.merged ? '?merged=true' : '';
-    return this.getJson(`/api/agents/${encodeURIComponent(agentId)}/instructions${qs}`);
+  async listInstructions(agentId: string): Promise<Array<{ key: string; content: string; updatedAt: string }>> {
+    return this.getJson(`/api/agents/${encodeURIComponent(agentId)}/instructions`);
+  }
+
+  async appendInstructionToAll(key: string, content: string): Promise<{ ok: boolean; key: string; agents: string[] }> {
+    return this.postJson(`/api/admin/instructions/append`, { key, content });
   }
 
   async getInstruction(agentId: string, key: string): Promise<{ key: string; content: string; updatedAt: string } | undefined> {
