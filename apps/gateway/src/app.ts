@@ -1617,35 +1617,51 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   });
 
   /**
-   * Admin-only fan-out: append `content` to the instruction at `key` on
-   * every registered agent. If a row at `key` does not exist for an
-   * agent, it is created with just the appended content. Idempotent
-   * only insofar as the operator avoids re-running with the same line.
+   * Admin-only fan-out — apply the same instruction-mutation across every
+   * registered agent. `mode` is one of:
+   *   - "set":     replace each agent's row at `key` with `content`
+   *   - "append":  append a newline + `content` to each agent's existing row
+   *                (creates the row if missing)
+   *   - "remove":  delete each agent's row at `key`
+   * Returns the list of agent IDs that were touched.
    */
-  app.post('/api/admin/instructions/append', async (c) => {
+  app.post('/api/admin/instructions/fanout', async (c) => {
     requireAdmin(c.req.header('authorization'));
     if (!agentStore) {
       throw new ValidationError('Agent store is not configured.');
     }
     const body = await c.req.json().catch(() => ({}));
+    const mode = body.mode;
     const key = typeof body.key === 'string' ? body.key.trim() : '';
     const content = typeof body.content === 'string' ? body.content : '';
     if (!key) throw new ValidationError('key (string) is required');
-    if (!content) throw new ValidationError('content (string) is required');
+    if (mode !== 'set' && mode !== 'append' && mode !== 'remove') {
+      throw new ValidationError('mode must be one of: set, append, remove');
+    }
+    if ((mode === 'set' || mode === 'append') && !content) {
+      throw new ValidationError('content (string) is required for set/append');
+    }
 
     const store = requireInstructionStore();
     const agents = await agentStore.list();
     const now = new Date().toISOString();
     const updated: string[] = [];
     for (const agent of agents) {
-      const existing = await store.get({ agentId: agent.agentId }, key);
-      const next = existing && existing.content.length > 0
-        ? `${existing.content.replace(/\s+$/, '')}\n${content}`
-        : content;
-      await store.set({ agentId: agent.agentId }, key, next, now);
+      if (mode === 'remove') {
+        await store.delete({ agentId: agent.agentId }, key);
+      } else if (mode === 'set') {
+        await store.set({ agentId: agent.agentId }, key, content, now);
+      } else {
+        // append
+        const existing = await store.get({ agentId: agent.agentId }, key);
+        const next = existing && existing.content.length > 0
+          ? `${existing.content.replace(/\s+$/, '')}\n${content}`
+          : content;
+        await store.set({ agentId: agent.agentId }, key, next, now);
+      }
       updated.push(agent.agentId);
     }
-    return c.json({ ok: true, key, agents: updated });
+    return c.json({ ok: true, mode, key, agents: updated });
   });
 
   app.post('/api/agents/:agentId/mcp-servers/:serverId/enable', async (c) => {

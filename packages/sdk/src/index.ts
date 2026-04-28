@@ -394,8 +394,12 @@ export class GatewayClient {
     return this.getJson(`/api/agents/${encodeURIComponent(agentId)}/instructions`);
   }
 
-  async appendInstructionToAll(key: string, content: string): Promise<{ ok: boolean; key: string; agents: string[] }> {
-    return this.postJson(`/api/admin/instructions/append`, { key, content });
+  async fanoutInstruction(input: {
+    mode: 'set' | 'append' | 'remove';
+    key: string;
+    content?: string;
+  }): Promise<{ ok: boolean; mode: string; key: string; agents: string[] }> {
+    return this.postJson(`/api/admin/instructions/fanout`, input);
   }
 
   async getInstruction(agentId: string, key: string): Promise<{ key: string; content: string; updatedAt: string } | undefined> {
