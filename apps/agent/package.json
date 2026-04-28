@@ -31,6 +31,10 @@
     "./model-catalog": {
       "development": "./src/model-catalog.ts",
       "default": "./dist/model-catalog.js"
+    },
+    "./events": {
+      "development": "./src/events.ts",
+      "default": "./dist/events.js"
     }
   },
   "scripts": {

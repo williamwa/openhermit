@@ -234,6 +234,7 @@ Important environment variables:
 
 - [CLI Reference](docs/cli.md)
 - [Architecture](docs/architecture.md)
+- [Plugins & Hooks (design draft)](docs/plugins.md)
 - [Storage Model](docs/storage-model.md)
 - [Session Model](docs/session-model.md)
 - [User Model](docs/user-model.md)
