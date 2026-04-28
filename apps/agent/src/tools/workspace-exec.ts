@@ -86,7 +86,16 @@ Use \`exec\` to run any shell command. This is how you do everything: read files
 
 The execution environment is persistent. Installed packages and state survive between calls.
 
-**Important**: stdin is closed — interactive commands that prompt for user input will fail. Use non-interactive alternatives instead (e.g. \`--yes\`, \`--non-interactive\`, \`--with-token\`, environment variables). For authentication, use tokens from agent secrets rather than interactive login flows.`;
+**Important**: stdin is closed — interactive commands that prompt for user input will fail. Use non-interactive alternatives instead (e.g. \`--yes\`, \`--non-interactive\`, \`--with-token\`, environment variables). For authentication, use tokens from agent secrets rather than interactive login flows.
+
+**Output is not streamed**: \`exec\` returns stdout/stderr only after the process exits. You will not see partial output during the run, so prefer many short calls over one long-running call.
+
+**Long-running / daemon / tunnel commands** (ssh tunnels, dev servers, \`tail -f\`, watchers, anything that does not exit on its own): do NOT run them in the foreground — even with \`timeout N\`, you will get zero feedback for N seconds and may hit the wall-clock timeout. Instead:
+1. Launch in the background, redirecting output: \`nohup <cmd> > /tmp/x.log 2>&1 &\` — this returns immediately with the PID.
+2. In a second \`exec\` call, poll the log: \`sleep 2 && tail -n 50 /tmp/x.log\` (or grep it for the string you need).
+3. When done, kill it explicitly: \`kill <pid>\` (capture the PID from \`$!\` after launch if needed).
+
+**Avoid the \`timeout N <cmd> | grep …\` pattern** for capturing output from a process that would otherwise run forever. Two problems: (a) you get no feedback for N seconds; (b) \`grep\` block-buffers when its stdout is a pipe, so even matched lines may not flush before \`grep\` exits. Prefer redirect-then-grep: \`<cmd> > /tmp/x.log 2>&1; grep -E '…' /tmp/x.log\`, or add \`grep --line-buffered\` if you really must pipe.`;
 
 export const createExecToolset = (context: ToolContext): Toolset => ({
   id: 'exec',
