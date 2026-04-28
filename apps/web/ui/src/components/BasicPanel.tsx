@@ -40,6 +40,8 @@ export function BasicPanel() {
   const [model, setModel] = useState('');
   const [modelMode, setModelMode] = useState<'preset' | 'custom'>('preset');
   const [thinking, setThinking] = useState<Thinking | ''>('');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [api, setApi] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -67,6 +69,8 @@ export function BasicPanel() {
         const isKnownModel = knownModelsForProvider.some((m) => m.id === initialModel);
         setModelMode(isKnownModel || !initialModel ? 'preset' : 'custom');
         setThinking((c.model?.thinking as Thinking) ?? '');
+        setBaseUrl(c.model?.base_url ?? '');
+        setApi(c.model?.api ?? '');
       })
       .catch((err) => setError((err as Error).message))
       .finally(() => setLoading(false));
@@ -80,6 +84,8 @@ export function BasicPanel() {
     provider !== (config.model?.provider ?? '')
     || model !== (config.model?.model ?? '')
     || thinking !== ((config.model?.thinking as Thinking | undefined) ?? '')
+    || baseUrl !== (config.model?.base_url ?? '')
+    || api !== (config.model?.api ?? '')
   );
 
   const handleSave = async () => {
@@ -87,6 +93,8 @@ export function BasicPanel() {
     setSaving(true);
     setError('');
     try {
+      const trimmedBaseUrl = baseUrl.trim();
+      const trimmedApi = api.trim();
       const next: AgentConfig = {
         ...config,
         model: {
@@ -94,10 +102,18 @@ export function BasicPanel() {
           provider: provider.trim(),
           model: model.trim(),
           ...(thinking ? { thinking } : {}),
+          ...(trimmedBaseUrl ? { base_url: trimmedBaseUrl } : {}),
+          ...(trimmedApi ? { api: trimmedApi } : {}),
         },
       };
       if (!thinking && next.model.thinking) {
         delete (next.model as Record<string, unknown>).thinking;
+      }
+      if (!trimmedBaseUrl && next.model.base_url) {
+        delete (next.model as Record<string, unknown>).base_url;
+      }
+      if (!trimmedApi && next.model.api) {
+        delete (next.model as Record<string, unknown>).api;
       }
       await putAgentConfig(next);
       setConfig(next);
@@ -191,6 +207,40 @@ export function BasicPanel() {
           )
         )}
       </div>
+
+      {providerMode === 'custom' && (
+        <>
+          <div className="basic-panel__field">
+            <label htmlFor="basic-base-url">Base URL</label>
+            <input
+              id="basic-base-url"
+              type="text"
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder="https://api.example.com/v1"
+              autoComplete="off"
+            />
+            <p className="basic-panel__hint">
+              Required for custom providers. The base URL of the API endpoint.
+            </p>
+          </div>
+          <div className="basic-panel__field">
+            <label htmlFor="basic-api">API protocol</label>
+            <select
+              id="basic-api"
+              value={api}
+              onChange={(e) => setApi(e.target.value)}
+            >
+              <option value="">— pick a protocol —</option>
+              <option value="openai-completions">openai-completions</option>
+              <option value="anthropic-messages">anthropic-messages</option>
+            </select>
+            <p className="basic-panel__hint">
+              Required for custom providers not in the built-in registry.
+            </p>
+          </div>
+        </>
+      )}
 
       <div className="basic-panel__field">
         <label htmlFor="basic-model">Model</label>
