@@ -86,6 +86,7 @@ The gateway defaults to `http://127.0.0.1:4000`. The admin UI is served by the g
 | Chat | `hermit chat`, `hermit chat --agent-id <id>`, `hermit chat --resume`, `hermit chat --session <sessionId>` |
 | Config | `hermit config show`, `get <key>`, `set <key> <value>` |
 | Secrets | `hermit config secrets list`, `set <key> <value>`, `remove <key>` |
+| Instructions | `hermit instructions list`, `get`, `set`, `remove` (use `--agent '*'` for global) |
 | Skills | `hermit skills list`, `assignments`, `scan`, `register`, `delete`, `enable`, `disable` |
 | MCP | `hermit mcp list`, `assignments`, `enable`, `disable` |
 | Schedules | `hermit schedules list`, `create`, `pause`, `resume`, `delete`, `runs` |

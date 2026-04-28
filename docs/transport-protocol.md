@@ -213,6 +213,7 @@ Owner or admin routes:
 - `/api/agents/{agentId}/mcp-servers`
 - `/api/agents/{agentId}/channels`
 - `/api/agents/{agentId}/schedules`
+- `/api/agents/{agentId}/instructions` (CRUD on per-agent system-prompt sections; `agentId='*'` = global, admin only; `?merged=true` returns the effective set with global rows merged in)
 
 Admin routes:
 
