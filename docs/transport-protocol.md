@@ -1,13 +1,13 @@
 # Transport Protocol
 
-The gateway exposes agent execution under `/agents/{agentId}`. All agent routes require a valid auth context unless explicitly noted. Admin bearer tokens, user JWTs, and channel tokens are all accepted by the auth resolver where appropriate.
+The gateway exposes agent execution under `/api/agents/{agentId}`. All agent routes require a valid auth context unless explicitly noted. Admin bearer tokens, user JWTs, and channel tokens are all accepted by the auth resolver where appropriate.
 
 ## Auth
 
 | Flow | Endpoint / token | Use |
 |------|------------------|-----|
 | Admin bearer | `Authorization: Bearer $GATEWAY_ADMIN_TOKEN` | agent lifecycle, admin APIs, full agent route access |
-| Device JWT | `POST /agents/{agentId}/auth/token` | browser/web user auth |
+| Device JWT | `POST /api/agents/{agentId}/auth/token` | browser/web user auth |
 | Channel bearer | generated or configured channel token | built-in/external channel adapters scoped to an agent/channel namespace |
 
 Protected agents require `agent_token` during device-token exchange.
@@ -17,19 +17,19 @@ Protected agents require `agent_token` during device-token exchange.
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/health` | gateway health |
-| `GET` | `/agents` | list registered agents, admin only |
-| `POST` | `/agents` | create an agent, admin only |
-| `GET` | `/agents/{agentId}/health` | running/stopped health |
-| `POST` | `/agents/{agentId}/manage/{start|stop|restart|delete}` | lifecycle, admin only |
-| `POST` | `/agents/{agentId}/sessions` | open or resume a session |
-| `GET` | `/agents/{agentId}/sessions` | list visible sessions |
-| `POST` | `/agents/{agentId}/sessions/{sessionId}/messages` | post a message |
-| `GET` | `/agents/{agentId}/sessions/{sessionId}/messages` | read history |
-| `DELETE` | `/agents/{agentId}/sessions/{sessionId}` | delete a non-running direct session |
-| `POST` | `/agents/{agentId}/sessions/{sessionId}/approve` | answer a pending tool approval |
-| `POST` | `/agents/{agentId}/sessions/{sessionId}/checkpoint` | run session introspection checkpoint |
-| `GET` | `/agents/{agentId}/sessions/{sessionId}/events` | durable SSE event stream |
-| `WS` | `/agents/{agentId}/ws` | WebSocket RPC and event subscription |
+| `GET` | `/api/agents` | list registered agents, admin only |
+| `POST` | `/api/agents` | create an agent, admin only |
+| `GET` | `/api/agents/{agentId}/health` | running/stopped health |
+| `POST` | `/api/agents/{agentId}/manage/{start|stop|restart|delete}` | lifecycle, admin only |
+| `POST` | `/api/agents/{agentId}/sessions` | open or resume a session |
+| `GET` | `/api/agents/{agentId}/sessions` | list visible sessions |
+| `POST` | `/api/agents/{agentId}/sessions/{sessionId}/messages` | post a message |
+| `GET` | `/api/agents/{agentId}/sessions/{sessionId}/messages` | read history |
+| `DELETE` | `/api/agents/{agentId}/sessions/{sessionId}` | delete a non-running direct session |
+| `POST` | `/api/agents/{agentId}/sessions/{sessionId}/approve` | answer a pending tool approval |
+| `POST` | `/api/agents/{agentId}/sessions/{sessionId}/checkpoint` | run session introspection checkpoint |
+| `GET` | `/api/agents/{agentId}/sessions/{sessionId}/events` | durable SSE event stream |
+| `WS` | `/api/agents/{agentId}/ws` | WebSocket RPC and event subscription |
 
 Session list filters:
 
@@ -83,7 +83,7 @@ Attachments are supported as `{ "type": "...", "url": "...", "data": "..." }`.
 ### Fire And Forget
 
 ```http
-POST /agents/main/sessions/cli%3Adefault/messages
+POST /api/agents/main/sessions/cli%3Adefault/messages
 ```
 
 Returns after the message is accepted:
@@ -95,7 +95,7 @@ Returns after the message is accepted:
 ### Append/Inject
 
 ```http
-POST /agents/main/sessions/telegram%3A123/messages?append=true
+POST /api/agents/main/sessions/telegram%3A123/messages?append=true
 ```
 
 Stores the message and publishes `user_message` without triggering the agent. `inject=true` is accepted as an alias.
@@ -103,7 +103,7 @@ Stores the message and publishes `user_message` without triggering the agent. `i
 ### Wait
 
 ```http
-POST /agents/main/sessions/cli%3Adefault/messages?wait=true&timeout=300000
+POST /api/agents/main/sessions/cli%3Adefault/messages?wait=true&timeout=300000
 ```
 
 Returns one JSON result when the turn ends:
@@ -124,7 +124,7 @@ If group routing decides not to trigger the model, the response includes `trigge
 ### Inline SSE Stream
 
 ```http
-POST /agents/main/sessions/cli%3Adefault/messages?stream=true
+POST /api/agents/main/sessions/cli%3Adefault/messages?stream=true
 ```
 
 The response is an SSE stream. A `message_ack` frame may be emitted first, followed by normal outbound events until `agent_end`.
@@ -132,7 +132,7 @@ The response is an SSE stream. A `message_ack` frame may be emitted first, follo
 ### Durable Events
 
 ```http
-GET /agents/main/sessions/cli%3Adefault/events
+GET /api/agents/main/sessions/cli%3Adefault/events
 ```
 
 This emits backlog events first, then live events, with `ready` and periodic `ping` frames.
@@ -160,7 +160,7 @@ Events are persisted in `session_events` and broadcast through the in-memory `Se
 Connect to:
 
 ```text
-ws://127.0.0.1:4000/agents/main/ws?token=<jwt-or-admin-token>
+ws://127.0.0.1:4000/api/agents/main/ws?token=<jwt-or-admin-token>
 ```
 
 Supported methods:

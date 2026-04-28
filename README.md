@@ -95,20 +95,20 @@ Agent-scoped commands accept `--agent-id <id>` and default to `OPENHERMIT_AGENT_
 
 ## API Overview
 
-Agent execution routes are exposed under `/agents/{agentId}`:
+Agent execution routes are exposed under `/api/agents/{agentId}`:
 
-- `POST /agents/{id}/sessions`
-- `GET /agents/{id}/sessions`
-- `POST /agents/{id}/sessions/{sessionId}/messages`
-- `POST /agents/{id}/sessions/{sessionId}/messages?wait=true`
-- `POST /agents/{id}/sessions/{sessionId}/messages?stream=true`
-- `GET /agents/{id}/sessions/{sessionId}/events`
-- `POST /agents/{id}/sessions/{sessionId}/approve`
-- `POST /agents/{id}/sessions/{sessionId}/checkpoint`
-- `DELETE /agents/{id}/sessions/{sessionId}`
-- `ws://host/agents/{id}/ws`
+- `POST /api/agents/{id}/sessions`
+- `GET /api/agents/{id}/sessions`
+- `POST /api/agents/{id}/sessions/{sessionId}/messages`
+- `POST /api/agents/{id}/sessions/{sessionId}/messages?wait=true`
+- `POST /api/agents/{id}/sessions/{sessionId}/messages?stream=true`
+- `GET /api/agents/{id}/sessions/{sessionId}/events`
+- `POST /api/agents/{id}/sessions/{sessionId}/approve`
+- `POST /api/agents/{id}/sessions/{sessionId}/checkpoint`
+- `DELETE /api/agents/{id}/sessions/{sessionId}`
+- `ws://host/api/agents/{id}/ws`
 
-Admin and owner-facing management endpoints live under `/api/admin/...` and `/api/agents/{agentId}/...`. See [docs/transport-protocol.md](docs/transport-protocol.md), [docs/skills.md](docs/skills.md), [docs/mcp-servers.md](docs/mcp-servers.md), and [docs/channel-adapter.md](docs/channel-adapter.md).
+Admin and owner-facing management endpoints live under `/api/admin/...` and `/api/agents/{agentId}/...`. Channel webhooks land at `POST /api/agents/{id}/channels/{namespace}/webhook`. See [docs/transport-protocol.md](docs/transport-protocol.md), [docs/skills.md](docs/skills.md), [docs/mcp-servers.md](docs/mcp-servers.md), and [docs/channel-adapter.md](docs/channel-adapter.md).
 
 ## Internal State
 
@@ -116,7 +116,7 @@ All durable internal state is scoped by `agent_id` where applicable:
 
 | Store | Contents |
 |-------|----------|
-| Agents | Registered agents, config directories, workspace directories |
+| Agents | Registered agents, runtime config (`config_json`), security policy (`security_json`), workspace directories |
 | Sessions | Metadata, status, participants, working memory, descriptions |
 | Session events | User, assistant, tool, error, channel, and introspection events |
 | Memories | Long-term memory with PostgreSQL FTS plus ILIKE fallback |
@@ -125,9 +125,10 @@ All durable internal state is scoped by `agent_id` where applicable:
 | Containers | Workspace container inventory |
 | Skills | Skill library and per-agent/global assignments |
 | MCP servers | External MCP server definitions and assignments |
+| Channels | Built-in and external channel rows with encrypted tokens |
 | Schedules | Cron/once jobs and run history |
 
-Per-agent files under `~/.openhermit/agents/{agentId}/` contain runtime configuration, security policy, secrets, and generated skill mounts. They are not the source of truth for conversation history.
+Runtime config and security policy are stored in PostgreSQL on the `agents` row. Per-agent files under `~/.openhermit/agents/{agentId}/` are local-only state: `runtime.json` (port + token written by the running agent), `secrets.json` (provider/integration secrets, file-backed via `SecretStore`), and `skill-mounts/` (generated symlinks to enabled skills).
 
 ## Development
 
@@ -169,7 +170,8 @@ Important environment variables:
 - [Channel Adapters](docs/channel-adapter.md)
 - [Introspection Design](docs/introspection-design.md)
 - [Architecture Decisions](docs/decisions.md)
-- [Roadmap](docs/plan.md)
+- [Shipped Features](docs/plan.md)
+- [Roadmap](docs/roadmap.md)
 - [Open Questions](docs/pending-decisions.md)
 
 ## License

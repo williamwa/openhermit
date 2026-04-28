@@ -20,7 +20,7 @@ PostgreSQL gives shared durable state for many agents, indexed event/session que
 
 ## ADR-003: Gateway-Managed In-Process Agents
 
-The current gateway starts `AgentRunner` instances in-process through `AgentInstanceManager`. This is simpler than a reverse proxy over per-agent processes while preserving explicit `/agents/{agentId}/...` routing and per-agent lifecycle.
+The current gateway starts `AgentRunner` instances in-process through `AgentInstanceManager`. This is simpler than a reverse proxy over per-agent processes while preserving explicit `/api/agents/{agentId}/...` routing and per-agent lifecycle.
 
 The `AgentInfo.port` field remains protocol-compatible metadata, but current managed agents do not require per-agent ports.
 

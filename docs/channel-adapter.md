@@ -1,6 +1,6 @@
 # Channel Adapters
 
-OpenHermit includes built-in Telegram, Discord, and Slack adapters. The gateway starts enabled adapters for each running agent and registers scoped channel tokens so adapters can call back into `/agents/{agentId}/...`.
+OpenHermit includes built-in Telegram, Discord, and Slack adapters. The gateway starts enabled adapters for each running agent and registers scoped channel tokens so adapters can call back into `/api/agents/{agentId}/...`.
 
 ## Implemented Adapters
 
@@ -61,6 +61,43 @@ Channels are stored in the `agent_channels` table (config + encrypted token colu
 | `DELETE` | `/api/agents/{agentId}/channels/{channelId}` | remove config |
 
 These routes require owner or admin auth.
+
+## Webhook Ingress
+
+For platforms that push updates over HTTPS (e.g. Telegram in webhook
+mode, Slack Events API, Discord Interactions), the gateway exposes a
+single public ingress per channel:
+
+```
+POST /api/agents/{agentId}/channels/{namespace}/webhook
+```
+
+- `namespace` is the per-agent unique identifier on the channel row. For
+  built-in channels it equals the channel type (`telegram`, `discord`,
+  `slack`); for external rows it is owner-chosen at create time.
+- The route is unauthenticated at the gateway layer — authentication is
+  the adapter's responsibility (Telegram `secret_token` header, Slack
+  HMAC signing, Discord ed25519 signature). The dispatcher hands the
+  raw headers and body to the live bridge via `handleWebhook(req)`.
+- One port, one TLS cert: a single Caddy / Tailscale / Cloudflare proxy
+  in front of the gateway covers every agent × channel combination. No
+  per-adapter HTTP server is started.
+
+### Telegram in webhook mode
+
+When a Telegram channel is enabled with `mode: "webhook"`, the gateway
+on adapter start:
+
+1. Computes the URL `${GATEWAY_PUBLIC_URL}/api/agents/{id}/channels/telegram/webhook`.
+2. Calls Telegram's `setWebhook(url, secret_token)` using the channel's
+   stored bearer token as `secret_token`.
+3. On every incoming POST, the bridge verifies the
+   `X-Telegram-Bot-Api-Secret-Token` header against the same value and
+   returns `401` on mismatch.
+
+This means the Telegram webhook URL never has to be manually configured
+or rotated — flipping `mode` between `polling` and `webhook` in the
+admin UI re-derives and re-registers it automatically.
 
 ## Platform Notes
 
