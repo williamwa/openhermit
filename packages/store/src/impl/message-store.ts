@@ -45,6 +45,7 @@ const mapEventRowToHistoryMessage = (row: {
       toolArgs: payload?.args,
     };
     if (typeof payload?.toolCallId === 'string') message.toolCallId = payload.toolCallId;
+    if (payload?.introspection === true) message.introspection = true;
     return message;
   }
 

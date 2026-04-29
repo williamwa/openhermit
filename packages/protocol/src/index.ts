@@ -61,6 +61,8 @@ export interface SessionHistoryMessage {
   toolPhase?: 'call' | 'result';
   toolIsError?: boolean;
   toolArgs?: unknown;
+  /** True for tool_call/tool_result entries emitted as part of an introspection turn. */
+  introspection?: boolean;
   introspectionPhase?: 'start' | 'end';
   introspectionSummary?: string;
 }

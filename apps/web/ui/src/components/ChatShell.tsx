@@ -103,8 +103,19 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
     const history: HistoryMessage[] = await ws.getHistory(sessionId);
     const historyItems: ChatItem[] = [];
     let introspectionTools: Extract<ChatItem, { type: 'tool' }>[] | null = null;
+    const flushIntrospection = (summary?: string) => {
+      if (!introspectionTools) return;
+      if (introspectionTools.length > 0) {
+        historyItems.push({ type: 'introspection', tools: introspectionTools, summary });
+      }
+      introspectionTools = null;
+    };
     for (const entry of history) {
       if (entry.role === 'introspection' && entry.introspectionPhase === 'start') {
+        // If a previous introspection block never received an end (agent
+        // crashed / aborted mid-introspection), flush it now so its tools
+        // don't get clobbered by this new bucket.
+        flushIntrospection();
         introspectionTools = [];
         continue;
       }
@@ -114,14 +125,17 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
         continue;
       }
       if (entry.role === 'tool') {
+        // Route by the per-event marker, not the open introspection_start state.
+        // An introspection_start without a matching introspection_end (e.g.
+        // the agent crashed mid-introspection) would otherwise swallow every
+        // subsequent regular tool_call into the dangling bucket and never
+        // render them. payload.introspection === true is the source of truth.
+        const isIntrospection = entry.introspection === true;
         const toolItem = (call: Extract<ChatItem, { type: 'tool' }>) => {
-          if (introspectionTools) introspectionTools.push(call);
+          if (isIntrospection && introspectionTools) introspectionTools.push(call);
           else historyItems.push(call);
         };
-        // Find the matching pending call. Prefer toolCallId (correct under
-        // parallel calls); fall back to last-running same-named tool for
-        // legacy events that predate toolCallId.
-        const pool = introspectionTools ?? historyItems;
+        const pool = isIntrospection && introspectionTools ? introspectionTools : historyItems;
         const findPending = (): Extract<ChatItem, { type: 'tool' }> | undefined => {
           if (entry.toolPhase !== 'result') return undefined;
           if (entry.toolCallId) {
@@ -157,6 +171,7 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
       historyItems.push({ type: entry.role as 'user' | 'assistant', text: entry.content, streaming: false, name: entry.name });
       if (entry.role === 'assistant' && entry.name) setAgentName(entry.name);
     }
+    flushIntrospection();
     setItems(historyItems);
     const allSessions = await ws.listSessions();
     const sess = allSessions.find(s => s.sessionId === sessionId);

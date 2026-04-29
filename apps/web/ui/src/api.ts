@@ -51,6 +51,7 @@ export interface HistoryMessage {
   toolPhase?: 'call' | 'result';
   toolIsError?: boolean;
   toolArgs?: unknown;
+  introspection?: boolean;
   introspectionPhase?: 'start' | 'end';
   introspectionSummary?: string;
 }
