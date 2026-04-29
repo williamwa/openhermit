@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 
 import { OpenHermitError, NotFoundError, ValidationError } from '@openhermit/shared';
 
+import { BoundedString, DEFAULT_EXEC_OUTPUT_MAX_BYTES } from './bounded-string.js';
 import type {
   ContainerProcessResult,
   ContainerRegistryEntry,
@@ -74,8 +75,8 @@ class DockerCliRunner implements DockerRunner {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
-      let stdout = '';
-      let stderr = '';
+      const stdoutBuf = new BoundedString(DEFAULT_EXEC_OUTPUT_MAX_BYTES, 'stdout');
+      const stderrBuf = new BoundedString(DEFAULT_EXEC_OUTPUT_MAX_BYTES, 'stderr');
       let timedOut = false;
 
       const timer = timeoutMs
@@ -85,13 +86,8 @@ class DockerCliRunner implements DockerRunner {
           }, timeoutMs)
         : undefined;
 
-      child.stdout.on('data', (chunk) => {
-        stdout += chunk.toString();
-      });
-
-      child.stderr.on('data', (chunk) => {
-        stderr += chunk.toString();
-      });
+      child.stdout.on('data', (chunk) => stdoutBuf.append(chunk.toString()));
+      child.stderr.on('data', (chunk) => stderrBuf.append(chunk.toString()));
 
       child.on('error', (error) => {
         if (timer) clearTimeout(timer);
@@ -107,11 +103,11 @@ class DockerCliRunner implements DockerRunner {
       child.on('close', (code) => {
         if (timer) clearTimeout(timer);
         if (timedOut) {
-          stderr = stderr.trimEnd() + `\n[killed: command timed out after ${timeoutMs}ms]`;
+          stderrBuf.append(`\n[killed: command timed out after ${timeoutMs}ms]`);
         }
         resolve({
-          stdout,
-          stderr,
+          stdout: stdoutBuf.finalize(),
+          stderr: stderrBuf.finalize(),
           exitCode: timedOut ? 137 : (code ?? 1),
           durationMs: Date.now() - startedAt,
         });

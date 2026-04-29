@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 
 import { NotFoundError, ValidationError } from '@openhermit/shared';
 
+import { BoundedString, DEFAULT_EXEC_OUTPUT_MAX_BYTES } from './bounded-string.js';
 import type { ContainerProcessResult, WorkspaceContainerConfig, WorkspaceContainerLifecycle } from './types.js';
 import type { DockerContainerManager } from './container-manager.js';
 
@@ -155,8 +156,8 @@ class LocalExecBackend implements ExecBackend {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
-      let stdout = '';
-      let stderr = '';
+      const stdoutBuf = new BoundedString(DEFAULT_EXEC_OUTPUT_MAX_BYTES, 'stdout');
+      const stderrBuf = new BoundedString(DEFAULT_EXEC_OUTPUT_MAX_BYTES, 'stderr');
       let timedOut = false;
 
       const timer = setTimeout(() => {
@@ -164,8 +165,8 @@ class LocalExecBackend implements ExecBackend {
         child.kill('SIGKILL');
       }, this.timeoutMs);
 
-      child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
-      child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+      child.stdout.on('data', (chunk: Buffer) => stdoutBuf.append(chunk.toString()));
+      child.stderr.on('data', (chunk: Buffer) => stderrBuf.append(chunk.toString()));
 
       child.on('error', (error) => {
         clearTimeout(timer);
@@ -175,11 +176,11 @@ class LocalExecBackend implements ExecBackend {
       child.on('close', (code) => {
         clearTimeout(timer);
         if (timedOut) {
-          stderr = stderr.trimEnd() + `\n[killed: command timed out after ${this.timeoutMs}ms]`;
+          stderrBuf.append(`\n[killed: command timed out after ${this.timeoutMs}ms]`);
         }
         resolve({
-          stdout,
-          stderr,
+          stdout: stdoutBuf.finalize(),
+          stderr: stderrBuf.finalize(),
           exitCode: timedOut ? 137 : (code ?? 1),
           durationMs: Date.now() - startedAt,
         });
