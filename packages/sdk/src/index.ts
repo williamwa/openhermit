@@ -332,13 +332,6 @@ export class GatewayClient {
     return this.getJson(`/api/agents/${encodeURIComponent(agentId)}/secrets`);
   }
 
-  /** Bulk-replace all secrets. Note: GET returns masked values, so callers
-   * that build the input from a prior GET will write masks back — prefer
-   * setAgentSecret / deleteAgentSecret for partial edits. */
-  async putAgentSecrets(agentId: string, secrets: Record<string, string>): Promise<void> {
-    await this.putJson(`/api/agents/${encodeURIComponent(agentId)}/secrets`, secrets);
-  }
-
   async setAgentSecret(agentId: string, name: string, value: string): Promise<void> {
     await this.putJson(
       `/api/agents/${encodeURIComponent(agentId)}/secrets/${encodeURIComponent(name)}`,

@@ -283,12 +283,6 @@ export class AgentSecurity {
     return this.secretStore.list(this.agentId);
   }
 
-  /** Overwrite the entire secrets store and reload local cache. */
-  async writeSecrets(secrets: SecretsMap): Promise<void> {
-    await this.secretStore.setAll(this.agentId, secrets);
-    await this.load();
-  }
-
   async readConfig(): Promise<AgentRuntimeConfig> {
     // Reload policy + secrets on every config read so changes take
     // effect without an agent restart.

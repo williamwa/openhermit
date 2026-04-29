@@ -2,26 +2,22 @@ import { useEffect, useState } from 'react';
 import { fetchAgentSecrets, setAgentSecret, deleteAgentSecret } from '../api';
 
 interface RowState {
-  /** Key. */
   key: string;
-  /** Server-supplied masked preview (empty for newly-added keys). */
+  /** Server-supplied masked preview. */
   masked: string;
-  /** Pending plaintext value the user typed; '' = no edit, anything else = replace. */
+  /** Current edit-in-progress value; empty until the user types. */
   draft: string;
-  /** Marked for deletion. */
-  deleted: boolean;
-  /** True if this row was added in the editor (not loaded from server). */
-  isNew: boolean;
+  /** This row is currently mid-PUT/DELETE. */
+  busy: boolean;
 }
 
 export function SecretsPanel() {
   const [rows, setRows] = useState<RowState[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [savedAt, setSavedAt] = useState<string | null>(null);
   const [newKey, setNewKey] = useState('');
   const [newValue, setNewValue] = useState('');
+  const [adding, setAdding] = useState(false);
 
   const loadFromServer = async () => {
     const map = await fetchAgentSecrets();
@@ -30,8 +26,7 @@ export function SecretsPanel() {
         key: k,
         masked: map[k] ?? '',
         draft: '',
-        deleted: false,
-        isNew: false,
+        busy: false,
       })),
     );
   };
@@ -42,54 +37,55 @@ export function SecretsPanel() {
       .finally(() => setLoading(false));
   }, []);
 
-  const dirty = rows.some((r) => r.draft !== '' || r.deleted || r.isNew);
-
   const updateRow = (key: string, patch: Partial<RowState>) => {
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   };
 
-  const addNew = () => {
-    if (!newKey.trim()) return;
-    if (rows.some((r) => r.key === newKey.trim())) {
-      setError(`Secret "${newKey.trim()}" already exists`);
-      return;
-    }
-    setRows((rs) => [...rs, {
-      key: newKey.trim(),
-      masked: '',
-      draft: newValue,
-      deleted: false,
-      isNew: true,
-    }]);
-    setNewKey('');
-    setNewValue('');
+  const saveRow = async (key: string) => {
+    const row = rows.find((r) => r.key === key);
+    if (!row || row.draft === '') return;
     setError('');
+    updateRow(key, { busy: true });
+    try {
+      await setAgentSecret(key, row.draft);
+      await loadFromServer();
+    } catch (err) {
+      setError((err as Error).message);
+      updateRow(key, { busy: false });
+    }
   };
 
-  const handleSave = async () => {
-    setSaving(true);
+  const deleteRow = async (key: string) => {
     setError('');
+    updateRow(key, { busy: true });
     try {
-      for (const r of rows) {
-        if (r.deleted && !r.isNew) {
-          await deleteAgentSecret(r.key);
-        } else if (r.draft !== '') {
-          await setAgentSecret(r.key, r.draft);
-        }
-        // Skip rows the user didn't touch.
-      }
+      await deleteAgentSecret(key);
       await loadFromServer();
-      setSavedAt(new Date().toLocaleTimeString());
+    } catch (err) {
+      setError((err as Error).message);
+      updateRow(key, { busy: false });
+    }
+  };
+
+  const addNew = async () => {
+    const k = newKey.trim();
+    if (!k) return;
+    if (rows.some((r) => r.key === k)) {
+      setError(`Secret "${k}" already exists`);
+      return;
+    }
+    setError('');
+    setAdding(true);
+    try {
+      await setAgentSecret(k, newValue);
+      setNewKey('');
+      setNewValue('');
+      await loadFromServer();
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setSaving(false);
+      setAdding(false);
     }
-  };
-
-  const handleDiscard = () => {
-    void loadFromServer();
-    setError('');
   };
 
   if (loading) return <p className="manage__empty">Loading…</p>;
@@ -101,9 +97,10 @@ export function SecretsPanel() {
         <p className="eyebrow">Secrets</p>
         <p className="secrets-panel__hint">
           Provider API keys, channel tokens, and other credentials. Existing
-          values are never returned to the browser; the placeholder shows
-          how the server has masked the current value. Type a new value to
-          replace, or delete the row to remove the secret.
+          values are never returned to the browser; the placeholder shows how
+          the server has masked the current value. Each row saves
+          independently — type a new value and click <strong>Save</strong> on
+          that row, or <strong>Delete</strong> to remove the secret.
         </p>
       </div>
 
@@ -112,52 +109,36 @@ export function SecretsPanel() {
           <p className="manage__empty">No secrets configured yet.</p>
         ) : (
           rows.map((r) => (
-            <div className={`secrets-row${r.deleted ? ' secrets-row--deleted' : ''}`} key={r.key}>
+            <div className="secrets-row" key={r.key}>
               <span className="secrets-row__key">{r.key}</span>
               <input
                 type="text"
                 className="secrets-row__value"
                 value={r.draft}
                 onChange={(e) => updateRow(r.key, { draft: e.target.value })}
-                placeholder={r.masked || (r.isNew ? 'new value' : 'unchanged')}
-                disabled={r.deleted}
+                placeholder={r.masked || 'unchanged'}
+                disabled={r.busy}
                 autoComplete="off"
               />
               <div className="secrets-row__actions">
-                {r.draft !== '' && !r.isNew && (
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--sm"
-                    onClick={() => updateRow(r.key, { draft: '' })}
-                  >
-                    Cancel
-                  </button>
-                )}
-                {r.deleted ? (
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--sm"
-                    onClick={() => updateRow(r.key, { deleted: false })}
-                  >
-                    Undo
-                  </button>
-                ) : r.isNew ? (
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--sm"
-                    onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))}
-                  >
-                    Remove
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--sm secrets-row__delete"
-                    onClick={() => updateRow(r.key, { deleted: true, draft: '' })}
-                  >
-                    Delete
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="btn btn--primary btn--sm"
+                  disabled={r.busy || r.draft === ''}
+                  onClick={() => void saveRow(r.key)}
+                >
+                  {r.busy ? '…' : 'Save'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm secrets-row__delete"
+                  disabled={r.busy}
+                  onClick={() => {
+                    if (window.confirm(`Delete secret "${r.key}"?`)) void deleteRow(r.key);
+                  }}
+                >
+                  Delete
+                </button>
               </div>
             </div>
           ))
@@ -170,43 +151,26 @@ export function SecretsPanel() {
           placeholder="Key (e.g. ANTHROPIC_API_KEY)"
           value={newKey}
           onChange={(e) => setNewKey(e.target.value)}
+          disabled={adding}
         />
         <input
           type="password"
           placeholder="Value"
           value={newValue}
           onChange={(e) => setNewValue(e.target.value)}
+          disabled={adding}
         />
         <button
           type="button"
-          className="btn btn--ghost"
-          disabled={!newKey.trim()}
-          onClick={addNew}
+          className="btn btn--primary"
+          disabled={adding || !newKey.trim()}
+          onClick={() => void addNew()}
         >
-          Add
+          {adding ? '…' : 'Add'}
         </button>
       </div>
 
       {error && <p className="basic-panel__error">{error}</p>}
-
-      <div className="basic-panel__actions">
-        <button
-          type="button"
-          className="btn btn--primary"
-          disabled={!dirty || saving}
-          onClick={() => void handleSave()}
-        >
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-        {dirty && (
-          <button type="button" className="btn btn--ghost" onClick={handleDiscard} disabled={saving}>
-            Discard
-          </button>
-        )}
-        {savedAt && !dirty && (
-          <span className="basic-panel__saved">Saved at {savedAt}</span>
-        )}
-      </div>
     </div>
   );
 }

@@ -1353,26 +1353,9 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     return c.json(masked);
   });
 
-  app.put('/api/agents/:agentId/secrets', async (c) => {
-    const agentId = c.req.param('agentId') ?? '';
-    await requireOwnerOrAdmin(c, agentId);
-    const body = await c.req.json();
-    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-      throw new ValidationError('Secrets must be a JSON object of string key-value pairs.');
-    }
-    for (const [k, v] of Object.entries(body)) {
-      if (typeof v !== 'string') {
-        throw new ValidationError(`Secret value for "${k}" must be a string.`);
-      }
-    }
-    const secretStore = instances.getSecretStore();
-    if (!secretStore) {
-      throw new OpenHermitError('Secret store is not configured.', 'not_configured', 500);
-    }
-    await secretStore.setAll(agentId, body as Record<string, string>);
-    await reloadRunnerSecurity(agentId);
-    return c.json({ ok: true });
-  });
+  // Bulk PUT was removed: clients sometimes echoed back the masked GET
+  // response, silently overwriting other secrets with their masks. Per-key
+  // PUT/DELETE below are the only supported write paths.
 
   app.put('/api/agents/:agentId/secrets/:name', async (c) => {
     const agentId = c.req.param('agentId') ?? '';
