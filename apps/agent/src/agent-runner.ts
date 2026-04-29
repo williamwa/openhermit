@@ -1506,12 +1506,22 @@ export class AgentRunner implements SessionRuntime {
       input.langfuseTurnContext ?? { currentTrace: undefined },
     );
 
+    const resolvedModel = resolveModel(input.config);
+    // When the user didn't pick a thinking level but the model is a
+    // thinking-capable / thinking-only one (per pi-ai's registry), default
+    // to 'medium' rather than 'off'. Sending no thinking parameter to a
+    // thinking-only endpoint (deepseek-v4-pro, o1, ...) makes it reject
+    // requests whose history already contains reasoning_content. Explicit
+    // 'off' is still respected — the user accepted that tradeoff.
+    const configuredThinking = input.config.model.thinking;
+    const thinkingLevel = configuredThinking ?? (resolvedModel.reasoning ? 'medium' : 'off');
+
     return new Agent({
       initialState: {
         systemPrompt,
-        model: resolveModel(input.config),
+        model: resolvedModel,
         tools: filteredTools,
-        thinkingLevel: input.config.model.thinking ?? 'off',
+        thinkingLevel,
       },
       sessionId: input.agentSessionId,
       ...(streamFn ? { streamFn } : {}),
@@ -1543,9 +1553,9 @@ export class AgentRunner implements SessionRuntime {
       ...(session.spec.source.type ? { sessionType: session.spec.source.type } : {}),
       sourceKind: session.spec.source.kind,
     });
-    session.agent.setModel(resolveModel(config));
-    session.agent.setSystemPrompt(refreshedAgent.state.systemPrompt);
-    session.agent.setTools(refreshedAgent.state.tools);
+    session.agent.state.model = resolveModel(config);
+    session.agent.state.systemPrompt = refreshedAgent.state.systemPrompt;
+    session.agent.state.tools = refreshedAgent.state.tools;
     session.agent.sessionId = session.spec.sessionId;
   }
 

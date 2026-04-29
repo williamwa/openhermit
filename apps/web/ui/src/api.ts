@@ -610,7 +610,7 @@ export const fetchAgentConfig = () => apiFetch<AgentConfig>('/config');
 export const putAgentConfig = (config: AgentConfig) => apiFetch<{ ok: boolean }>('/config', { method: 'PUT', body: config });
 
 // Provider catalog (static, global — sourced from pi-ai's model registry)
-export interface ProviderCatalogEntry { provider: string; models: { id: string }[] }
+export interface ProviderCatalogEntry { provider: string; models: { id: string; reasoning: boolean }[] }
 export const fetchProviderCatalog = () => apiFetchGlobal<ProviderCatalogEntry[]>('/api/providers');
 
 // Secrets — server returns values masked (e.g. "abcd********wxyz").

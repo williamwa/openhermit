@@ -88,6 +88,11 @@ export function BasicPanel() {
     || api !== (config.model?.api ?? '')
   );
 
+  const selectedModelEntry = useMemo(() => {
+    const entry = catalog.find((p) => p.provider === provider);
+    return entry?.models.find((m) => m.id === model);
+  }, [catalog, provider, model]);
+
   const handleSave = async () => {
     if (!config || !provider.trim() || !model.trim()) return;
     setSaving(true);
@@ -301,6 +306,22 @@ export function BasicPanel() {
             <option key={lvl} value={lvl}>{lvl}</option>
           ))}
         </select>
+        {selectedModelEntry?.reasoning && thinking === 'off' && (
+          <p className="basic-panel__hint basic-panel__hint--warn">
+            ⚠️ <strong>{model}</strong> is a thinking model. Setting thinking
+            to <code>off</code> on a thinking-only endpoint usually triggers
+            <code> 400 reasoning_content must be passed back</code> once the
+            session has any tool-call history. Pick a level (low / medium /
+            high) instead, or leave as <em>default</em> — the server will
+            apply <code>medium</code> automatically.
+          </p>
+        )}
+        {selectedModelEntry?.reasoning && thinking === '' && (
+          <p className="basic-panel__hint">
+            <em>{model}</em> is a thinking model — leaving the level at
+            default will apply <code>medium</code> on the server.
+          </p>
+        )}
       </div>
 
       {error && config && <p className="basic-panel__error">{error}</p>}

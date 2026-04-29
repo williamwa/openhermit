@@ -43,11 +43,45 @@ const OPENAI_COMPATIBLE_PROVIDERS: Record<string, { api: string; baseUrl: string
   openrouter: { api: 'openai-completions', baseUrl: 'https://openrouter.ai/api/v1' },
 };
 
+/**
+ * Try to fetch a Model entry from pi-ai's built-in registry. Returns
+ * undefined when the (provider, model id) pair is not registered.
+ *
+ * pi-ai's registry carries authoritative `reasoning`, `compat`, and
+ * other capability flags. We always prefer registry values over guesses
+ * so that thinking-only models (deepseek-v4-pro, o1, etc.) are flagged
+ * correctly even when the agent config provides an explicit base_url.
+ */
+const tryRegistry = (provider: string, modelId: string): Model<any> | undefined => {
+  try {
+    return getModel(provider as never, modelId as never) as Model<any>;
+  } catch {
+    return undefined;
+  }
+};
+
 export const resolveModel = (config: AgentConfig): Model<any> => {
   const providerDefaults = OPENAI_COMPATIBLE_PROVIDERS[config.model.provider];
   const api = config.model.api ?? providerDefaults?.api;
   const baseUrl = config.model.base_url ?? providerDefaults?.baseUrl;
 
+  // 1) Registry first. If pi-ai knows this (provider, modelId), trust its
+  //    capability flags (reasoning, compat, etc.). Apply user overrides for
+  //    base_url / api / max_tokens on top.
+  const registry = tryRegistry(config.model.provider, config.model.model);
+  if (registry) {
+    return {
+      ...registry,
+      ...(config.model.base_url ? { baseUrl: config.model.base_url } : {}),
+      ...(config.model.api ? { api: config.model.api } : {}),
+      ...(config.model.max_tokens !== undefined ? { maxTokens: config.model.max_tokens } : {}),
+    } as Model<any>;
+  }
+
+  // 2) Custom OpenAI-compatible endpoint. The registry doesn't know this
+  //    model, so we synthesize a Model. We have no authoritative reasoning
+  //    flag here, so derive it from the user's `thinking` level (anything
+  //    other than off / unset implies reasoning capability).
   if (api && baseUrl) {
     return {
       id: config.model.model,
@@ -55,7 +89,7 @@ export const resolveModel = (config: AgentConfig): Model<any> => {
       api,
       provider: config.model.provider,
       baseUrl,
-      reasoning: false,
+      reasoning: (config.model.thinking ?? 'off') !== 'off',
       input: ['text'],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: 128000,
@@ -63,20 +97,7 @@ export const resolveModel = (config: AgentConfig): Model<any> => {
     } as Model<any>;
   }
 
-  try {
-    const model = getModel(
-      config.model.provider as never,
-      config.model.model as never,
-    ) as Model<any>;
-
-    if (config.model.base_url) {
-      return { ...model, baseUrl: config.model.base_url };
-    }
-
-    return model;
-  } catch {
-    throw new ValidationError(
-      `Unsupported model configuration: ${config.model.provider}/${config.model.model}`,
-    );
-  }
+  throw new ValidationError(
+    `Unsupported model configuration: ${config.model.provider}/${config.model.model}`,
+  );
 };

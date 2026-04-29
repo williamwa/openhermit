@@ -1,6 +1,6 @@
 {
   "name": "openhermit",
-  "version": "0.4.10",
+  "version": "0.4.11",
   "description": "OpenHermit — multi-agent platform CLI & server",
   "type": "module",
   "license": "MIT",
@@ -39,9 +39,9 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.14.0",
-    "@mariozechner/pi-agent-core": "^0.57.1",
-    "@mariozechner/pi-ai": "^0.57.1",
-    "@mariozechner/pi-tui": "^0.57.1",
+    "@mariozechner/pi-agent-core": "^0.70.6",
+    "@mariozechner/pi-ai": "^0.70.6",
+    "@mariozechner/pi-tui": "^0.70.6",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "drizzle-orm": "^0.45.2",
     "pg": "^8.20.0",
