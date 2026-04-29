@@ -180,7 +180,14 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
 
   const selectSessionById = useCallback(async (sessionId: string) => {
     const ws = wsRef.current;
-    if (!ws || sessionId === currentSessionRef.current) return;
+    if (!ws) return;
+    // Even if it's the same session that's already loaded, surface the
+    // chat view — the user may have been on /manage and clicking the
+    // session in the sidebar should bring them back to that conversation.
+    if (sessionId === currentSessionRef.current) {
+      setView('chat');
+      return;
+    }
     if (currentSessionRef.current) {
       await ws.unsubscribe(currentSessionRef.current);
     }
