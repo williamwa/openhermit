@@ -74,6 +74,42 @@ const requireWsAuth = async (
   });
 };
 
+/**
+ * Enforce session access on the WS connection.
+ *
+ * Three modes coexist on these endpoints:
+ *
+ *   - `admin` auth: full access; no per-session check.
+ *   - `user` / `channel` auth resolved to an internal userId: must be a
+ *     participant of the session. `verifySessionAccess` throws otherwise.
+ *   - `user` / `channel` auth that did NOT resolve (token references a
+ *     deleted user, channel webhook from a not-yet-seen sender, etc.):
+ *     historically the check was silently skipped because `if
+ *     (callerUserId) ...` was false. That was an IDOR — anyone with a
+ *     stale token could read every session in the agent. Reject with the
+ *     same 'session not found' shape the HTTP path uses.
+ */
+const requireSessionAccess = async (
+  conn: WsConnection,
+  runtime: AgentRunner,
+  callerUserId: string | undefined,
+  sessionId: string,
+): Promise<void> => {
+  if (conn.auth?.mode === 'admin') return;
+  if (!callerUserId) {
+    throw new SessionAccessDeniedError(`Session not found: ${sessionId}`);
+  }
+  await runtime.verifySessionAccess(sessionId, callerUserId);
+};
+
+class SessionAccessDeniedError extends Error {
+  readonly wsCode: WsErrorCode = 'SESSION_NOT_FOUND';
+  constructor(message: string) {
+    super(message);
+    this.name = 'SessionAccessDeniedError';
+  }
+}
+
 const handleRequest = async (
   conn: WsConnection,
   request: WsRequest,
@@ -115,10 +151,7 @@ const handleRequest = async (
           sendError(ws, id, 'INVALID_PARAMS', 'Missing sessionId.');
           return;
         }
-        // Verify caller is a participant
-        if (callerUserId) {
-          await runtime.verifySessionAccess(sessionId, callerUserId);
-        }
+        await requireSessionAccess(conn, runtime, callerUserId, sessionId);
         const message = {
           text: p.text,
           ...(p.messageId !== undefined ? { messageId: p.messageId } : {}),
@@ -140,9 +173,7 @@ const handleRequest = async (
           sendError(ws, id, 'INVALID_PARAMS', 'Missing sessionId.');
           return;
         }
-        if (callerUserId) {
-          await runtime.verifySessionAccess(sessionId, callerUserId);
-        }
+        await requireSessionAccess(conn, runtime, callerUserId, sessionId);
         const approval = { toolCallId: p.toolCallId, approved: p.approved };
         if (!isToolApprovalRequest(approval)) {
           sendError(ws, id, 'INVALID_PARAMS', 'Invalid approval params.');
@@ -163,9 +194,7 @@ const handleRequest = async (
           sendError(ws, id, 'INVALID_PARAMS', 'Missing sessionId.');
           return;
         }
-        if (callerUserId) {
-          await runtime.verifySessionAccess(sessionId, callerUserId);
-        }
+        await requireSessionAccess(conn, runtime, callerUserId, sessionId);
         const body = { reason: p.reason };
         if (!isSessionCheckpointRequest(body)) {
           sendError(ws, id, 'INVALID_PARAMS', 'Invalid checkpoint params.');
@@ -200,7 +229,9 @@ const handleRequest = async (
           sendError(ws, id, 'INVALID_PARAMS', 'Missing sessionId.');
           return;
         }
-        if (!callerUserId) { sendError(ws, id, 'INVALID_PARAMS', 'Session not found.'); return; }
+        // Same admin/user/channel branching as the HTTP equivalent.
+        // listSessionMessages does its own access check when given a userId.
+        await requireSessionAccess(conn, runtime, callerUserId, sessionId);
         sendResult(ws, id, await runtime.listSessionMessages(sessionId, callerUserId));
         return;
       }
@@ -211,9 +242,7 @@ const handleRequest = async (
           sendError(ws, id, 'INVALID_PARAMS', 'Missing sessionId.');
           return;
         }
-        if (callerUserId) {
-          await runtime.verifySessionAccess(sessionId, callerUserId);
-        }
+        await requireSessionAccess(conn, runtime, callerUserId, sessionId);
         await runtime.deleteSession(sessionId, callerUserId);
         sendResult(ws, id, { deleted: true });
         return;
@@ -226,9 +255,7 @@ const handleRequest = async (
           return;
         }
         // Verify caller is a participant before subscribing to events
-        if (callerUserId) {
-          await runtime.verifySessionAccess(sessionId, callerUserId);
-        }
+        await requireSessionAccess(conn, runtime, callerUserId, sessionId);
         conn.subscriptions.get(sessionId)?.();
         const afterEventId = typeof p.lastEventId === 'number' ? p.lastEventId : 0;
         const unsubscribe = runtime.events.subscribeFrom(
@@ -263,6 +290,10 @@ const handleRequest = async (
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof SessionAccessDeniedError) {
+      sendError(ws, id, error.wsCode, message);
+      return;
+    }
     sendError(ws, id, 'INTERNAL_ERROR', message);
   }
 };

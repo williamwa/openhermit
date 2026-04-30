@@ -171,6 +171,28 @@ const enforceSessionNamespace = (auth: AuthContext, sessionId: string): void => 
   }
 };
 
+/**
+ * Resolve the caller's userId and verify they are a participant of the
+ * session. Branches on auth mode so the access check can't be bypassed:
+ *
+ *   - admin: full access; no check (resolves to undefined naturally).
+ *   - user / channel: must resolve to a known userId AND be a participant
+ *     of this session. A token whose subject no longer exists, or a
+ *     channel webhook from a not-yet-seen sender, gets a 404 — never the
+ *     legacy silent skip that let unrelated callers read every session.
+ */
+const requireSessionAccessHttp = async (
+  auth: AuthContext,
+  runtime: ReturnType<typeof resolveRunner>,
+  sessionId: string,
+): Promise<string | undefined> => {
+  if (auth.mode === 'admin') return undefined;
+  const userId = await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId });
+  if (!userId) throw new NotFoundError(`Session not found: ${sessionId}`);
+  await runtime.verifySessionAccess(sessionId, userId);
+  return userId;
+};
+
 // ─── App options ──────────────────────────────────────────────────────────────
 
 export interface GatewayAppOptions {
@@ -791,10 +813,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
 
     // Verify caller is a participant (user mode only; channels handle identity per-message)
     if (auth.mode === 'user') {
-      const msgCallerUserId = await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId });
-      if (msgCallerUserId) {
-        await runtime.verifySessionAccess(sessionId, msgCallerUserId);
-      }
+      await requireSessionAccessHttp(auth, runtime, sessionId);
     }
 
     const payload = await c.req.json().catch(() => null);
@@ -996,10 +1015,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const approveAuth = requireAuth(c, agentId);
     enforceSessionNamespace(approveAuth, sessionId);
     const runtime = resolveRunner(instances, agentId);
-    const approveCallerId = await runtime.resolveCallerUserId({ channel: approveAuth.channel, channelUserId: approveAuth.channelUserId });
-    if (approveCallerId) {
-      await runtime.verifySessionAccess(sessionId, approveCallerId);
-    }
+    await requireSessionAccessHttp(approveAuth, runtime, sessionId);
     const payload = await c.req.json().catch(() => null);
 
     if (!isToolApprovalRequest(payload)) {
@@ -1023,10 +1039,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const cpAuth = requireAuth(c, agentId);
     enforceSessionNamespace(cpAuth, sessionId);
     const runtime = resolveRunner(instances, agentId);
-    const cpCallerId = await runtime.resolveCallerUserId({ channel: cpAuth.channel, channelUserId: cpAuth.channelUserId });
-    if (cpCallerId) {
-      await runtime.verifySessionAccess(sessionId, cpCallerId);
-    }
+    await requireSessionAccessHttp(cpAuth, runtime, sessionId);
     const payload = await c.req.json().catch(() => ({}));
 
     if (!isSessionCheckpointRequest(payload)) {
@@ -1062,11 +1075,8 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const auth = requireAuth(c, agentId);
     enforceSessionNamespace(auth, sessionId);
     const runtime = resolveRunner(instances, agentId);
-    // Verify caller is a participant
-    const eventsCallerUserId = await runtime.resolveCallerUserId({ channel: auth.channel, channelUserId: auth.channelUserId });
-    if (eventsCallerUserId) {
-      await runtime.verifySessionAccess(sessionId, eventsCallerUserId);
-    }
+    // Verify caller is a participant (admin auth gets full access).
+    await requireSessionAccessHttp(auth, runtime, sessionId);
 
     return streamSSE(c, async (stream) => {
       for (const envelope of runtime.events.getBacklog(sessionId)) {
