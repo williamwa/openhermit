@@ -178,6 +178,30 @@ hermit config secrets set ANTHROPIC_API_KEY sk-... --agent main
 hermit config secrets list --agent main
 ```
 
+### `hermit config security`
+
+Read / write the agent's security policy: autonomy, approvals,
+`access` level (`public` | `protected` | `private`), `access_token`,
+channel tokens. See [User Model — Access Levels](user-model.md#access-levels).
+
+| Subcommand | Description |
+|------------|-------------|
+| `config security show` | Print the full security policy as JSON. |
+| `config security get <path>` | Read a single field by dot-path (e.g. `access`). |
+| `config security set <path> <value>` | Write a single field. Bare strings, numbers, `true`/`false`, `null`, and JSON literals are all accepted. |
+| `config security write` | Read a full JSON object from stdin and overwrite the policy. |
+
+```bash
+hermit config security show --agent main
+hermit config security set access private --agent main
+hermit config security set access_token "shared-secret" --agent main
+echo '{"autonomy_level":"full","access":"public","require_approval_for":[]}' \
+  | hermit config security write --agent main
+```
+
+The runner reloads the policy in-place after each write — no restart
+needed. Validation rejects unknown values for `access`.
+
 ---
 
 ## `hermit instructions`

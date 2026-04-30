@@ -1426,6 +1426,53 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     return c.json({ ok: true });
   });
 
+  // ── Security policy ─────────────────────────────────────────────────
+  // Owner/admin: read and overwrite the agent's security policy JSON.
+  // The policy controls autonomy, approval requirements, the access
+  // level (public/protected/private), and the access_token used for
+  // protected self-join. The runtime reloads its in-memory copy after
+  // a write so the change takes effect without a restart.
+
+  app.get('/api/agents/:agentId/security', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    await requireOwnerOrAdmin(c, agentId);
+    const runner = instances.getRunner(agentId);
+    if (runner) {
+      return c.json(await runner.security.readSecurityPolicy());
+    }
+    if (!configStore) {
+      throw new NotFoundError(`Agent ${agentId} is not running and no config store is available.`);
+    }
+    const doc = await configStore.getSecurity(agentId);
+    if (!doc) throw new NotFoundError(`Agent ${agentId} not found.`);
+    return c.json(doc);
+  });
+
+  app.put('/api/agents/:agentId/security', async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    await requireOwnerOrAdmin(c, agentId);
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw new ValidationError('Security policy must be a JSON object.');
+    }
+    // Validate the access enum. The rest of the policy is loosely typed
+    // and validated by AgentSecurity.load() on the next reload.
+    const access = (body as { access?: unknown }).access;
+    if (access !== undefined && access !== 'public' && access !== 'protected' && access !== 'private') {
+      throw new ValidationError(`access must be 'public', 'protected', or 'private' (got ${JSON.stringify(access)}).`);
+    }
+    const runner = instances.getRunner(agentId);
+    if (runner) {
+      await runner.security.writeSecurityPolicy(body as never);
+      return c.json({ ok: true });
+    }
+    if (!configStore) {
+      throw new NotFoundError(`Agent ${agentId} is not running and no config store is available.`);
+    }
+    await configStore.setSecurity(agentId, body as Record<string, unknown>);
+    return c.json({ ok: true });
+  });
+
   // Mask secret values: show first 4 + last 4 (with **** in between) for
   // long values, full mask for short ones. Empty string stays empty.
   const maskSecret = (value: string): string => {

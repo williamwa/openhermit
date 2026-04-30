@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../api';
 import { SecretsDialog } from './SecretsDialog';
+import { SecurityDialog } from './SecurityDialog';
 import { ConfigDialog } from './ConfigDialog';
 
 interface FleetAgent {
@@ -57,6 +58,7 @@ export function FleetPanel() {
   const [openMenu, setOpenMenu] = useState<{ agentId: string; top: number; right: number } | null>(null);
   const [secretsAgent, setSecretsAgent] = useState<string | null>(null);
   const [configAgent, setConfigAgent] = useState<string | null>(null);
+  const [securityAgent, setSecurityAgent] = useState<string | null>(null);
   const [skillsAgent, setSkillsAgent] = useState<string | null>(null);
   const [mcpAgent, setMcpAgent] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -333,12 +335,14 @@ export function FleetPanel() {
           onSkills={(id) => { setOpenMenu(null); setSkillsAgent(id); }}
           onMcp={(id) => { setOpenMenu(null); setMcpAgent(id); }}
           onSecrets={(id) => { setOpenMenu(null); setSecretsAgent(id); }}
+          onSecurity={(id) => { setOpenMenu(null); setSecurityAgent(id); }}
         />,
         document.body,
       )}
 
       {showCreate && <CreateAgentDialog onClose={() => setShowCreate(false)} onCreated={load} />}
       {secretsAgent && <SecretsDialog agentId={secretsAgent} onClose={() => setSecretsAgent(null)} />}
+      {securityAgent && <SecurityDialog agentId={securityAgent} onClose={() => setSecurityAgent(null)} />}
       {configAgent && <ConfigDialog agentId={configAgent} onClose={() => setConfigAgent(null)} />}
       {skillsAgent && <AgentSkillsDialog agentId={skillsAgent} onClose={() => setSkillsAgent(null)} />}
       {mcpAgent && <AgentMcpDialog agentId={mcpAgent} onClose={() => setMcpAgent(null)} />}
@@ -355,6 +359,7 @@ function FleetActionsMenu({
   onSkills,
   onMcp,
   onSecrets,
+  onSecurity,
 }: {
   agent: FleetAgent | undefined;
   top: number;
@@ -364,6 +369,7 @@ function FleetActionsMenu({
   onSkills: (agentId: string) => void;
   onMcp: (agentId: string) => void;
   onSecrets: (agentId: string) => void;
+  onSecurity: (agentId: string) => void;
 }) {
   if (!agent) return null;
   return (
@@ -386,6 +392,7 @@ function FleetActionsMenu({
       <button role="menuitem" onClick={() => onSkills(agent.agentId)}>Skills</button>
       <button role="menuitem" onClick={() => onMcp(agent.agentId)}>MCP</button>
       <button role="menuitem" onClick={() => onSecrets(agent.agentId)}>Secrets</button>
+      <button role="menuitem" onClick={() => onSecurity(agent.agentId)}>Security</button>
       {agent.status === 'stopped' && (
         <>
           <div className="fleet-actions__divider" />

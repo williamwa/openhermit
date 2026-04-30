@@ -185,4 +185,89 @@ export const registerConfigCommand = (program: Command): void => {
         handleError(error);
       }
     });
+
+  // ── security ──────────────────────────────────────────────────────
+  // Read / overwrite the agent's security policy: autonomy_level,
+  // require_approval_for, access ('public' | 'protected' | 'private'),
+  // access_token, channel_tokens.
+
+  const security = cfg
+    .command('security')
+    .description('View and modify agent security policy');
+
+  security
+    .command('show')
+    .description('Show the full security policy as JSON')
+    .action(async function (this: Command) {
+      const agentId = resolveAgentId(this);
+      try {
+        const gateway = createGateway();
+        const policy = await gateway.getAgentSecurity(agentId);
+        console.log(JSON.stringify(policy, null, 2));
+      } catch (error) {
+        handleError(error);
+      }
+    });
+
+  security
+    .command('get <key>')
+    .description('Get a security policy value by dot-path (e.g. access)')
+    .action(async function (this: Command, key: string) {
+      const agentId = resolveAgentId(this);
+      try {
+        const gateway = createGateway();
+        const policy = await gateway.getAgentSecurity(agentId);
+        const value = getPath(policy, key);
+        if (value === undefined) {
+          console.error(`Key not found: ${key}`);
+          process.exit(1);
+        }
+        console.log(formatValue(value));
+      } catch (error) {
+        handleError(error);
+      }
+    });
+
+  security
+    .command('set <key> <value>')
+    .description('Set a security policy value by dot-path (e.g. access private)')
+    .action(async function (this: Command, key: string, rawValue: string) {
+      const agentId = resolveAgentId(this);
+      try {
+        const gateway = createGateway();
+        const policy = await gateway.getAgentSecurity(agentId);
+        const value = parseValue(rawValue);
+        setPath(policy, key, value);
+        await gateway.putAgentSecurity(agentId, policy);
+        console.log(`${key} = ${formatValue(value)}`);
+      } catch (error) {
+        handleError(error);
+      }
+    });
+
+  security
+    .command('write')
+    .description('Overwrite the entire security policy from stdin (JSON)')
+    .action(async function (this: Command) {
+      const agentId = resolveAgentId(this);
+      try {
+        const chunks: Buffer[] = [];
+        for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
+        const raw = Buffer.concat(chunks).toString('utf8').trim();
+        if (!raw) {
+          console.error('No JSON received on stdin.');
+          process.exit(1);
+        }
+        const parsed = JSON.parse(raw);
+        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+          console.error('Security policy must be a JSON object.');
+          process.exit(1);
+        }
+        const gateway = createGateway();
+        await gateway.putAgentSecurity(agentId, parsed as Record<string, unknown>);
+        console.log('Security policy updated.');
+      } catch (error) {
+        handleError(error);
+      }
+    });
 };

@@ -54,6 +54,33 @@ can interact with it. Three values:
 
 `access_token` is set on the agent's security policy alongside `access` itself.
 
+### Editing the security policy
+
+Three equivalent ways to flip `access` (or any other field on the security policy):
+
+```bash
+# CLI: read / write a single field, or pipe a full JSON
+hermit config security show --agent one
+hermit config security set access private --agent one
+hermit config security set access_token "shared-secret" --agent one
+echo '{"autonomy_level":"full","access":"private"}' \
+  | hermit config security write --agent one
+```
+
+```bash
+# HTTP (admin or owner JWT):
+curl -H "Authorization: Bearer <token>" \
+  https://gateway/api/agents/one/security              # GET current policy
+curl -X PUT -H "Authorization: Bearer <token>" \
+     -H "Content-Type: application/json" \
+     -d '{"autonomy_level":"full","access":"private"}' \
+  https://gateway/api/agents/one/security              # overwrite
+```
+
+Admin UI: the agent's actions menu in the fleet view has a **Security** entry that opens a JSON editor on the policy.
+
+The runtime reloads its in-memory copy after a successful write — no agent restart needed. Validation rejects unknown values for `access`.
+
 ### Adding members
 
 `POST /api/agents/:agentId/members` accepts two body shapes:
