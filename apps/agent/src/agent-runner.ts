@@ -207,7 +207,9 @@ export class AgentRunner implements SessionRuntime {
       },
     };
 
-    this.scheduler = new Scheduler(this.scope, this.store.schedules, host);
+    this.scheduler = new Scheduler(this.scope, this.store.schedules, host, {
+      log: (message) => this.logRuntime(message),
+    });
     await this.scheduler.start();
     this.logRuntime('scheduler started');
 

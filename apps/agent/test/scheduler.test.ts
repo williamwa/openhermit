@@ -292,3 +292,66 @@ test('Cron-type schedule does NOT deactivate session after execution', async () 
 
   assert.equal(deactivated, false, 'cron jobs should not deactivate session');
 });
+
+test('Two concurrent executeJob calls for the same schedule do not double-fire', async () => {
+  // Reproduces the race where the `running.has()` gate is checked before
+  // the slow `store.get()` await: two callers can both see has === false,
+  // both await, and both add to `running`. The fix claims the slot
+  // synchronously before any await.
+  const schedule = makeRecord({ scheduleId: 'race-1', type: 'once' });
+
+  // Defer store.get until we let it through, so both invocations are
+  // suspended at the same point and the gate must hold.
+  let releaseGet: (() => void) | undefined;
+  const getDeferred = new Promise<void>((r) => { releaseGet = r; });
+  let getCount = 0;
+
+  let openSessionCount = 0;
+  let startRunCount = 0;
+
+  const store = createMockStore({
+    get: async () => {
+      getCount += 1;
+      await getDeferred;
+      return schedule;
+    },
+    startRun: async () => {
+      startRunCount += 1;
+      return makeRunRecord({ id: startRunCount });
+    },
+  });
+  const host = createMockHost({
+    openSession: async () => { openSessionCount += 1; },
+  });
+  const scheduler = new Scheduler(scope, store, host);
+
+  const a = (scheduler as any).executeJob('race-1');
+  const b = (scheduler as any).executeJob('race-1');
+
+  // Yield so both promises hit the gate / await.
+  await new Promise((r) => setImmediate(r));
+  assert.equal(getCount, 1, 'only one invocation should reach store.get(); the other must be blocked by the running-set gate');
+
+  releaseGet!();
+  await Promise.all([a, b]);
+
+  assert.equal(openSessionCount, 1);
+  assert.equal(startRunCount, 1);
+});
+
+test('Errors that previously vanished into silent catches now reach the logger', async () => {
+  const messages: string[] = [];
+  const store = createMockStore({
+    listDue: async () => { throw new Error('listDue boom'); },
+  });
+  const scheduler = new Scheduler(scope, store, createMockHost(), {
+    log: (m) => messages.push(m),
+  });
+
+  await (scheduler as any).tick();
+
+  assert.ok(
+    messages.some((m) => m.includes('listDue failed') && m.includes('listDue boom')),
+    `expected log; got: ${JSON.stringify(messages)}`,
+  );
+});
