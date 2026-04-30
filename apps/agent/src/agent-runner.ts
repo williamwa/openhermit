@@ -1152,7 +1152,19 @@ export class AgentRunner implements SessionRuntime {
       return {};
     }
 
-    // Unknown identity: auto-create as guest
+    // Auto-guest gating: only the `public` access level lets unknown
+    // senders auto-claim a guest membership. `protected` and `private`
+    // require an explicit join — the message is dropped at the runtime
+    // boundary when no userId resolves.
+    const accessLevel = this.options.security.getAccessLevel();
+    if (accessLevel !== 'public') {
+      this.logRuntime(
+        `denied unknown ${channel}:${channelUserId} on ${accessLevel} agent (no auto-guest)`,
+      );
+      return {};
+    }
+
+    // Unknown identity on a public agent: auto-create as guest.
     const guestId = await this.generateGuestUserId();
     const meta = spec.metadata;
     const name = meta?.telegram_first_name

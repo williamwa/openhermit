@@ -164,7 +164,18 @@ export const buildDefaultAgentConfig = (workspaceRoot: string): AgentRuntimeConf
   },
 });
 
-export type AgentAccessLevel = 'public' | 'protected';
+/**
+ * Per-agent access policy. Controls who can interact with this agent.
+ *
+ * - `public` (default): any unknown channel sender is auto-promoted to a
+ *   guest member on first message. Demo/open-bot deployments.
+ * - `protected`: unknown senders are rejected unless they self-join via
+ *   `POST /api/agents/:id/members` with the agent's `access_token`. No
+ *   auto-guest creation.
+ * - `private`: only owner/admin-added members can interact. accessToken
+ *   self-join is also disabled.
+ */
+export type AgentAccessLevel = 'public' | 'protected' | 'private';
 
 export interface ChannelTokenEntry {
   /** Channel namespace, e.g. "telegram", "discord", "custom-bot". */

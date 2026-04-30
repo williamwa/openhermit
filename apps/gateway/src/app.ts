@@ -453,11 +453,25 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     });
 
     /**
-     * Join an agent: assign a user_agents row. Three modes:
-     *  - admin: can assign any (userId, role) on this agent.
-     *  - JWT user with owner role: can assign others.
-     *  - JWT user (no role yet): self-join only, role defaults to guest.
-     *    If the agent is protected, accessToken in body must match.
+     * Join an agent: assign a user_agents row.
+     *
+     * Body shapes:
+     *   { userId, role?, accessToken? }
+     *     — target an existing internal user.
+     *   { channel, channelUserId, displayName?, role? }
+     *     — owner / admin only. Resolves the channel identity to a user
+     *       (creating the user + linking the identity if needed) and
+     *       assigns membership. Useful for invite-by-handle flows.
+     *
+     * Auth modes & access policy:
+     *   - admin: full power; can use either body shape, set any role.
+     *   - JWT user with owner role on this agent: can add other users
+     *     (either body shape).
+     *   - JWT user (no role yet): self-join only, role defaults to guest.
+     *     - access=public: allowed.
+     *     - access=protected: accessToken in body must match the agent's
+     *       access_token.
+     *     - access=private: rejected — only owner/admin can add members.
      */
     app.post('/api/agents/:agentId/members', async (c) => {
       const agentId = c.req.param('agentId') ?? '';
@@ -473,44 +487,92 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
 
       const body = await c.req.json().catch(() => ({})) as {
         userId?: string;
+        channel?: string;
+        channelUserId?: string;
+        displayName?: string;
         role?: 'owner' | 'user' | 'guest';
         accessToken?: string;
       };
 
-      // Resolve target userId.
+      const byChannel = typeof body.channel === 'string' && typeof body.channelUserId === 'string';
+      if (byChannel && body.userId) {
+        throw new ValidationError('Provide either userId or (channel, channelUserId), not both.');
+      }
+      if (!byChannel && !body.userId && auth.mode !== 'user') {
+        throw new ValidationError('Body must include userId or (channel, channelUserId).');
+      }
+
+      const now = new Date().toISOString();
+
+      // Helper: turn (channel, channelUserId) into an internal userId,
+      // creating the user + identity link on first sight.
+      const resolveOrCreateByChannel = async (channel: string, channelUserId: string, displayName?: string): Promise<string> => {
+        const existing = await userStore!.resolve(channel, channelUserId);
+        if (existing) {
+          if (displayName) {
+            const rec = await userStore!.get(existing);
+            if (rec && !rec.name) {
+              await userStore!.upsert({ ...rec, name: displayName });
+            }
+          }
+          return existing;
+        }
+        const newId = `u_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+        await userStore!.upsert({
+          userId: newId,
+          ...(displayName ? { name: displayName } : {}),
+          createdAt: now,
+          updatedAt: now,
+        });
+        await userStore!.linkIdentity({ userId: newId, channel, channelUserId, createdAt: now });
+        return newId;
+      };
+
+      // ── Resolve target userId ────────────────────────────────────────
       let targetUserId: string;
+      let isSelfJoin = false;
+
       if (auth.mode === 'admin') {
-        if (!body.userId) throw new ValidationError('userId is required when calling as admin.');
-        targetUserId = body.userId;
+        targetUserId = byChannel
+          ? await resolveOrCreateByChannel(body.channel!, body.channelUserId!, body.displayName)
+          : body.userId!;
       } else if (auth.mode === 'user') {
         const callerUserId = await userStore.resolve(auth.channel, auth.channelUserId);
         if (!callerUserId) throw new UnauthorizedError('JWT subject does not resolve to a known user.');
-        if (body.userId && body.userId !== callerUserId) {
-          // Adding someone else — caller must be owner of this agent.
-          const callerRole = await userStore.getAgentRole({ agentId }, callerUserId);
+        const callerRole = await userStore.getAgentRole({ agentId }, callerUserId);
+
+        if (byChannel) {
+          // Adding-by-channel always targets someone else; require owner.
+          if (callerRole !== 'owner') {
+            throw new UnauthorizedError('Only owners or admins can add members by channel identity.');
+          }
+          targetUserId = await resolveOrCreateByChannel(body.channel!, body.channelUserId!, body.displayName);
+        } else if (body.userId && body.userId !== callerUserId) {
           if (callerRole !== 'owner') {
             throw new UnauthorizedError('Only owners or admins can add other users.');
           }
           targetUserId = body.userId;
         } else {
           targetUserId = callerUserId;
+          isSelfJoin = true;
         }
       } else {
         throw new UnauthorizedError('Auth mode not allowed for this endpoint.');
       }
 
-      // Determine effective role.
+      // ── Determine effective role ────────────────────────────────────
       const effectiveRole: 'owner' | 'user' | 'guest' =
         auth.mode === 'admin' ? (body.role ?? 'guest')
         : (body.role && body.role !== 'owner') ? body.role  // non-admins can't grant owner here
         : 'guest';
 
-      // Protected-agent gate: when a non-admin self-joins, check access token.
-      if (auth.mode === 'user') {
-        // Read access policy directly from the security store (works whether
-        // the agent is running or not).
+      // ── Access-policy gate (applies to JWT-user self-join only) ────
+      if (isSelfJoin) {
         const securityDoc = configStore ? await configStore.getSecurity(agentId) : null;
         const accessLevel = (securityDoc?.access as string | undefined) ?? 'public';
+        if (accessLevel === 'private') {
+          throw new UnauthorizedError('This agent is private; only the owner can add members.');
+        }
         if (accessLevel === 'protected') {
           const expectedToken = securityDoc?.access_token as string | undefined;
           if (!expectedToken || body.accessToken !== expectedToken) {
@@ -519,7 +581,6 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
         }
       }
 
-      const now = new Date().toISOString();
       await userStore.assignAgent({ agentId }, targetUserId, effectiveRole, now);
       return c.json({ agentId, userId: targetUserId, role: effectiveRole });
     });
@@ -533,6 +594,38 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
       }
       await userStore.removeAgent({ agentId }, targetUserId);
       return c.json({ ok: true });
+    });
+
+    /**
+     * List members of an agent with their channel identities. Owner /
+     * admin only — owners use this to see who's in, what channels they
+     * came from, and what roles they hold.
+     */
+    app.get('/api/agents/:agentId/members', async (c) => {
+      const agentId = c.req.param('agentId') ?? '';
+      await requireOwnerOrAdmin(c, agentId);
+      if (!userStore) {
+        throw new OpenHermitError('User store is not configured.', 'not_configured', 500);
+      }
+      const members = await userStore.listByAgent({ agentId });
+      const enriched = await Promise.all(members.map(async (m) => {
+        const [user, identities] = await Promise.all([
+          userStore!.get(m.userId),
+          userStore!.listIdentities(m.userId),
+        ]);
+        return {
+          userId: m.userId,
+          role: m.role,
+          createdAt: m.createdAt,
+          ...(user?.name ? { displayName: user.name } : {}),
+          identities: identities.map((i) => ({
+            channel: i.channel,
+            channelUserId: i.channelUserId,
+            createdAt: i.createdAt,
+          })),
+        };
+      }));
+      return c.json(enriched);
     });
 
   } else if (adminToken) {
