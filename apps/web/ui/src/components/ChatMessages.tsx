@@ -70,6 +70,7 @@ export type ChatItem =
 interface Props {
   items: ChatItem[];
   agentName?: string;
+  loading?: boolean;
   onApproval: (toolCallId: string, approved: boolean) => Promise<void>;
 }
 
@@ -184,7 +185,7 @@ function groupIntoTurns(items: ChatItem[]): Turn[] {
 
 // ─── Main ──────────────────────────────────────────────────────────────────
 
-export function ChatMessages({ items, agentName, onApproval }: Props) {
+export function ChatMessages({ items, agentName, loading, onApproval }: Props) {
   const containerRef = useRef<HTMLElement>(null);
   const displayAgentName = agentName || 'Assistant';
 
@@ -193,6 +194,14 @@ export function ChatMessages({ items, agentName, onApproval }: Props) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
   }, [items]);
+
+  if (loading) {
+    return (
+      <section className="chat__messages" ref={containerRef}>
+        <div className="empty-state">Loading session history<span className="thinking-dots" /></div>
+      </section>
+    );
+  }
 
   if (items.length === 0) {
     return (

@@ -53,6 +53,7 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
   const [agentName, setAgentName] = useState<string | null>(null);
   const [status, setStatus] = useState('Connecting');
   const [sending, setSending] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   const wsRef = useRef<AgentWsClient | null>(null);
   const currentSessionRef = useRef<string | null>(null);
@@ -96,6 +97,7 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
     setCurrentSessionId(sessionId);
     setView('chat');
     setItems([]);
+    setLoadingHistory(true);
     streamingTextRef.current = '';
     streamingThinkingRef.current = '';
     thinkingAsAssistantRef.current = false;
@@ -173,6 +175,7 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
     }
     flushIntrospection();
     setItems(historyItems);
+    setLoadingHistory(false);
     const allSessions = await ws.listSessions();
     const sess = allSessions.find(s => s.sessionId === sessionId);
     await ws.subscribe(sessionId, sess?.lastEventId ?? 0);
@@ -593,7 +596,7 @@ export function ChatShell({ connection, role, onDisconnect }: Props) {
               <p className="chat__status">{status}</p>
             </header>
 
-            <ChatMessages items={items} agentName={agentName ?? undefined} onApproval={handleApproval} />
+            <ChatMessages items={items} agentName={agentName ?? undefined} loading={loadingHistory} onApproval={handleApproval} />
 
             {readOnly ? (
               <div className="composer composer--readonly">
