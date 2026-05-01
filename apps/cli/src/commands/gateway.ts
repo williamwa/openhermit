@@ -100,6 +100,7 @@ export const registerGatewayCommand = (program: Command): void => {
         const child = spawn(bin, args, {
           detached: true,
           stdio: ['ignore', out, err],
+          cwd: process.cwd(),
           env,
         });
 
