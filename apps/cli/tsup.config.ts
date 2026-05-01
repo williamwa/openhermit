@@ -37,6 +37,9 @@ export default defineConfig({
   splitting: true,
   noExternal: internalPackages,
   external: runtimeExternals,
+  esbuildOptions(options) {
+    options.conditions = ['development'];
+  },
   // Shebang on every entry — harmless on gateway.js / web.js (they're never
   // exec'd directly), required for cli.js when invoked as the `openhermit` bin.
   // The per-entry callback didn't fire under `splitting: true`.
