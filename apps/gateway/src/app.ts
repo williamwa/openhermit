@@ -1168,8 +1168,10 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const auth = requireAuth(c, agentId);
     enforceSessionNamespace(auth, sessionId);
     const runtime = resolveRunner(instances, agentId);
-    // Verify caller is a participant (admin auth gets full access).
-    await requireSessionAccessHttp(auth, runtime, sessionId);
+    // Verify caller is a participant (user mode only; channels use namespace enforcement above).
+    if (auth.mode === 'user') {
+      await requireSessionAccessHttp(auth, runtime, sessionId);
+    }
 
     return streamSSE(c, async (stream) => {
       for (const envelope of runtime.events.getBacklog(sessionId)) {
