@@ -13,20 +13,26 @@ import { resolveGatewayUrl, handleError } from './shared.js';
 
 const cliDir = path.dirname(fileURLToPath(import.meta.url));
 
-const resolveGatewaySpawn = async (): Promise<{ bin: string; args: string[] }> => {
-  // 1. Bundled gateway (npm installed package): dist/gateway.js next to dist/cli.js
-  const bundledEntry = path.resolve(cliDir, '../dist/gateway.js');
-  try {
-    await access(bundledEntry);
-    return { bin: process.execPath, args: [bundledEntry] };
-  } catch { /* not bundled — try monorepo paths */ }
+const isTsxDev = process.execArgv.some((a) => a.includes('tsx'));
 
-  // 2. Monorepo built: apps/gateway/dist/index.js
-  const monoDistEntry = path.resolve(cliDir, '../../../gateway/dist/index.js');
-  try {
-    await access(monoDistEntry);
-    return { bin: process.execPath, args: [monoDistEntry] };
-  } catch { /* not built — fall back to source */ }
+const resolveGatewaySpawn = async (): Promise<{ bin: string; args: string[] }> => {
+  // When the CLI itself is running via tsx (e.g. npm run dev:cli), always
+  // use the source entry so all packages resolve .ts files consistently.
+  if (!isTsxDev) {
+    // 1. Bundled gateway (npm installed package): dist/gateway.js next to dist/cli.js
+    const bundledEntry = path.resolve(cliDir, '../dist/gateway.js');
+    try {
+      await access(bundledEntry);
+      return { bin: process.execPath, args: [bundledEntry] };
+    } catch { /* not bundled — try monorepo paths */ }
+
+    // 2. Monorepo built: apps/gateway/dist/index.js
+    const monoDistEntry = path.resolve(cliDir, '../../../gateway/dist/index.js');
+    try {
+      await access(monoDistEntry);
+      return { bin: process.execPath, args: [monoDistEntry] };
+    } catch { /* not built — fall back to source */ }
+  }
 
   // 3. Monorepo dev: apps/gateway/src/index.ts via tsx
   const monoSrcEntry = path.resolve(cliDir, '../../../gateway/src/index.ts');

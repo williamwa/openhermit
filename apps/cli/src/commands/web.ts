@@ -12,20 +12,24 @@ import { handleError } from './shared.js';
 
 const cliDir = path.dirname(fileURLToPath(import.meta.url));
 
-const resolveWebSpawn = async (): Promise<{ bin: string; args: string[] }> => {
-  // 1. Bundled web (npm-installed package): dist/web.js next to dist/cli.js
-  const bundledEntry = path.resolve(cliDir, '../dist/web.js');
-  try {
-    await access(bundledEntry);
-    return { bin: process.execPath, args: [bundledEntry] };
-  } catch { /* not bundled — try monorepo paths */ }
+const isTsxDev = process.execArgv.some((a) => a.includes('tsx'));
 
-  // 2. Monorepo built: apps/web/dist/index.js
-  const monoDistEntry = path.resolve(cliDir, '../../../web/dist/index.js');
-  try {
-    await access(monoDistEntry);
-    return { bin: process.execPath, args: [monoDistEntry] };
-  } catch { /* not built — fall back to source */ }
+const resolveWebSpawn = async (): Promise<{ bin: string; args: string[] }> => {
+  if (!isTsxDev) {
+    // 1. Bundled web (npm-installed package): dist/web.js next to dist/cli.js
+    const bundledEntry = path.resolve(cliDir, '../dist/web.js');
+    try {
+      await access(bundledEntry);
+      return { bin: process.execPath, args: [bundledEntry] };
+    } catch { /* not bundled — try monorepo paths */ }
+
+    // 2. Monorepo built: apps/web/dist/index.js
+    const monoDistEntry = path.resolve(cliDir, '../../../web/dist/index.js');
+    try {
+      await access(monoDistEntry);
+      return { bin: process.execPath, args: [monoDistEntry] };
+    } catch { /* not built — fall back to source */ }
+  }
 
   // 3. Monorepo dev: apps/web/src/index.ts via tsx
   const monoSrcEntry = path.resolve(cliDir, '../../../web/src/index.ts');
