@@ -53,25 +53,16 @@ export const resolveAgentDataDir = (agentId: string): string =>
   path.join(resolveOpenHermitHome(), 'agents', agentId);
 
 /**
- * Load environment variables from .env files.
+ * Load environment variables from ~/.openhermit/.env.
  *
- * Priority (highest to lowest):
- *   1. Already-set process.env values (never overwritten)
- *   2. Project .env (cwd or explicit path)
- *   3. ~/.openhermit/.env
- *
+ * Already-set process.env values are never overwritten.
  * Returns the number of new variables set.
  */
-export const loadEnv = async (projectEnvPath?: string): Promise<number> => {
-  const homeEnv = await tryLoadFile(path.join(resolveOpenHermitHome(), '.env'));
-  const projectPath = projectEnvPath ?? path.resolve(process.cwd(), '.env');
-  const projectEnv = await tryLoadFile(projectPath);
-
-  // Merge: project overrides home
-  const merged = new Map([...homeEnv, ...projectEnv]);
+export const loadEnv = async (): Promise<number> => {
+  const vars = await tryLoadFile(path.join(resolveOpenHermitHome(), '.env'));
 
   let loaded = 0;
-  for (const [key, value] of merged) {
+  for (const [key, value] of vars) {
     if (!(key in process.env)) {
       process.env[key] = value;
       loaded += 1;
