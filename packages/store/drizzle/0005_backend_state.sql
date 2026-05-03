@@ -1,0 +1,1 @@
+ALTER TABLE "agents" ADD COLUMN "backend_state" jsonb;

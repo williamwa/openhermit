@@ -51,6 +51,7 @@
     "@openhermit/store": "0.2.0",
     "croner": "^10.0.1",
     "defuddle": "^0.11.0",
+    "e2b": "^2.19.4",
     "jsdom": "^24.0.0",
     "langfuse": "^3.38.6",
     "prom-client": "^15.1.3",

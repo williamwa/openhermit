@@ -46,9 +46,20 @@ export interface LocalExecBackendConfig {
   timeout_ms?: number;
 }
 
+export interface E2BExecBackendConfig {
+  id?: string;
+  type: 'e2b';
+  label?: string;
+  template: string;
+  timeout_ms?: number;
+  sandbox_timeout_ms?: number;
+  cwd?: string;
+}
+
 export type ExecBackendConfig =
   | DockerExecBackendConfig
-  | LocalExecBackendConfig;
+  | LocalExecBackendConfig
+  | E2BExecBackendConfig;
 
 export interface ExecConfig {
   backends: ExecBackendConfig[];
@@ -64,6 +75,9 @@ export interface BackendFactoryContext {
   workspaceDir: string;
   /** Host directory containing skill symlinks, mounted at /skills in containers. */
   skillMountsDir?: string;
+  /** Persist backend state across restarts. */
+  getBackendState?: () => Promise<Record<string, unknown> | null>;
+  setBackendState?: (state: Record<string, unknown>) => Promise<void>;
 }
 
 type BackendFactory = (config: ExecBackendConfig, context: BackendFactoryContext) => ExecBackend;
@@ -193,6 +207,144 @@ class LocalExecBackend implements ExecBackend {
   }
 }
 
+// ── E2B backend ──────────────────────────────────────────────────────────
+
+const E2B_DEFAULT_TIMEOUT_MS = 300_000;
+const E2B_DEFAULT_SANDBOX_TIMEOUT_MS = 600_000; // 10 minutes idle before auto-pause
+
+interface E2BBackendPersisted {
+  sandboxId: string;
+  template: string;
+  cwd: string;
+  updatedAt: string;
+}
+
+class E2BExecBackend implements ExecBackend {
+  readonly id: string;
+  readonly type = 'e2b';
+  readonly label: string;
+  private readonly template: string;
+  private readonly timeoutMs: number;
+  private readonly sandboxTimeoutMs: number;
+  private readonly cwd: string;
+
+  private sandbox: import('e2b').Sandbox | null = null;
+
+  constructor(
+    config: E2BExecBackendConfig,
+    private readonly context: BackendFactoryContext,
+  ) {
+    this.id = config.id ?? 'e2b';
+    this.label = config.label ?? `E2B (${config.template})`;
+    this.template = config.template;
+    this.timeoutMs = config.timeout_ms ?? E2B_DEFAULT_TIMEOUT_MS;
+    this.sandboxTimeoutMs = config.sandbox_timeout_ms ?? E2B_DEFAULT_SANDBOX_TIMEOUT_MS;
+    this.cwd = config.cwd ?? '/workspace';
+  }
+
+  async ensure(): Promise<void> {
+    if (this.sandbox) return;
+
+    const { Sandbox } = await import('e2b');
+    const apiKey = process.env['E2B_API_KEY'];
+    if (!apiKey) {
+      throw new ValidationError(
+        'E2B_API_KEY environment variable is not set. Add it to ~/.openhermit/.env to use the e2b backend.',
+      );
+    }
+
+    // Try to reconnect to a previously persisted sandbox.
+    const persisted = await this.loadState();
+    if (persisted?.sandboxId) {
+      try {
+        this.sandbox = await Sandbox.connect(persisted.sandboxId, {
+          apiKey,
+          timeoutMs: this.sandboxTimeoutMs,
+        });
+        return;
+      } catch {
+        // Sandbox gone (killed / expired) — create a new one.
+      }
+    }
+
+    // Create a new sandbox.
+    this.sandbox = await Sandbox.create(this.template, {
+      apiKey,
+      timeoutMs: this.sandboxTimeoutMs,
+      metadata: { agentId: this.context.agentId },
+    });
+
+    // Ensure workspace directory exists.
+    await this.sandbox.commands.run(`mkdir -p ${this.cwd}`);
+
+    await this.saveState({
+      sandboxId: this.sandbox.sandboxId,
+      template: this.template,
+      cwd: this.cwd,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  async exec(command: string): Promise<ExecResult> {
+    if (!this.sandbox) {
+      await this.ensure();
+    }
+
+    const startedAt = Date.now();
+    try {
+      const result = await this.sandbox!.commands.run(command, {
+        cwd: this.cwd,
+        timeoutMs: this.timeoutMs,
+      });
+      return {
+        stdout: result.stdout,
+        stderr: result.stderr,
+        exitCode: result.exitCode,
+        durationMs: Date.now() - startedAt,
+      };
+    } catch (error: unknown) {
+      // e2b throws CommandExitError for non-zero exits with result attached.
+      if (error && typeof error === 'object' && 'exitCode' in error && 'stdout' in error && 'stderr' in error) {
+        const e = error as { exitCode: number; stdout: string; stderr: string };
+        return {
+          stdout: e.stdout,
+          stderr: e.stderr,
+          exitCode: e.exitCode,
+          durationMs: Date.now() - startedAt,
+        };
+      }
+      return {
+        stdout: '',
+        stderr: error instanceof Error ? error.message : String(error),
+        exitCode: 1,
+        durationMs: Date.now() - startedAt,
+      };
+    }
+  }
+
+  async shutdown(): Promise<void> {
+    if (!this.sandbox) return;
+    try {
+      await this.sandbox.pause();
+    } catch {
+      // Already paused or gone — ignore.
+    }
+    this.sandbox = null;
+  }
+
+  private async loadState(): Promise<E2BBackendPersisted | null> {
+    if (!this.context.getBackendState) return null;
+    const state = await this.context.getBackendState();
+    return (state?.e2b as E2BBackendPersisted) ?? null;
+  }
+
+  private async saveState(persisted: E2BBackendPersisted): Promise<void> {
+    if (!this.context.setBackendState || !this.context.getBackendState) return;
+    const current = (await this.context.getBackendState()) ?? {};
+    await this.context.setBackendState({ ...current, e2b: persisted });
+  }
+}
+
 // ── Register built-in backends ────────────────────────────────────────────
 
 registerExecBackend('docker', (config, context) =>
@@ -201,6 +353,10 @@ registerExecBackend('docker', (config, context) =>
 
 registerExecBackend('local', (config, context) =>
   new LocalExecBackend(config as LocalExecBackendConfig, context.workspaceDir),
+);
+
+registerExecBackend('e2b', (config, context) =>
+  new E2BExecBackend(config as E2BExecBackendConfig, context),
 );
 
 // ── ExecBackendManager ────────────────────────────────────────────────────

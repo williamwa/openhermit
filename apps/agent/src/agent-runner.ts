@@ -267,6 +267,8 @@ export class AgentRunner implements SessionRuntime {
           agentId: this.scope.agentId,
           workspaceDir: this.options.workspace.root,
           ...(skillMountsDir ? { skillMountsDir } : {}),
+          ...(this.options.getBackendState ? { getBackendState: this.options.getBackendState } : {}),
+          ...(this.options.setBackendState ? { setBackendState: this.options.setBackendState } : {}),
         },
       );
     }

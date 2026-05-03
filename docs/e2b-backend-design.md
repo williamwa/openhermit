@@ -195,7 +195,6 @@ export interface E2BExecBackendConfig {
   type: 'e2b'
   label?: string
   template: string
-  api_key_secret?: string
   timeout_ms?: number
   sandbox_timeout_ms?: number
   cwd?: string
@@ -205,7 +204,6 @@ export interface E2BExecBackendConfig {
 Suggested meaning:
 
 - `template`: E2B template name to create sandboxes from
-- `api_key_secret`: optional secret name containing `E2B_API_KEY`
 - `timeout_ms`: max time for a single `exec` call from OpenHermit’s point of view
 - `sandbox_timeout_ms`: E2B idle timeout before auto-pause
 - `cwd`: default working directory inside the sandbox, default `/workspace`
@@ -338,7 +336,7 @@ The backend should avoid mutating user-visible shell state between calls.
 
 - add `e2b` config type to the exec backend config union
 - add an `E2BExecBackend` implementation
-- initialize E2B SDK with API key from resolved secrets
+- initialize E2B SDK with API key from `process.env.E2B_API_KEY` (platform-level)
 - create sandbox from template
 - reconnect by stored sandbox ID
 - run commands
@@ -406,7 +404,7 @@ Behavior:
 
 ## Security Notes
 
-- API key must come from the existing secret system, not raw config
+- API key is platform-level (`E2B_API_KEY` env var loaded from `~/.openhermit/.env`), not per-agent
 - sandbox IDs should be treated as runtime capability identifiers
 - `/skills` read-only in v1 is best-effort filesystem policy, not a mount-level guarantee
 - workspace isolation is per sandbox, not per host directory
@@ -451,21 +449,92 @@ If v1 is successful, v2 can add optional E2B volume support:
 
 That should be a later optimization, not the starting point.
 
-## Questions To Resolve Before Implementation
+## Resolved Questions
 
-1. Where should E2B backend state be persisted?
-2. What is the canonical `skillsRevision` source: DB assignment timestamp, hash of file contents, or both?
-3. Should OpenHermit expose sandbox IDs in admin APIs?
-4. Do we want a cleanup policy for paused sandboxes older than N days?
-5. Should `shutdown()` pause or kill by default?
+### 1. Where should E2B backend state be persisted?
+
+Use the existing `agents` table — add a `backend_state` JSONB column.
+
+Schema:
+
+```sql
+ALTER TABLE agents ADD COLUMN backend_state jsonb;
+```
+
+Content per agent:
+
+```json
+{
+  "e2b": {
+    "sandboxId": "sbx_abc123",
+    "template": "openhermit-base",
+    "cwd": "/workspace",
+    "skillsRevision": "2026-05-02T10:00:00Z",
+    "updatedAt": "2026-05-02T10:05:00Z"
+  }
+}
+```
+
+Keyed by backend type so an agent could theoretically have state for multiple backend types.
+
+### 2. What is the canonical skillsRevision source?
+
+Use the latest `updated_at` timestamp from the agent's enabled skill assignments. This is already queryable from `DbSkillStore.listEnabled(agentId)`. A content hash is more precise but adds complexity for v1 — timestamp is good enough because skill content changes always bump `updated_at`.
+
+### 3. Should OpenHermit expose sandbox IDs in admin APIs?
+
+Yes. Add sandbox state to the existing fleet endpoint (`GET /api/admin/agents/fleet`). Each agent entry should include:
+
+```json
+{
+  "backend": {
+    "type": "e2b",
+    "sandboxId": "sbx_abc123",
+    "status": "running" | "paused" | "unknown"
+  }
+}
+```
+
+Also add an admin action to force-recreate: `POST /api/admin/agents/:agentId/sandbox/recreate`.
+
+### 4. Do we want a cleanup policy for paused sandboxes older than N days?
+
+Not in v1. E2B has its own retention policy for paused sandboxes (24 hours by default). If an agent's sandbox expires, the reconnect-on-missing logic handles it by creating a new one. A cleanup sweep can be added in v2 if orphan sandboxes become a cost issue.
+
+### 5. Should shutdown() pause or kill by default?
+
+**Pause.** This preserves workspace state and installed software. Kill should only happen on explicit admin action (force-recreate) or agent deletion. Map the existing lifecycle policies:
+
+| OpenHermit lifecycle | E2B action |
+|---------------------|------------|
+| `shutdown()` (normal) | pause |
+| Agent deleted | kill |
+| Admin force-recreate | kill + create |
+| E2B idle timeout | auto-pause (E2B native) |
+
+## Integration Points — File-Level Checklist
+
+Files that need changes:
+
+| File | Change |
+|------|--------|
+| `apps/agent/src/core/exec-backend.ts` | Add `E2BExecBackendConfig`, `E2BExecBackend` class, register factory |
+| `apps/agent/src/core/security.ts` | Add `E2BBackendSchema` to Zod discriminated union |
+| `apps/agent/src/core/types.ts` | No changes needed — `ExecConfig` is generic |
+| `apps/agent/package.json` | Add `e2b` dependency |
+| `packages/store/src/schema.ts` | Add `backend_state` column to agents table |
+| `packages/store/src/impl/agent-store.ts` | Add `getBackendState` / `setBackendState` methods |
+| `packages/store/drizzle/` | New migration for `backend_state` column |
+| `apps/gateway/src/app.ts` | Surface sandbox state in fleet endpoint, add recreate endpoint |
 
 ## Minimal Claude Tasking Prompt
 
 If this document is handed to Claude for implementation, the first implementation step should be:
 
-1. add `e2b` to the exec backend config union
+1. add `e2b` to the exec backend config union and Zod schema
 2. implement `E2BExecBackend` with create/reconnect/exec/pause support
-3. persist sandbox ID per agent
-4. set `/workspace` as cwd
-5. leave volumes out
-6. add tests for reconnect, recreate-on-missing, and command execution
+3. add `backend_state` JSONB column to agents table, with store methods
+4. persist sandbox ID per agent, restore on gateway restart
+5. set `/workspace` as cwd
+6. leave volumes and skills sync out of first PR
+7. add tests for reconnect, recreate-on-missing, and command execution

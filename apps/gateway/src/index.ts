@@ -244,6 +244,10 @@ export const main = async (): Promise<void> => {
     }
   }
 
+  if (agentStore) {
+    instances.setAgentStore(agentStore);
+  }
+
   if (skillStore) {
     instances.setSkillStore(skillStore);
 

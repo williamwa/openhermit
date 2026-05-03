@@ -227,6 +227,18 @@ export class DbAgentStore implements AgentStore {
     return result;
   }
 
+  async getBackendState(agentId: string): Promise<Record<string, unknown> | null> {
+    const [row] = await this.db.select({ backendState: agents.backendState }).from(agents).where(eq(agents.agentId, agentId));
+    return (row?.backendState as Record<string, unknown>) ?? null;
+  }
+
+  async setBackendState(agentId: string, state: Record<string, unknown>): Promise<void> {
+    await this.db.update(agents).set({
+      backendState: state,
+      updatedAt: new Date().toISOString(),
+    }).where(eq(agents.agentId, agentId));
+  }
+
   async counts(): Promise<{ users: number; sessions: number; sessionEvents: number }> {
     const [[u], [s], [e]] = await Promise.all([
       this.db.select({ count: sql<number>`count(*)::int` }).from(users),

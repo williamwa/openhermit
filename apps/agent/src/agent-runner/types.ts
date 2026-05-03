@@ -43,4 +43,6 @@ export interface AgentRunnerOptions {
   contextCompactionMaxTokens?: number;
   contextCompactionRecentMessageCount?: number;
   contextCompactionSummaryMaxChars?: number;
+  getBackendState?: () => Promise<Record<string, unknown> | null>;
+  setBackendState?: (state: Record<string, unknown>) => Promise<void>;
 }

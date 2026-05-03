@@ -22,6 +22,7 @@ export const agents = pgTable('agents', {
   configJson: text('config_json'),
   /** Canonical agent security policy (JSON-stringified). Replaces security.json. */
   securityJson: text('security_json'),
+  backendState: jsonb('backend_state').$type<Record<string, unknown>>(),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });

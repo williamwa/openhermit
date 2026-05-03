@@ -151,6 +151,8 @@ export interface AgentStore {
   list(): Promise<AgentRecord[]>;
   update(agentId: string, patch: Partial<Pick<AgentRecord, 'name' | 'workspaceDir'>>): Promise<AgentRecord | undefined>;
   delete(agentId: string): Promise<void>;
+  getBackendState(agentId: string): Promise<Record<string, unknown> | null>;
+  setBackendState(agentId: string, state: Record<string, unknown>): Promise<void>;
 }
 
 /**

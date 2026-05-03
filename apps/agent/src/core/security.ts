@@ -76,9 +76,20 @@ const LocalBackendSchema = z.object({
   env: z.record(z.string(), z.string()).optional(),
 });
 
+const E2BBackendSchema = z.object({
+  id: z.string().optional(),
+  type: z.literal('e2b'),
+  label: z.string().optional(),
+  template: z.string().min(1),
+  timeout_ms: z.number().optional(),
+  sandbox_timeout_ms: z.number().optional(),
+  cwd: z.string().optional(),
+});
+
 const ExecBackendConfigSchema = z.discriminatedUnion('type', [
   DockerBackendSchema,
   LocalBackendSchema,
+  E2BBackendSchema,
 ]);
 
 const ExecConfigSchema = z.object({
