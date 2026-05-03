@@ -46,7 +46,7 @@ hermit config secrets set OPENROUTER_API_KEY sk-... --agent main  # rotate a sec
 
 - 🚪 **Gateway control plane** — single Hono server. Agents start, attach, detach without orchestration. Admin UI at `/admin/`.
 - 🐘 **Postgres-backed state** — sessions, memories, instructions, skills, MCP, schedules, secrets — durable behind Drizzle.
-- 🐳 **Sandboxed execution** — per-agent Docker workspace or local backend. Code runs isolated from the host.
+- 🐳 **Sandboxed execution** — per-agent Docker workspace, host shell, or E2B sandbox backend. Code runs isolated from the host.
 - 💬 **Channels included** — Telegram, Discord, Slack adapters, plus CLI and Web UI. Enable, disable, reconfigure at runtime.
 - 🛠 **Skills & MCP servers** — install centrally, enable per-agent or fleet-wide, audit from one place.
 - ⏱ **Schedules & automation** — cron and one-shot jobs with timeout, concurrency policy, and error backoff.

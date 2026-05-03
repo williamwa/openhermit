@@ -19,10 +19,10 @@ const fakeContext: BackendFactoryContext = {
 
 // ── createExecBackend ────────────────────────────────────────────────────
 
-test('createExecBackend creates a local backend', () => {
-  const backend = createExecBackend({ type: 'local', id: 'local' }, fakeContext);
-  assert.equal(backend.type, 'local');
-  assert.equal(backend.id, 'local');
+test('createExecBackend creates a host backend', () => {
+  const backend = createExecBackend({ type: 'host', id: 'host' }, fakeContext);
+  assert.equal(backend.type, 'host');
+  assert.equal(backend.id, 'host');
 });
 
 test('createExecBackend throws for unknown type', () => {
@@ -34,7 +34,7 @@ test('createExecBackend throws for unknown type', () => {
 
 // ── ExecBackendManager ───────────────────────────────────────────────────
 
-const makeFakeBackend = (id: string, type = 'local'): ExecBackend => ({
+const makeFakeBackend = (id: string, type = 'host'): ExecBackend => ({
   id,
   type,
   label: id,
@@ -74,14 +74,14 @@ test('ExecBackendManager.list returns all backends', () => {
   assert.equal(mgr.list().length, 2);
 });
 
-test('ExecBackendManager.fromConfig falls back to local', () => {
+test('ExecBackendManager.fromConfig falls back to host', () => {
   const mgr = ExecBackendManager.fromConfig(undefined, fakeContext);
-  assert.equal(mgr.getDefault().type, 'local');
+  assert.equal(mgr.getDefault().type, 'host');
 });
 
 test('ExecBackendManager.fromConfig auto-assigns ids', () => {
   const mgr = ExecBackendManager.fromConfig(
-    { backends: [{ type: 'local' }, { type: 'local' }] },
+    { backends: [{ type: 'host' }, { type: 'host' }] },
     fakeContext,
   );
   const ids = mgr.list().map((b) => b.id);

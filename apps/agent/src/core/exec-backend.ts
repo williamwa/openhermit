@@ -41,9 +41,9 @@ export interface DockerExecBackendConfig {
   lifecycle?: WorkspaceContainerLifecycle;
 }
 
-export interface LocalExecBackendConfig {
+export interface HostExecBackendConfig {
   id?: string;
-  type: 'local';
+  type: 'host';
   label?: string;
   cwd?: string;
   shell?: string;
@@ -63,7 +63,7 @@ export interface E2BExecBackendConfig {
 
 export type ExecBackendConfig =
   | DockerExecBackendConfig
-  | LocalExecBackendConfig
+  | HostExecBackendConfig
   | E2BExecBackendConfig;
 
 export interface ExecConfig {
@@ -139,22 +139,22 @@ class DockerExecBackend implements ExecBackend {
   }
 }
 
-// ── Local backend ─────────────────────────────────────────────────────────
+// ── Host backend ──────────────────────────────────────────────────────────
 
 const DEFAULT_TIMEOUT_MS = 300_000; // 5 minutes
 
-class LocalExecBackend implements ExecBackend {
+class HostExecBackend implements ExecBackend {
   readonly id: string;
-  readonly type = 'local';
+  readonly type = 'host';
   readonly label: string;
   private readonly cwd: string;
   private readonly shell: string;
   private readonly env: Record<string, string> | undefined;
   private readonly timeoutMs: number;
 
-  constructor(config: LocalExecBackendConfig, workspaceDir: string) {
-    this.id = config.id ?? 'local';
-    this.label = config.label ?? 'Local shell';
+  constructor(config: HostExecBackendConfig, workspaceDir: string) {
+    this.id = config.id ?? 'host';
+    this.label = config.label ?? 'Host shell';
     this.cwd = config.cwd ?? workspaceDir;
     this.shell = config.shell ?? 'sh';
     this.env = config.env;
@@ -162,7 +162,7 @@ class LocalExecBackend implements ExecBackend {
   }
 
   async ensure(): Promise<void> {
-    // No-op — local shell is always ready.
+    // No-op — host shell is always ready.
   }
 
   async exec(command: string): Promise<ExecResult> {
@@ -189,7 +189,7 @@ class LocalExecBackend implements ExecBackend {
 
       child.on('error', (error) => {
         clearTimeout(timer);
-        reject(new Error(`Failed to execute local command: ${error.message}`));
+        reject(new Error(`Failed to execute host command: ${error.message}`));
       });
 
       child.on('close', (code) => {
@@ -356,8 +356,8 @@ registerExecBackend('docker', (config, context) =>
   new DockerExecBackend(config as DockerExecBackendConfig, context.containerManager, context.agentId, context.skillMountsDir),
 );
 
-registerExecBackend('local', (config, context) =>
-  new LocalExecBackend(config as LocalExecBackendConfig, context.workspaceDir),
+registerExecBackend('host', (config, context) =>
+  new HostExecBackend(config as HostExecBackendConfig, context.workspaceDir),
 );
 
 registerExecBackend('e2b', (config, context) =>
@@ -381,7 +381,7 @@ export class ExecBackendManager {
     }
   }
 
-  /** Create from config. Falls back to a local backend when no config is provided. */
+  /** Create from config. Falls back to a host backend when no config is provided. */
   static fromConfig(
     execConfig: ExecConfig | undefined,
     context: BackendFactoryContext,
@@ -393,8 +393,8 @@ export class ExecBackendManager {
       configs = execConfig.backends;
       defaultId = execConfig.default_backend;
     } else {
-      // No exec config at all — create a local backend as fallback.
-      configs = [{ type: 'local', id: 'local' }];
+      // No exec config at all — create a host backend as fallback.
+      configs = [{ type: 'host', id: 'host' }];
     }
 
     // Assign default ids for configs without explicit id.

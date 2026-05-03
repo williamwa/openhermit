@@ -67,9 +67,9 @@ const DockerBackendSchema = z.object({
   lifecycle: LifecycleSchema.optional(),
 });
 
-const LocalBackendSchema = z.object({
+const HostBackendSchema = z.object({
   id: z.string().optional(),
-  type: z.literal('local'),
+  type: z.literal('host'),
   label: z.string().optional(),
   cwd: z.string().optional(),
   shell: z.string().optional(),
@@ -88,7 +88,7 @@ const E2BBackendSchema = z.object({
 
 const ExecBackendConfigSchema = z.discriminatedUnion('type', [
   DockerBackendSchema,
-  LocalBackendSchema,
+  HostBackendSchema,
   E2BBackendSchema,
 ]);
 

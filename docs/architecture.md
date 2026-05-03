@@ -13,8 +13,8 @@ Gateway (Hono HTTP + WebSocket, auth, admin UI)
           v
 AgentInstanceManager
           |
-          +-- AgentRunner(agent A) -> exec backend -> workspace container/local shell
-          +-- AgentRunner(agent B) -> exec backend -> workspace container/local shell
+          +-- AgentRunner(agent A) -> exec backend -> docker / host shell / e2b sandbox
+          +-- AgentRunner(agent B) -> exec backend -> docker / host shell / e2b sandbox
           |
           v
 PostgreSQL stores (Drizzle)
@@ -117,9 +117,10 @@ The `exec` tool uses `ExecBackendManager`.
 Supported backend types:
 
 - `docker`: starts a per-agent workspace container through `DockerContainerManager`
-- `local`: runs commands on the host in a configured working directory
+- `host`: runs commands on the host in a configured working directory
+- `e2b`: runs commands in a per-agent E2B cloud sandbox
 
-If no exec config exists, the runner creates a local backend. Agent creation through the gateway writes a Docker backend by default.
+If no exec config exists, the runner creates a host backend. Agent creation through the gateway writes a Docker backend by default.
 
 Container lifecycle supports:
 

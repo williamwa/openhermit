@@ -56,4 +56,4 @@ Adapters use the OpenHermit SDK over gateway agent routes instead of reaching in
 
 ## ADR-010: Execution Backends Are Pluggable
 
-The `exec` tool runs through an `ExecBackendManager`. Docker and local shell backends are currently implemented. Gateway-created agents default to Docker; missing config falls back to local shell for development and tests.
+The `exec` tool runs through an `ExecBackendManager`. Docker, host shell, and E2B sandbox backends are currently implemented. Gateway-created agents default to Docker; missing config falls back to host shell for development and tests.

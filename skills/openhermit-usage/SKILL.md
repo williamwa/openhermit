@@ -18,7 +18,7 @@ OpenHermit is a TypeScript multi-agent platform with:
 - cron/once schedules
 - prompt-based skills
 - MCP server tool integrations
-- Docker and local exec backends
+- Docker, host, and E2B exec backends
 
 The gateway manages agent lifecycle, auth, APIs, WebSocket/SSE transport, built-in channels, schedules, skills, and MCP assignments.
 
@@ -87,7 +87,7 @@ Exec:
   "exec": {
     "backends": [
       { "type": "docker", "image": "ubuntu:24.04" },
-      { "type": "local", "cwd": "/path/to/project" }
+      { "type": "host", "cwd": "/path/to/project" }
     ],
     "default_backend": "docker",
     "lifecycle": {

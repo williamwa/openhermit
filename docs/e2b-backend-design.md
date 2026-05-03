@@ -8,7 +8,7 @@ Date: 2026-05-02
 
 Add E2B as a new execution backend type so an agent can:
 
-- run commands inside an E2B sandbox instead of a local shell or Docker container
+- run commands inside an E2B sandbox instead of a host shell or Docker container
 - keep sandbox state with `pause` / `resume`
 - persist installed software and runtime filesystem state across pauses
 - support a durable workspace path inside the sandbox
@@ -44,7 +44,7 @@ References:
 
 Today OpenHermit has:
 
-- `ExecBackendManager` with `docker` and `local` backends
+- `ExecBackendManager` with `docker` and `host` backends
 - `DockerContainerManager` which bind-mounts `AgentWorkspace.root` to `/workspace`
 - `AgentWorkspace` on the host, used as the durable workspace source of truth
 

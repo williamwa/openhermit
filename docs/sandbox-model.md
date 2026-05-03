@@ -1,6 +1,6 @@
 # Sandbox Model
 
-OpenHermit's executable workspace is mediated by exec backends. The default gateway-created agent uses a Docker workspace backend; a local shell backend also exists for development or explicitly trusted setups.
+OpenHermit's executable workspace is mediated by exec backends. The default gateway-created agent uses a Docker workspace backend; a host shell backend exists for development or explicitly trusted setups, and an E2B sandbox backend exists for cloud-managed isolated execution.
 
 ## Exec Backend Config
 
@@ -27,9 +27,10 @@ OpenHermit's executable workspace is mediated by exec backends. The default gate
 Supported backend types:
 
 - `docker`
-- `local`
+- `host`
+- `e2b`
 
-If no exec config is present, the runner falls back to a local backend.
+If no exec config is present, the runner falls back to a host backend.
 
 ## Docker Backend
 
@@ -37,9 +38,9 @@ The Docker backend uses `DockerContainerManager` to ensure a per-agent workspace
 
 Container inventory is internal state in the `containers` table. Mounted workspace files remain external task state.
 
-## Local Backend
+## Host Backend
 
-The local backend runs `shell -lc` commands on the host. It supports:
+The host backend runs `shell -lc` commands on the host. It supports:
 
 - `cwd`
 - `shell`

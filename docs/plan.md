@@ -11,7 +11,7 @@ This roadmap reflects the current implementation after the gateway, schedules, s
 - durable sessions and session events
 - user identities, roles, merges, and role-based tool filtering
 - memory tools, working memory, introspection, and context compaction
-- Docker and local exec backends
+- Docker, host, and E2B exec backends
 - web search/fetch providers
 - cron/once scheduler with run history
 - Telegram, Discord, and Slack built-in adapters
