@@ -3,7 +3,12 @@ import { spawn } from 'node:child_process';
 import { NotFoundError, ValidationError } from '@openhermit/shared';
 
 import { BoundedString, DEFAULT_EXEC_OUTPUT_MAX_BYTES } from './bounded-string.js';
-import type { ContainerProcessResult, WorkspaceContainerConfig, WorkspaceContainerLifecycle } from './types.js';
+import {
+  AGENT_CONTAINER_HOME,
+  type ContainerProcessResult,
+  type WorkspaceContainerConfig,
+  type WorkspaceContainerLifecycle,
+} from './types.js';
 import type { DockerContainerManager } from './container-manager.js';
 
 // ── Result type (re-uses existing ContainerProcessResult) ─────────────────
@@ -239,7 +244,7 @@ class E2BExecBackend implements ExecBackend {
     this.template = config.template;
     this.timeoutMs = config.timeout_ms ?? E2B_DEFAULT_TIMEOUT_MS;
     this.sandboxTimeoutMs = config.sandbox_timeout_ms ?? E2B_DEFAULT_SANDBOX_TIMEOUT_MS;
-    this.cwd = config.cwd ?? '/workspace';
+    this.cwd = config.cwd ?? AGENT_CONTAINER_HOME;
   }
 
   async ensure(): Promise<void> {

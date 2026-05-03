@@ -1,3 +1,12 @@
+/**
+ * Path inside the agent's exec container/sandbox where the host workspace
+ * dir is mounted (docker) or where the working directory lives (e2b).
+ * Aligns with E2B's default user home (`/home/user`) so e2b sandboxes can
+ * use their natural filesystem layout, and so docker containers feel like
+ * the agent's "home" rather than a generic /workspace mount.
+ */
+export const AGENT_CONTAINER_HOME = '/home/user';
+
 export type HookPoint =
   | 'onSessionStart'
   | 'onSessionEnd'

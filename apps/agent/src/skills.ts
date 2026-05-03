@@ -7,11 +7,13 @@ import path from 'node:path';
 
 import type { SkillStore } from '@openhermit/store';
 
+import { AGENT_CONTAINER_HOME } from './core/types.js';
+
 export interface SkillIndexEntry {
   id: string;
   name: string;
   description: string;
-  /** Container-side path (e.g. /skills/<id> or /workspace/.openhermit/skills/<id>) */
+  /** Container-side path (e.g. /skills/<id> or {AGENT_CONTAINER_HOME}/.openhermit/skills/<id>) */
   path: string;
   source: 'system' | 'workspace';
 }
@@ -76,7 +78,7 @@ export const scanSkillDirectory = async (
 /**
  * Load the effective skill index for an agent by merging:
  * 1. DB-enabled skills (system/owner-managed, mounted at /skills/)
- * 2. Workspace-scanned skills (/workspace/.openhermit/skills/)
+ * 2. Workspace-scanned skills ({AGENT_CONTAINER_HOME}/.openhermit/skills/)
  * 3. Built-in skills (project repo skills/ directory)
  *
  * Higher-numbered sources won't override lower-numbered ones.
@@ -106,7 +108,7 @@ export const loadSkillIndex = async (
   const workspaceSkillsDir = path.join(workspaceRoot, '.openhermit', 'skills');
   const wsSkills = await scanSkillDirectory(
     workspaceSkillsDir,
-    '/workspace/.openhermit/skills',
+    `${AGENT_CONTAINER_HOME}/.openhermit/skills`,
     'workspace',
   );
   for (const skill of wsSkills) {

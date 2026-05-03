@@ -4,12 +4,13 @@ import { spawn } from 'node:child_process';
 import { OpenHermitError, NotFoundError, ValidationError } from '@openhermit/shared';
 
 import { BoundedString, DEFAULT_EXEC_OUTPUT_MAX_BYTES } from './bounded-string.js';
-import type {
-  ContainerProcessResult,
-  ContainerRegistryEntry,
-  ContainerStatus,
-  ContainerType,
-  WorkspaceContainerConfig,
+import {
+  AGENT_CONTAINER_HOME,
+  type ContainerProcessResult,
+  type ContainerRegistryEntry,
+  type ContainerStatus,
+  type ContainerType,
+  type WorkspaceContainerConfig,
 } from './types.js';
 import { AgentWorkspace } from './workspace.js';
 
@@ -245,7 +246,7 @@ export class DockerContainerManager {
     config: WorkspaceContainerConfig,
   ): Promise<ContainerRegistryEntry> {
     const name = this.containerName('workspace');
-    const mountTarget = '/workspace';
+    const mountTarget = AGENT_CONTAINER_HOME;
 
     const liveContainers = await this.listLiveContainers();
     const live = liveContainers.find((c) => c.names === name);
@@ -358,7 +359,7 @@ export class DockerContainerManager {
             image: 'unknown',
             type: 'workspace' as const,
             mount: '.',
-            mount_target: '/workspace',
+            mount_target: AGENT_CONTAINER_HOME,
             created: new Date().toISOString(),
           }),
           status: 'running',

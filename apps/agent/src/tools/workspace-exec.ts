@@ -1,6 +1,7 @@
 import { Type, type Static } from '@mariozechner/pi-ai';
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 
+import { AGENT_CONTAINER_HOME } from '../core/types.js';
 import {
   type Toolset,
   type ToolContext,
@@ -65,7 +66,7 @@ export const createWorkspaceExecTool = (
 
 function buildExecDescription(context: ToolContext): string {
   if (!context.execBackendManager) {
-    return 'Execute a shell command. The workspace is at /workspace. Use this for all file operations (read, write, search, delete), build tools, language runtimes, tests, and any other shell task.';
+    return `Execute a shell command. The workspace is at ${AGENT_CONTAINER_HOME}. Use this for all file operations (read, write, search, delete), build tools, language runtimes, tests, and any other shell task.`;
   }
   const backends = context.execBackendManager.list();
   if (backends.length === 1) {
