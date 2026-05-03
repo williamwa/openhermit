@@ -247,6 +247,14 @@ export const gatewayRoutes = {
     `/api/agents/${encodeURIComponent(agentId)}/manage/${encodeURIComponent(action)}`,
   agentManagePattern: '/api/agents/:agentId/manage/:action',
 
+  /** Sandbox CRUD per agent. */
+  agentSandboxes: (agentId: string): string =>
+    `/api/agents/${encodeURIComponent(agentId)}/sandboxes`,
+  agentSandboxesPattern: '/api/agents/:agentId/sandboxes',
+  agentSandboxByAlias: (agentId: string, alias: string): string =>
+    `/api/agents/${encodeURIComponent(agentId)}/sandboxes/${encodeURIComponent(alias)}`,
+  agentSandboxByAliasPattern: '/api/agents/:agentId/sandboxes/:alias',
+
   /** Gateway-level token exchange (device key → user JWT). */
   authToken: '/api/auth/token',
   /** Admin-only global user create (CLI bootstrap). */

@@ -357,6 +357,34 @@ export class GatewayClient {
     );
   }
 
+  // --- sandboxes (per-agent) ---
+
+  async listSandboxes(agentId: string): Promise<Array<{
+    id: string;
+    agentId: string;
+    alias: string;
+    type: string;
+    status: string;
+    config: Record<string, unknown>;
+    createdAt: string;
+  }>> {
+    return this.getJson(`/api/agents/${encodeURIComponent(agentId)}/sandboxes`);
+  }
+
+  async createSandbox(agentId: string, input: {
+    alias?: string;
+    type: 'host' | 'docker' | 'e2b' | 'daytona';
+    config?: Record<string, unknown>;
+  }): Promise<unknown> {
+    return this.postJson(`/api/agents/${encodeURIComponent(agentId)}/sandboxes`, input);
+  }
+
+  async deleteSandbox(agentId: string, alias: string): Promise<void> {
+    await this.deleteJson(
+      `/api/agents/${encodeURIComponent(agentId)}/sandboxes/${encodeURIComponent(alias)}`,
+    );
+  }
+
   // --- skills (admin) ---
 
   async listSkills(): Promise<unknown[]> {

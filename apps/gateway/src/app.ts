@@ -2282,6 +2282,66 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
 
   // Per-agent schedule management is at /api/agents/:agentId/schedules (owner or admin auth)
 
+  // --- per-agent sandbox management ---
+
+  const requireSandboxStore = (): SandboxStore => {
+    if (!options.sandboxStore) {
+      throw new OpenHermitError('Sandbox store is not configured.', 'not_configured', 500);
+    }
+    return options.sandboxStore;
+  };
+
+  app.get(gatewayRoutes.agentSandboxesPattern, async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    await requireOwnerOrAdmin(c, agentId);
+    const rows = await requireSandboxStore().listByAgent(agentId);
+    return c.json(rows);
+  });
+
+  app.post(gatewayRoutes.agentSandboxesPattern, async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    await requireOwnerOrAdmin(c, agentId);
+    const body = await c.req.json<{
+      alias?: string;
+      type?: string;
+      config?: Record<string, unknown>;
+    }>();
+    const alias = body.alias ?? 'default';
+    const type = body.type;
+    if (type !== 'host' && type !== 'docker' && type !== 'e2b' && type !== 'daytona') {
+      throw new ValidationError(`Invalid sandbox type: ${type}`);
+    }
+    const store = requireSandboxStore();
+    const existing = await store.getByAlias(agentId, alias);
+    if (existing) {
+      throw new ConflictError(`Sandbox alias "${alias}" already exists for this agent.`);
+    }
+    if (type === 'host') {
+      const owner = await store.findAgentByType('host', agentId);
+      if (owner) {
+        throw new ConflictError(`Host backend is already in use by agent ${owner}.`);
+      }
+    }
+    const row = await store.create({
+      agentId,
+      alias,
+      type,
+      ...(body.config ? { config: body.config } : {}),
+    });
+    return c.json(row, 201);
+  });
+
+  app.delete(gatewayRoutes.agentSandboxByAliasPattern, async (c) => {
+    const agentId = c.req.param('agentId') ?? '';
+    const alias = c.req.param('alias') ?? '';
+    await requireOwnerOrAdmin(c, agentId);
+    const store = requireSandboxStore();
+    const row = await store.getByAlias(agentId, alias);
+    if (!row) throw new NotFoundError(`Sandbox not found: ${alias}`);
+    await store.delete(row.id);
+    return c.json({ ok: true });
+  });
+
   // --- admin UI: static files ---
 
   if (options.publicDir) {
