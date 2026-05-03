@@ -4,7 +4,7 @@
 
 Current responsibilities:
 
-- load `.env` and `~/.openhermit/gateway.json`
+- load `~/.openhermit/gateway/.env` and `~/.openhermit/gateway/gateway.json`
 - connect Drizzle-backed PostgreSQL stores when `DATABASE_URL` is set
 - register built-in skills from `skills/`
 - manage agent records and in-process `AgentRunner` instances

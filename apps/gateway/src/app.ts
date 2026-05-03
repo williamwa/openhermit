@@ -38,6 +38,7 @@ import {
   getErrorMessage,
   jsonError,
   resolveAgentDataDir,
+  resolveGatewayDir,
   resolveOpenHermitHome,
 } from '@openhermit/shared';
 
@@ -1561,8 +1562,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   app.get('/api/admin/skills/scan', async (c) => {
     requireAdmin(c.req.header('authorization'));
     const { scanSkillDirectory } = await import('@openhermit/agent/skills');
-    const homeDir = resolveOpenHermitHome();
-    const skillsDir = `${homeDir}/skills`;
+    const skillsDir = path.join(resolveGatewayDir(), 'registry', 'skills');
     const found = await scanSkillDirectory(skillsDir, skillsDir, 'system');
     return c.json(found);
   });

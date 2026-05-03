@@ -22,7 +22,13 @@ import {
 } from '@openhermit/store';
 import { scanSkillDirectory } from '@openhermit/agent/skills';
 
-import { loadEnv, resolveAgentDataDir, resolveOpenHermitHome } from '@openhermit/shared';
+import {
+  loadEnv,
+  migrateLegacyGatewayLayout,
+  resolveAgentDataDir,
+  resolveGatewayDir,
+  resolveOpenHermitHome,
+} from '@openhermit/shared';
 
 import { AgentInstanceManager } from './agent-instance.js';
 import { syncSkillMounts } from './skill-mounts.js';
@@ -82,15 +88,21 @@ const listen = (
   });
 
 export const main = async (): Promise<void> => {
-  // Load .env: ~/.openhermit/.env (production) then cwd/.env (development).
+  // One-shot migration of legacy ~/.openhermit/{gateway.json, .env, *.pid,
+  // *.log} into ~/.openhermit/gateway/. No-op once migrated.
+  const moved = await migrateLegacyGatewayLayout();
+  if (moved.length > 0) {
+    logStartup(`migrated legacy gateway files: ${moved.join(', ')}`);
+  }
+
+  // Load .env: ~/.openhermit/gateway/.env (production) then cwd/.env (development).
   const loadedEnvCount = await loadEnv();
   if (loadedEnvCount > 0) {
     logStartup(`loaded ${loadedEnvCount} env var(s)`);
   }
 
   // Load gateway.json.
-  const homeDir = resolveOpenHermitHome();
-  const configPath = path.join(homeDir, DEFAULT_CONFIG_FILENAME);
+  const configPath = path.join(resolveGatewayDir(), DEFAULT_CONFIG_FILENAME);
   const config = await loadGatewayConfig(configPath);
   logStartup(`config loaded from ${configPath}`);
 

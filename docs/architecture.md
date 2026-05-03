@@ -82,7 +82,7 @@ Per-agent **instructions** (the keyed sections of the system prompt) live in the
 On startup, the gateway:
 
 1. loads environment variables
-2. loads `~/.openhermit/gateway.json`
+2. loads `~/.openhermit/gateway/gateway.json`
 3. opens PostgreSQL stores if `DATABASE_URL` is available
 4. scans and registers built-in skills from `skills/`
 5. starts the Hono server and WebSocket handler

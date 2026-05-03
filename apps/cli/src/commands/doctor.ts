@@ -3,7 +3,7 @@ import { access } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { Command } from 'commander';
-import { resolveOpenHermitHome } from '@openhermit/shared';
+import { resolveGatewayDir, resolveOpenHermitHome } from '@openhermit/shared';
 
 import { resolveGatewayUrl } from './shared.js';
 
@@ -61,7 +61,7 @@ const buildChecks = (): Check[] => {
     {
       label: 'Gateway config',
       run: async () => {
-        const configPath = path.join(homeDir, 'gateway.json');
+        const configPath = path.join(resolveGatewayDir(), 'gateway.json');
         try {
           await access(configPath);
           return { ok: true, detail: configPath };

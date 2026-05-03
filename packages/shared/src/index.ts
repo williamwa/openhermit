@@ -1,4 +1,10 @@
-export { loadEnv, resolveOpenHermitHome, resolveAgentDataDir } from './env.js';
+export {
+  loadEnv,
+  migrateLegacyGatewayLayout,
+  resolveAgentDataDir,
+  resolveGatewayDir,
+  resolveOpenHermitHome,
+} from './env.js';
 
 export interface JsonErrorBody {
   error: {

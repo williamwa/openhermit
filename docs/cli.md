@@ -44,7 +44,7 @@ Interactive wizard that walks you through:
 4. Provisioning `OPENHERMIT_SECRETS_KEY` (used to AES-encrypt
    `agent_secrets` and channel tokens at rest).
 
-Writes the result to `~/.openhermit/gateway.json` and `~/.openhermit/.env`.
+Writes the result to `~/.openhermit/gateway/gateway.json` and `~/.openhermit/gateway/.env`.
 
 ```bash
 hermit setup

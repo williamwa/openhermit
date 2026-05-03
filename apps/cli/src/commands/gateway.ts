@@ -5,7 +5,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { Command } from 'commander';
-import { resolveOpenHermitHome } from '@openhermit/shared';
+import {
+  migrateLegacyGatewayLayout,
+  resolveGatewayDir,
+} from '@openhermit/shared';
 
 import { resolveGatewayUrl, handleError } from './shared.js';
 
@@ -39,7 +42,7 @@ const resolveGatewaySpawn = async (): Promise<{ bin: string; args: string[] }> =
   return { bin: process.execPath, args: ['-C', 'development', '--import', 'tsx', monoSrcEntry] };
 };
 
-const resolveHomeDir = resolveOpenHermitHome;
+const resolveHomeDir = resolveGatewayDir;
 
 const pidFilePath = (): string => path.join(resolveHomeDir(), 'gateway.pid');
 
@@ -83,6 +86,7 @@ export const registerGatewayCommand = (program: Command): void => {
     .option('-H, --host <host>', 'Listen host (overrides GATEWAY_HOST, default 127.0.0.1; use 0.0.0.0 to expose publicly)')
     .action(async (opts: { port?: string; host?: string }) => {
       try {
+        await migrateLegacyGatewayLayout();
         // Check if already running.
         const existingPid = await readPid();
         if (existingPid && isProcessAlive(existingPid)) {

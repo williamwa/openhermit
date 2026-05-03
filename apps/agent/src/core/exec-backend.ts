@@ -254,7 +254,7 @@ class E2BExecBackend implements ExecBackend {
     const apiKey = process.env['E2B_API_KEY'];
     if (!apiKey) {
       throw new ValidationError(
-        'E2B_API_KEY environment variable is not set. Add it to ~/.openhermit/.env to use the e2b backend.',
+        'E2B_API_KEY environment variable is not set. Add it to ~/.openhermit/gateway/.env to use the e2b backend.',
       );
     }
 

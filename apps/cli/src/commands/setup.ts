@@ -5,7 +5,10 @@ import readline from 'node:readline';
 import crypto from 'node:crypto';
 
 import type { Command } from 'commander';
-import { resolveOpenHermitHome } from '@openhermit/shared';
+import {
+  migrateLegacyGatewayLayout,
+  resolveGatewayDir,
+} from '@openhermit/shared';
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -42,10 +45,10 @@ const generateToken = (): string => crypto.randomBytes(24).toString('base64url')
 // ── .env helpers ───────────────────────────────────────────────────────
 
 const resolveEnvPath = (): string =>
-  // Persisted env lives in the user's OpenHermit home, never in cwd. The
-  // shared loadEnv() reads from this path on every CLI invocation, so all
+  // Persisted env lives in ~/.openhermit/gateway/.env. The shared
+  // loadEnv() reads from this path on every CLI invocation, so all
   // \`hermit ...\` commands and the gateway/web they spawn pick it up.
-  path.join(resolveOpenHermitHome(), '.env');
+  path.join(resolveGatewayDir(), '.env');
 
 const fileExists = (p: string): Promise<boolean> =>
   access(p).then(() => true, () => false);
@@ -57,10 +60,10 @@ const DEFAULT_GATEWAY_CONFIG = {
 };
 
 const ensureGatewayConfig = async (): Promise<{ created: boolean; path: string }> => {
-  const home = resolveOpenHermitHome();
-  const configPath = path.join(home, 'gateway.json');
+  const dir = resolveGatewayDir();
+  const configPath = path.join(dir, 'gateway.json');
   if (await fileExists(configPath)) return { created: false, path: configPath };
-  await mkdir(home, { recursive: true });
+  await mkdir(dir, { recursive: true });
   await writeFile(configPath, JSON.stringify(DEFAULT_GATEWAY_CONFIG, null, 2) + '\n', 'utf8');
   return { created: true, path: configPath };
 };
@@ -190,6 +193,11 @@ export const registerSetupCommand = (program: Command): void => {
     .description('Interactive gateway setup wizard')
     .action(async () => {
       console.log('OpenHermit Gateway Setup\n');
+
+      const moved = await migrateLegacyGatewayLayout();
+      if (moved.length > 0) {
+        console.log(`  → migrated legacy gateway files: ${moved.join(', ')}`);
+      }
 
       const envPath = resolveEnvPath();
       const env = await readEnvFile(envPath);

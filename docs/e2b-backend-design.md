@@ -404,7 +404,7 @@ Behavior:
 
 ## Security Notes
 
-- API key is platform-level (`E2B_API_KEY` env var loaded from `~/.openhermit/.env`), not per-agent
+- API key is platform-level (`E2B_API_KEY` env var loaded from `~/.openhermit/gateway/.env`), not per-agent
 - sandbox IDs should be treated as runtime capability identifiers
 - `/skills` read-only in v1 is best-effort filesystem policy, not a mount-level guarantee
 - workspace isolation is per sandbox, not per host directory

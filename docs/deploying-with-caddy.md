@@ -142,8 +142,8 @@ If you proxy through Cloudflare:
   `hermit web start` / `stop`.
 - **Logs**:
   - Caddy: `journalctl -u caddy -f`
-  - Gateway: `~/.openhermit/gateway.log`
-  - Web: `~/.openhermit/web.log`
+  - Gateway: `~/.openhermit/gateway/gateway.log`
+  - Web: `~/.openhermit/gateway/web.log`
 - **Cert renewal**: Caddy renews automatically; nothing to do.
 - **Internal channel callbacks**: Telegram / Discord / Slack adapters call
   back into the gateway via `127.0.0.1:4000`, never through the public

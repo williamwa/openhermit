@@ -4,7 +4,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { Command } from 'commander';
-import { resolveOpenHermitHome } from '@openhermit/shared';
+import {
+  migrateLegacyGatewayLayout,
+  resolveGatewayDir,
+} from '@openhermit/shared';
 
 import { handleError } from './shared.js';
 
@@ -36,7 +39,7 @@ const resolveWebSpawn = async (): Promise<{ bin: string; args: string[] }> => {
   return { bin: process.execPath, args: ['-C', 'development', '--import', 'tsx', monoSrcEntry] };
 };
 
-const resolveHomeDir = resolveOpenHermitHome;
+const resolveHomeDir = resolveGatewayDir;
 
 const pidFilePath = (): string => path.join(resolveHomeDir(), 'web.pid');
 
@@ -85,6 +88,7 @@ export const registerWebCommand = (program: Command): void => {
     .option('-H, --host <host>', 'Listen host (overrides OPENHERMIT_WEB_HOST, default 127.0.0.1; use 0.0.0.0 to expose publicly)')
     .action(async (opts: { port?: string; host?: string }) => {
       try {
+        await migrateLegacyGatewayLayout();
         const existingPid = await readPid();
         if (existingPid && isProcessAlive(existingPid)) {
           console.log(`Web is already running (pid ${existingPid}).`);

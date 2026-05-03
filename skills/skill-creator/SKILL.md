@@ -84,7 +84,7 @@ mkdir -p /workspace/.openhermit/skills/<skill-id>
 ```
 
 **As a platform skill (admin-managed):**
-The admin registers it via the gateway API and places files at `~/.openhermit/skills/<skill-id>/`.
+The admin registers it via the gateway API and places files at `~/.openhermit/gateway/registry/skills/<skill-id>/`.
 
 ## Examples of Good Descriptions
 
