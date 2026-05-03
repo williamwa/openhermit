@@ -148,6 +148,17 @@ export interface BackendFactoryContext {
    */
   getRuntimeState?: () => Promise<Record<string, unknown> | null>;
   setRuntimeState?: (state: Record<string, unknown>) => Promise<void>;
+  /**
+   * Patch the sandbox row's top-level status / externalId / lastSeenAt
+   * columns. Called by backends on ensure (running + externalId) and
+   * shutdown (stopped). Undefined when running on the legacy fromConfig
+   * path (no DB row to update).
+   */
+  setSandboxStatus?: (patch: {
+    status?: 'provisioning' | 'running' | 'paused' | 'stopped' | 'gone';
+    externalId?: string | null;
+    lastSeenAt?: string;
+  }) => Promise<void>;
 }
 
 type BackendFactory = (config: ExecBackendConfig, context: BackendFactoryContext) => ExecBackend;
@@ -176,12 +187,19 @@ class DockerExecBackend implements ExecBackend {
   readonly agentHome: string;
   private readonly config: WorkspaceContainerConfig;
 
+  private readonly containerManager: DockerContainerManager;
+  private readonly agentId: string;
+  private readonly workspaceDir: string;
+  private readonly context: BackendFactoryContext;
+
   constructor(
     config: DockerExecBackendConfig,
-    private readonly containerManager: DockerContainerManager,
-    private readonly agentId: string,
-    private readonly workspaceDir: string,
+    context: BackendFactoryContext,
   ) {
+    this.context = context;
+    this.containerManager = context.containerManager;
+    this.agentId = context.agentId;
+    this.workspaceDir = context.workspaceDir;
     this.id = config.id ?? 'docker';
     this.label = config.label ?? `Docker (${config.image})`;
     this.username = config.username ?? DOCKER_DEFAULT_USERNAME;
@@ -197,7 +215,12 @@ class DockerExecBackend implements ExecBackend {
   }
 
   async ensure(): Promise<void> {
-    await this.containerManager.ensureWorkspaceContainer(this.agentId, this.config);
+    const entry = await this.containerManager.ensureWorkspaceContainer(this.agentId, this.config);
+    await this.context.setSandboxStatus?.({
+      status: 'running',
+      externalId: entry.id,
+      lastSeenAt: new Date().toISOString(),
+    });
   }
 
   async exec(command: string): Promise<ExecResult> {
@@ -216,6 +239,7 @@ class DockerExecBackend implements ExecBackend {
 
   async shutdown(): Promise<void> {
     await this.containerManager.stopWorkspaceContainer(this.agentId);
+    await this.context.setSandboxStatus?.({ status: 'stopped' });
   }
 }
 
@@ -233,7 +257,10 @@ class HostExecBackend implements ExecBackend {
   private readonly env: Record<string, string> | undefined;
   private readonly timeoutMs: number;
 
-  constructor(config: HostExecBackendConfig, _workspaceDir: string) {
+  private readonly context: BackendFactoryContext;
+
+  constructor(config: HostExecBackendConfig, context: BackendFactoryContext) {
+    this.context = context;
     this.id = config.id ?? 'host';
     this.label = config.label ?? 'Host shell';
     this.username = process.env['USER'] ?? 'unknown';
@@ -251,7 +278,12 @@ class HostExecBackend implements ExecBackend {
   }
 
   async ensure(): Promise<void> {
-    // No-op — host shell is always ready.
+    // Host shell is always ready; mark the row 'running' (idempotent) so
+    // operators can see it's been claimed at least once.
+    await this.context.setSandboxStatus?.({
+      status: 'running',
+      lastSeenAt: new Date().toISOString(),
+    });
   }
 
   async syncSkills(skills: SyncSkillEntry[]): Promise<void> {
@@ -304,7 +336,7 @@ class HostExecBackend implements ExecBackend {
   }
 
   async shutdown(): Promise<void> {
-    // No-op.
+    await this.context.setSandboxStatus?.({ status: 'stopped' });
   }
 }
 
@@ -395,6 +427,12 @@ class E2BExecBackend implements ExecBackend {
           apiKey,
           timeoutMs: this.sandboxTimeoutMs,
         });
+        await this.context.setSandboxStatus?.({
+          status: 'running',
+          externalId: this.sandbox.sandboxId,
+          lastSeenAt: new Date().toISOString(),
+        });
+        await this.replayPendingSkillSync();
         return;
       } catch {
         // Sandbox gone (killed / expired) — create a new one.
@@ -416,6 +454,11 @@ class E2BExecBackend implements ExecBackend {
       template: this.template,
       cwd: this.agentHome,
       updatedAt: new Date().toISOString(),
+    });
+    await this.context.setSandboxStatus?.({
+      status: 'running',
+      externalId: this.sandbox.sandboxId,
+      lastSeenAt: new Date().toISOString(),
     });
 
     // Replay any skill sync that was queued while the sandbox was disconnected.
@@ -520,6 +563,7 @@ class E2BExecBackend implements ExecBackend {
       // Already paused or gone — ignore.
     }
     this.sandbox = null;
+    await this.context.setSandboxStatus?.({ status: 'stopped' });
   }
 
   private async loadState(): Promise<E2BBackendPersisted | null> {
@@ -538,16 +582,11 @@ class E2BExecBackend implements ExecBackend {
 // ── Register built-in backends ────────────────────────────────────────────
 
 registerExecBackend('docker', (config, context) =>
-  new DockerExecBackend(
-    config as DockerExecBackendConfig,
-    context.containerManager,
-    context.agentId,
-    context.workspaceDir,
-  ),
+  new DockerExecBackend(config as DockerExecBackendConfig, context),
 );
 
 registerExecBackend('host', (config, context) =>
-  new HostExecBackend(config as HostExecBackendConfig, context.workspaceDir),
+  new HostExecBackend(config as HostExecBackendConfig, context),
 );
 
 registerExecBackend('e2b', (config, context) =>
@@ -618,10 +657,15 @@ export class ExecBackendManager {
       type: string;
       config: Record<string, unknown>;
     }>,
-    context: Omit<BackendFactoryContext, 'getRuntimeState' | 'setRuntimeState'>,
-    runtimeStateAccess: {
-      get: (sandboxId: string) => Promise<Record<string, unknown> | null>;
-      set: (sandboxId: string, state: Record<string, unknown>) => Promise<void>;
+    context: Omit<BackendFactoryContext, 'getRuntimeState' | 'setRuntimeState' | 'setSandboxStatus'>,
+    sandboxAccess: {
+      getRuntimeState: (sandboxId: string) => Promise<Record<string, unknown> | null>;
+      setRuntimeState: (sandboxId: string, state: Record<string, unknown>) => Promise<void>;
+      setStatus: (sandboxId: string, patch: {
+        status?: 'provisioning' | 'running' | 'paused' | 'stopped' | 'gone';
+        externalId?: string | null;
+        lastSeenAt?: string;
+      }) => Promise<void>;
     },
   ): ExecBackendManager {
     if (rows.length === 0) {
@@ -630,8 +674,9 @@ export class ExecBackendManager {
     const backends = rows.map((row) => {
       const ctx: BackendFactoryContext = {
         ...context,
-        getRuntimeState: () => runtimeStateAccess.get(row.id),
-        setRuntimeState: (state) => runtimeStateAccess.set(row.id, state),
+        getRuntimeState: () => sandboxAccess.getRuntimeState(row.id),
+        setRuntimeState: (state) => sandboxAccess.setRuntimeState(row.id, state),
+        setSandboxStatus: (patch) => sandboxAccess.setStatus(row.id, patch),
       };
       const cfg = { ...row.config, type: row.type, id: row.alias } as ExecBackendConfig;
       return createExecBackend(cfg, ctx);
