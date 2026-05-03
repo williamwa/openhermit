@@ -54,6 +54,8 @@ test('ensureWorkspaceContainer creates a new container when none exists', async 
 
   const entry = await manager.ensureWorkspaceContainer('default', {
     image: 'ubuntu:24.04',
+    mount_target: '/root',
+    username: 'root',
   });
 
   assert.equal(entry.status, 'running');
@@ -83,6 +85,8 @@ test('ensureWorkspaceContainer reuses running container', async (t) => {
 
   const entry = await manager.ensureWorkspaceContainer('default', {
     image: 'ubuntu:24.04',
+    mount_target: '/root',
+    username: 'root',
   });
 
   assert.equal(entry.status, 'running');
@@ -108,6 +112,8 @@ test('ensureWorkspaceContainer restarts stopped container', async (t) => {
 
   const entry = await manager.ensureWorkspaceContainer('default', {
     image: 'ubuntu:24.04',
+    mount_target: '/root',
+    username: 'root',
   });
 
   assert.equal(entry.status, 'running');
@@ -123,7 +129,7 @@ test('stopWorkspaceContainer stops a running container', async (t) => {
   ]);
   const manager = new DockerContainerManager(workspace, { runner });
 
-  await manager.ensureWorkspaceContainer('default', { image: 'ubuntu:24.04' });
+  await manager.ensureWorkspaceContainer('default', { image: 'ubuntu:24.04', mount_target: '/root', username: 'root' });
   await manager.stopWorkspaceContainer('default');
 
   const stopCall = runner.calls[2]!;
@@ -150,7 +156,7 @@ test('ensureWorkspaceContainer surfaces docker failures', async (t) => {
   const manager = new DockerContainerManager(workspace, { runner });
 
   await assert.rejects(
-    () => manager.ensureWorkspaceContainer('default', { image: 'ubuntu:24.04' }),
+    () => manager.ensureWorkspaceContainer('default', { image: 'ubuntu:24.04', mount_target: '/root', username: 'root' }),
     (error: unknown) => {
       assert.ok(error instanceof OpenHermitError);
       assert.equal(error.code, 'docker_run_failed');

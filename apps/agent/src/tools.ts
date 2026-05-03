@@ -13,7 +13,7 @@ import { createInstructionToolset } from './tools/instruction.js';
 import { createWebToolset } from './tools/web.js';
 import { createSessionToolset } from './tools/session.js';
 import { createUserToolset } from './tools/user.js';
-import { createExecToolset } from './tools/workspace-exec.js';
+import { createExecToolset } from './tools/sandbox-exec.js';
 import { createScheduleToolset } from './tools/schedule.js';
 
 export type {

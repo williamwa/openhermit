@@ -1410,6 +1410,7 @@ export class AgentRunner implements SessionRuntime {
           this.scope.agentId,
           this.options.workspace.root,
           this.options.skillStore,
+          this.getOrCreateExecBackendManager(input.config).getDefault().agentHome,
         );
 
     if (input.tools) {

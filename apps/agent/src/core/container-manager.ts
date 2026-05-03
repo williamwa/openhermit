@@ -5,7 +5,6 @@ import { OpenHermitError, NotFoundError, ValidationError } from '@openhermit/sha
 
 import { BoundedString, DEFAULT_EXEC_OUTPUT_MAX_BYTES } from './bounded-string.js';
 import {
-  AGENT_CONTAINER_HOME,
   type ContainerProcessResult,
   type ContainerRegistryEntry,
   type ContainerStatus,
@@ -246,7 +245,7 @@ export class DockerContainerManager {
     config: WorkspaceContainerConfig,
   ): Promise<ContainerRegistryEntry> {
     const name = this.containerName('workspace');
-    const mountTarget = AGENT_CONTAINER_HOME;
+    const mountTarget = config.mount_target;
 
     const liveContainers = await this.listLiveContainers();
     const live = liveContainers.find((c) => c.names === name);
@@ -295,6 +294,9 @@ export class DockerContainerManager {
     }
     if (config.cpu_shares) {
       dockerArgs.push('--cpu-shares', String(config.cpu_shares));
+    }
+    if (config.username && config.username !== 'root') {
+      dockerArgs.push('--user', config.username);
     }
 
     dockerArgs.push(config.image, 'sleep', 'infinity');
@@ -356,7 +358,6 @@ export class DockerContainerManager {
             image: 'unknown',
             type: 'workspace' as const,
             mount: '.',
-            mount_target: AGENT_CONTAINER_HOME,
             created: new Date().toISOString(),
           }),
           status: 'running',

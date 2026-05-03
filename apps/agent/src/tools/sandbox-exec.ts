@@ -1,7 +1,6 @@
 import { Type, type Static } from '@mariozechner/pi-ai';
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 
-import { AGENT_CONTAINER_HOME } from '../core/types.js';
 import {
   type Toolset,
   type ToolContext,
@@ -10,7 +9,7 @@ import {
   formatJson,
 } from './shared.js';
 
-const WorkspaceExecParams = Type.Object({
+const SandboxExecParams = Type.Object({
   command: Type.String({
     description: 'Shell command to execute.',
   }),
@@ -21,16 +20,16 @@ const WorkspaceExecParams = Type.Object({
   ),
 });
 
-type WorkspaceExecArgs = Static<typeof WorkspaceExecParams>;
+type SandboxExecArgs = Static<typeof SandboxExecParams>;
 
-export const createWorkspaceExecTool = (
+export const createSandboxExecTool = (
   context: ToolContext,
-): AgentTool<typeof WorkspaceExecParams> => ({
+): AgentTool<typeof SandboxExecParams> => ({
   name: 'exec',
   label: 'Exec',
   description: buildExecDescription(context),
-  parameters: WorkspaceExecParams,
-  execute: async (_toolCallId, args: WorkspaceExecArgs) => {
+  parameters: SandboxExecParams,
+  execute: async (_toolCallId, args: SandboxExecArgs) => {
     ensureAutonomyAllows(context.security, 'exec');
 
     if (!context.execBackendManager) {
@@ -66,14 +65,15 @@ export const createWorkspaceExecTool = (
 
 function buildExecDescription(context: ToolContext): string {
   if (!context.execBackendManager) {
-    return `Execute a shell command. The workspace is at ${AGENT_CONTAINER_HOME}. Use this for all file operations (read, write, search, delete), build tools, language runtimes, tests, and any other shell task.`;
+    return `Execute a shell command. Use this for all file operations (read, write, search, delete), build tools, language runtimes, tests, and any other shell task.`;
   }
   const backends = context.execBackendManager.list();
   if (backends.length === 1) {
-    return `Execute a shell command on ${backends[0]!.label}. Use this for all file operations, build tools, language runtimes, tests, and any other shell task.`;
+    const b = backends[0]!;
+    return `Execute a shell command on ${b.label}. The workspace is at \`${b.agentHome}\`. Use this for all file operations, build tools, language runtimes, tests, and any other shell task.`;
   }
   const backendList = backends
-    .map((b) => `- \`${b.id}\`: ${b.label}`)
+    .map((b) => `- \`${b.id}\`: ${b.label} (workspace at \`${b.agentHome}\`)`)
     .join('\n');
   return `Execute a shell command. Use the \`backend\` parameter to choose an execution environment.\n\nAvailable backends:\n${backendList}\n\nUse this for all file operations, build tools, language runtimes, tests, and any other shell task.`;
 }
@@ -101,5 +101,5 @@ The execution environment is persistent. Installed packages and state survive be
 export const createExecToolset = (context: ToolContext): Toolset => ({
   id: 'exec',
   description: EXEC_DESCRIPTION,
-  tools: [createWorkspaceExecTool(context)],
+  tools: [createSandboxExecTool(context)],
 });

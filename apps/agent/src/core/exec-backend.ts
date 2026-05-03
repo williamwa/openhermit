@@ -4,12 +4,19 @@ import { NotFoundError, ValidationError } from '@openhermit/shared';
 
 import { BoundedString, DEFAULT_EXEC_OUTPUT_MAX_BYTES } from './bounded-string.js';
 import {
-  AGENT_CONTAINER_HOME,
   type ContainerProcessResult,
   type WorkspaceContainerConfig,
   type WorkspaceContainerLifecycle,
 } from './types.js';
 import type { DockerContainerManager } from './container-manager.js';
+
+// Per-backend defaults for the agent's home directory inside the exec env.
+// Docker: ubuntu:24.04 ships only with `root`, so `/root`.
+// E2B: official sandboxes default to a `user` account at `/home/user`.
+const DOCKER_DEFAULT_USERNAME = 'root';
+const DOCKER_DEFAULT_AGENT_HOME = '/root';
+const E2B_DEFAULT_USERNAME = 'user';
+const E2B_DEFAULT_AGENT_HOME = '/home/user';
 
 // ── Result type (re-uses existing ContainerProcessResult) ─────────────────
 
@@ -21,6 +28,10 @@ export interface ExecBackend {
   readonly id: string;
   readonly type: string;
   readonly label: string;
+  /** Linux username commands run as inside this backend. */
+  readonly username: string;
+  /** Path that maps to the agent's workspace inside the exec env. */
+  readonly agentHome: string;
   /** Idempotent setup (start container, etc.). */
   ensure(): Promise<void>;
   /** Execute a shell command and return the result. */
@@ -36,6 +47,10 @@ export interface DockerExecBackendConfig {
   type: 'docker';
   label?: string;
   image: string;
+  /** Linux user to run commands as. Defaults to `root` for ubuntu images. */
+  username?: string;
+  /** Workspace mount path inside the container. Defaults to the user's home. */
+  agent_home?: string;
   memory_limit?: string;
   cpu_shares?: number;
   lifecycle?: WorkspaceContainerLifecycle;
@@ -45,6 +60,7 @@ export interface HostExecBackendConfig {
   id?: string;
   type: 'host';
   label?: string;
+  /** Defaults to the agent's workspace dir. */
   cwd?: string;
   shell?: string;
   env?: Record<string, string>;
@@ -56,9 +72,12 @@ export interface E2BExecBackendConfig {
   type: 'e2b';
   label?: string;
   template: string;
+  /** Linux user inside the sandbox. Defaults to e2b's `user`. */
+  username?: string;
+  /** Working directory inside the sandbox. Defaults to `/home/user`. */
+  agent_home?: string;
   timeout_ms?: number;
   sandbox_timeout_ms?: number;
-  cwd?: string;
 }
 
 export type ExecBackendConfig =
@@ -105,6 +124,8 @@ class DockerExecBackend implements ExecBackend {
   readonly id: string;
   readonly type = 'docker';
   readonly label: string;
+  readonly username: string;
+  readonly agentHome: string;
   private readonly config: WorkspaceContainerConfig;
 
   constructor(
@@ -114,8 +135,12 @@ class DockerExecBackend implements ExecBackend {
   ) {
     this.id = config.id ?? 'docker';
     this.label = config.label ?? `Docker (${config.image})`;
+    this.username = config.username ?? DOCKER_DEFAULT_USERNAME;
+    this.agentHome = config.agent_home ?? DOCKER_DEFAULT_AGENT_HOME;
     this.config = {
       image: config.image,
+      mount_target: this.agentHome,
+      username: this.username,
       ...(config.memory_limit ? { memory_limit: config.memory_limit } : {}),
       ...(config.cpu_shares ? { cpu_shares: config.cpu_shares } : {}),
       ...(config.lifecycle ? { lifecycle: config.lifecycle } : {}),
@@ -143,7 +168,8 @@ class HostExecBackend implements ExecBackend {
   readonly id: string;
   readonly type = 'host';
   readonly label: string;
-  private readonly cwd: string;
+  readonly username: string;
+  readonly agentHome: string;
   private readonly shell: string;
   private readonly env: Record<string, string> | undefined;
   private readonly timeoutMs: number;
@@ -151,7 +177,10 @@ class HostExecBackend implements ExecBackend {
   constructor(config: HostExecBackendConfig, workspaceDir: string) {
     this.id = config.id ?? 'host';
     this.label = config.label ?? 'Host shell';
-    this.cwd = config.cwd ?? workspaceDir;
+    this.username = process.env['USER'] ?? 'unknown';
+    // Host backend has no container — the workspace dir IS the agent's home
+    // from its perspective (no path translation needed).
+    this.agentHome = config.cwd ?? workspaceDir;
     this.shell = config.shell ?? 'sh';
     this.env = config.env;
     this.timeoutMs = config.timeout_ms ?? DEFAULT_TIMEOUT_MS;
@@ -166,7 +195,7 @@ class HostExecBackend implements ExecBackend {
 
     return new Promise<ExecResult>((resolve, reject) => {
       const child = spawn(this.shell, ['-lc', command], {
-        cwd: this.cwd,
+        cwd: this.agentHome,
         env: { ...process.env, ...(this.env ?? {}) },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
@@ -224,10 +253,11 @@ class E2BExecBackend implements ExecBackend {
   readonly id: string;
   readonly type = 'e2b';
   readonly label: string;
+  readonly username: string;
+  readonly agentHome: string;
   private readonly template: string;
   private readonly timeoutMs: number;
   private readonly sandboxTimeoutMs: number;
-  private readonly cwd: string;
 
   private sandbox: import('e2b').Sandbox | null = null;
 
@@ -240,7 +270,8 @@ class E2BExecBackend implements ExecBackend {
     this.template = config.template;
     this.timeoutMs = config.timeout_ms ?? E2B_DEFAULT_TIMEOUT_MS;
     this.sandboxTimeoutMs = config.sandbox_timeout_ms ?? E2B_DEFAULT_SANDBOX_TIMEOUT_MS;
-    this.cwd = config.cwd ?? AGENT_CONTAINER_HOME;
+    this.username = config.username ?? E2B_DEFAULT_USERNAME;
+    this.agentHome = config.agent_home ?? E2B_DEFAULT_AGENT_HOME;
   }
 
   async ensure(): Promise<void> {
@@ -276,12 +307,12 @@ class E2BExecBackend implements ExecBackend {
     });
 
     // Ensure workspace directory exists.
-    await this.sandbox.commands.run(`mkdir -p ${this.cwd}`);
+    await this.sandbox.commands.run(`mkdir -p ${this.agentHome}`);
 
     await this.saveState({
       sandboxId: this.sandbox.sandboxId,
       template: this.template,
-      cwd: this.cwd,
+      cwd: this.agentHome,
       updatedAt: new Date().toISOString(),
     });
   }
@@ -294,7 +325,7 @@ class E2BExecBackend implements ExecBackend {
     const startedAt = Date.now();
     try {
       const result = await this.sandbox!.commands.run(command, {
-        cwd: this.cwd,
+        cwd: this.agentHome,
         timeoutMs: this.timeoutMs,
       });
       return {

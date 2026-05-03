@@ -7,13 +7,11 @@ import path from 'node:path';
 
 import type { SkillStore } from '@openhermit/store';
 
-import { AGENT_CONTAINER_HOME } from './core/types.js';
-
 export interface SkillIndexEntry {
   id: string;
   name: string;
   description: string;
-  /** Container-side path under {AGENT_CONTAINER_HOME}/.openhermit/skills/... */
+  /** Path the agent uses inside its exec env, e.g. `<agentHome>/.openhermit/skills/<id>`. */
   path: string;
   source: 'system' | 'workspace';
 }
@@ -91,8 +89,11 @@ export const loadSkillIndex = async (
   agentId: string,
   workspaceRoot: string,
   skillStore?: SkillStore,
+  /** Path the agent's workspace appears at inside its exec env. Defaults to the host workspace path (host backend). */
+  agentHome?: string,
 ): Promise<SkillIndexEntry[]> => {
   const entries = new Map<string, SkillIndexEntry>();
+  const home = agentHome ?? workspaceRoot;
 
   // 1. DB-enabled (system) skills — synced into <workspace>/.openhermit/skills/system/
   if (skillStore) {
@@ -102,7 +103,7 @@ export const loadSkillIndex = async (
         id: skill.id,
         name: skill.name,
         description: skill.description,
-        path: `${AGENT_CONTAINER_HOME}/.openhermit/skills/system/${skill.id}`,
+        path: `${home}/.openhermit/skills/system/${skill.id}`,
         source: 'system',
       });
     }
@@ -112,7 +113,7 @@ export const loadSkillIndex = async (
   const workspaceSkillsDir = path.join(workspaceRoot, '.openhermit', 'skills');
   const wsSkills = await scanSkillDirectory(
     workspaceSkillsDir,
-    `${AGENT_CONTAINER_HOME}/.openhermit/skills`,
+    `${home}/.openhermit/skills`,
     'workspace',
     { exclude: new Set(['system']) },
   );

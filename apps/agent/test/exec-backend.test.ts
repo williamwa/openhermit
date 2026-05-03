@@ -38,6 +38,8 @@ const makeFakeBackend = (id: string, type = 'host'): ExecBackend => ({
   id,
   type,
   label: id,
+  username: 'tester',
+  agentHome: '/tmp/fake',
   ensure: async () => {},
   exec: async () => ({ stdout: '', stderr: '', exitCode: 0, durationMs: 0 }),
   shutdown: async () => {},
