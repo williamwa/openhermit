@@ -34,6 +34,7 @@ import {
 import { AgentInstanceManager } from './agent-instance.js';
 import { syncSkillMounts } from './skill-mounts.js';
 import { findConflictingHostAgent } from './host-backend-policy.js';
+import { backfillSandboxes } from './sandbox-backfill.js';
 import { createGatewayApp } from './app.js';
 import { loadGatewayConfig } from './config.js';
 import { attachGatewayWs } from './ws-handler.js';
@@ -266,6 +267,13 @@ export const main = async (): Promise<void> => {
 
   if (sandboxStore) {
     instances.setSandboxStore(sandboxStore);
+    if (agentStore && configStore) {
+      try {
+        await backfillSandboxes(agentStore, configStore, sandboxStore, logStartup);
+      } catch (error) {
+        logStartup(`sandbox backfill failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
   }
 
   if (skillStore) {
