@@ -78,8 +78,6 @@ export interface BackendFactoryContext {
   containerManager: DockerContainerManager;
   agentId: string;
   workspaceDir: string;
-  /** Host directory containing skill symlinks, mounted at /skills in containers. */
-  skillMountsDir?: string;
   /** Persist backend state across restarts. */
   getBackendState?: () => Promise<Record<string, unknown> | null>;
   setBackendState?: (state: Record<string, unknown>) => Promise<void>;
@@ -113,7 +111,6 @@ class DockerExecBackend implements ExecBackend {
     config: DockerExecBackendConfig,
     private readonly containerManager: DockerContainerManager,
     private readonly agentId: string,
-    skillMountsDir?: string,
   ) {
     this.id = config.id ?? 'docker';
     this.label = config.label ?? `Docker (${config.image})`;
@@ -122,7 +119,6 @@ class DockerExecBackend implements ExecBackend {
       ...(config.memory_limit ? { memory_limit: config.memory_limit } : {}),
       ...(config.cpu_shares ? { cpu_shares: config.cpu_shares } : {}),
       ...(config.lifecycle ? { lifecycle: config.lifecycle } : {}),
-      ...(skillMountsDir ? { skillMountsDir } : {}),
     };
   }
 
@@ -353,7 +349,7 @@ class E2BExecBackend implements ExecBackend {
 // ── Register built-in backends ────────────────────────────────────────────
 
 registerExecBackend('docker', (config, context) =>
-  new DockerExecBackend(config as DockerExecBackendConfig, context.containerManager, context.agentId, context.skillMountsDir),
+  new DockerExecBackend(config as DockerExecBackendConfig, context.containerManager, context.agentId),
 );
 
 registerExecBackend('host', (config, context) =>

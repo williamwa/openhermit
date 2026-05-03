@@ -114,15 +114,13 @@ export class AgentInstanceManager {
       );
     }
 
-    // 2. Security — local data dir (skill-mounts) lives at
-    //    OPENHERMIT_HOME/agents/<agentId>; AgentSecurity derives it.
+    // 2. Security — config/policy/secrets live in the database; nothing on disk.
     const security = new AgentSecurity({
       agentId,
       workspace,
       configStore: this.configStore,
       secretStore: this.secretStore,
     });
-    await security.init();
     await security.load();
 
     // 3. Reconcile workspace_root in the persisted config

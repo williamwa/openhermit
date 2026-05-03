@@ -339,11 +339,10 @@ export const main = async (): Promise<void> => {
         logStartup(`failed to start agent ${agent.agentId}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-    // Sync skill-mounts symlinks for all agents.
+    // Sync platform skills into each agent's workspace.
     if (skillStore) {
       for (const agent of dbAgents) {
-        const skillMountsDir = `${resolveAgentDataDir(agent.agentId)}/skill-mounts`;
-        await syncSkillMounts(agent.agentId, skillMountsDir, skillStore);
+        await syncSkillMounts(agent.agentId, agent.workspaceDir, skillStore);
       }
     }
     logStartup(`${dbAgents.length} agent(s) loaded`);

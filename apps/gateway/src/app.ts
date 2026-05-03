@@ -1,5 +1,4 @@
 import crypto from 'node:crypto';
-import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { syncSkillMounts } from './skill-mounts.js';
 
@@ -37,7 +36,6 @@ import {
   ValidationError,
   getErrorMessage,
   jsonError,
-  resolveAgentDataDir,
   resolveGatewayDir,
   resolveOpenHermitHome,
 } from '@openhermit/shared';
@@ -722,10 +720,6 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
         500,
       );
     }
-    // Make sure the per-agent local data dir (skill-mounts) exists.
-    // Path is derived from OPENHERMIT_HOME + agentId.
-    await fs.mkdir(resolveAgentDataDir(record.agentId), { recursive: true });
-
     const templateConfig = buildDefaultAgentConfig(record.workspaceDir);
     const templateSecurity = {
       autonomy_level: 'full',
@@ -1615,7 +1609,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     for (const id of ids) {
       const runner = instances.getRunner(id);
       if (runner) {
-        await syncSkillMounts(id, runner.security.getSkillMountsDir(), store);
+        await syncSkillMounts(id, runner.workspace.root, store);
       }
     }
   };

@@ -1,7 +1,3 @@
-import { promises as fs } from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-
 import { z } from 'zod';
 
 import { NotFoundError, ValidationError } from '@openhermit/shared';
@@ -23,7 +19,6 @@ export interface AgentSecurityOptions {
   workspace: AgentWorkspace;
   configStore: AgentConfigStore;
   secretStore: SecretStore;
-  openHermitHome?: string;
 }
 
 // ── Config schema (Zod) ───────────────────────────────────────────────────
@@ -154,9 +149,6 @@ export class AgentSecurity {
 
   private secrets: SecretsMap = {};
 
-  /** Local on-disk dir, used only for skill-mounts symlinks now. */
-  readonly rootDir: string;
-
   readonly agentId: string;
 
   private readonly configStore: AgentConfigStore;
@@ -167,25 +159,6 @@ export class AgentSecurity {
     this.agentId = options.agentId;
     this.configStore = options.configStore;
     this.secretStore = options.secretStore;
-    const baseDir =
-      options.openHermitHome ??
-      process.env.OPENHERMIT_HOME ??
-      path.join(os.homedir(), '.openhermit');
-
-    this.rootDir = path.join(baseDir, options.agentId);
-  }
-
-  getSkillMountsDir(): string {
-    return path.join(this.rootDir, 'skill-mounts');
-  }
-
-  /**
-   * Ensure the agent's local directory exists. Config / security policy /
-   * secrets all live in the database; the only thing on disk now is the
-   * skill-mounts symlink tree, which lives under this rootDir.
-   */
-  async init(): Promise<void> {
-    await fs.mkdir(this.rootDir, { recursive: true });
   }
 
   async load(): Promise<void> {

@@ -104,7 +104,7 @@ test('loadSkillIndex merges DB and workspace skills', async (t) => {
   assert.ok(ids.includes('ws-skill'));
 });
 
-test('loadSkillIndex DB skills take priority over workspace skills with same id', async (t) => {
+test('loadSkillIndex workspace skills take priority over DB skills with same id', async (t) => {
   const workspaceRoot = await createTempDir(t, 'workspace-');
   const wsSkillsDir = path.join(workspaceRoot, '.openhermit', 'skills', 'shared');
   await fs.mkdir(wsSkillsDir, { recursive: true });
@@ -121,8 +121,22 @@ test('loadSkillIndex DB skills take priority over workspace skills with same id'
 
   const skills = await loadSkillIndex('agent-1', workspaceRoot, fakeStore as any);
   assert.equal(skills.length, 1);
-  assert.equal(skills[0]!.name, 'DB Version');
-  assert.equal(skills[0]!.source, 'system');
+  assert.equal(skills[0]!.name, 'WS Version');
+  assert.equal(skills[0]!.source, 'workspace');
+});
+
+test('loadSkillIndex skips the system/ subdir when scanning workspace skills', async (t) => {
+  const workspaceRoot = await createTempDir(t, 'workspace-');
+  const sysSkillDir = path.join(workspaceRoot, '.openhermit', 'skills', 'system', 'sys-only');
+  await fs.mkdir(sysSkillDir, { recursive: true });
+  await fs.writeFile(
+    path.join(sysSkillDir, 'SKILL.md'),
+    '---\nname: Sys Only\ndescription: System skill copied in\n---\n',
+  );
+
+  // No DB store: workspace scan must not pick up files under system/.
+  const skills = await loadSkillIndex('agent-1', workspaceRoot);
+  assert.deepEqual(skills, []);
 });
 
 test('loadSkillIndex works without skill store', async (t) => {

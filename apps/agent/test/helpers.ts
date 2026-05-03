@@ -86,7 +86,6 @@ export interface WorkspaceFixture {
 }
 
 export interface SecurityFixture extends WorkspaceFixture {
-  openHermitHome: string;
   security: AgentSecurity;
   configStore: AgentConfigStore;
   secretStore: SecretStore;
@@ -133,7 +132,6 @@ export const createSecurityFixture = async (
   },
 ): Promise<SecurityFixture> => {
   const workspaceFixture = await createWorkspaceFixture(t);
-  const openHermitHome = await createTempDir(t, 'openhermit-home-');
 
   const configStore = new MemoryAgentConfigStore();
   const secretStore = new MemorySecretStore();
@@ -159,14 +157,10 @@ export const createSecurityFixture = async (
     workspace: workspaceFixture.workspace,
     configStore,
     secretStore,
-    openHermitHome,
   });
-
-  await security.init();
 
   return {
     ...workspaceFixture,
-    openHermitHome,
     security,
     configStore,
     secretStore,

@@ -259,14 +259,12 @@ export class AgentRunner implements SessionRuntime {
 
   private getOrCreateExecBackendManager(config: AgentConfig): ExecBackendManager {
     if (!this.execBackendManager) {
-      const skillMountsDir = this.options.security.getSkillMountsDir();
       this.execBackendManager = ExecBackendManager.fromConfig(
         config.exec,
         {
           containerManager: this.containerManager,
           agentId: this.scope.agentId,
           workspaceDir: this.options.workspace.root,
-          ...(skillMountsDir ? { skillMountsDir } : {}),
           ...(this.options.getBackendState ? { getBackendState: this.options.getBackendState } : {}),
           ...(this.options.setBackendState ? { setBackendState: this.options.setBackendState } : {}),
         },

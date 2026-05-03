@@ -13,7 +13,7 @@ export interface SkillIndexEntry {
   id: string;
   name: string;
   description: string;
-  /** Container-side path (e.g. /skills/<id> or {AGENT_CONTAINER_HOME}/.openhermit/skills/<id>) */
+  /** Container-side path under {AGENT_CONTAINER_HOME}/.openhermit/skills/... */
   path: string;
   source: 'system' | 'workspace';
 }
@@ -42,11 +42,15 @@ export const scanSkillDirectory = async (
   baseDir: string,
   containerBasePath: string,
   source: 'system' | 'workspace',
+  options: { exclude?: ReadonlySet<string> } = {},
 ): Promise<SkillIndexEntry[]> => {
   let entries: string[];
   try {
-    entries = await readdir(baseDir, { withFileTypes: true }).then(
-      (dirents) => dirents.filter((d) => d.isDirectory()).map((d) => d.name),
+    entries = await readdir(baseDir, { withFileTypes: true }).then((dirents) =>
+      dirents
+        .filter((d) => d.isDirectory())
+        .map((d) => d.name)
+        .filter((name) => !options.exclude?.has(name)),
     );
   } catch {
     return []; // Directory doesn't exist — no skills here.
@@ -76,12 +80,12 @@ export const scanSkillDirectory = async (
 };
 
 /**
- * Load the effective skill index for an agent by merging:
- * 1. DB-enabled skills (system/owner-managed, mounted at /skills/)
- * 2. Workspace-scanned skills ({AGENT_CONTAINER_HOME}/.openhermit/skills/)
- * 3. Built-in skills (project repo skills/ directory)
+ * Load the effective skill index for an agent. Both layers live under the
+ * workspace's `.openhermit/skills/` directory:
+ * - System skills (DB-managed, copied into `skills/system/<id>`)
+ * - Workspace skills (user-installed, in `skills/<id>` excluding `system/`)
  *
- * Higher-numbered sources won't override lower-numbered ones.
+ * Workspace skills win on id conflicts.
  */
 export const loadSkillIndex = async (
   agentId: string,
@@ -90,7 +94,7 @@ export const loadSkillIndex = async (
 ): Promise<SkillIndexEntry[]> => {
   const entries = new Map<string, SkillIndexEntry>();
 
-  // 1. DB-enabled skills (higher priority)
+  // 1. DB-enabled (system) skills — synced into <workspace>/.openhermit/skills/system/
   if (skillStore) {
     const dbSkills = await skillStore.listEnabled(agentId);
     for (const skill of dbSkills) {
@@ -98,23 +102,22 @@ export const loadSkillIndex = async (
         id: skill.id,
         name: skill.name,
         description: skill.description,
-        path: `/skills/${skill.id}`,
+        path: `${AGENT_CONTAINER_HOME}/.openhermit/skills/system/${skill.id}`,
         source: 'system',
       });
     }
   }
 
-  // 2. Workspace skills (won't override DB skills)
+  // 2. Workspace skills — overwrite system entries on id conflict.
   const workspaceSkillsDir = path.join(workspaceRoot, '.openhermit', 'skills');
   const wsSkills = await scanSkillDirectory(
     workspaceSkillsDir,
     `${AGENT_CONTAINER_HOME}/.openhermit/skills`,
     'workspace',
+    { exclude: new Set(['system']) },
   );
   for (const skill of wsSkills) {
-    if (!entries.has(skill.id)) {
-      entries.set(skill.id, skill);
-    }
+    entries.set(skill.id, skill);
   }
 
   return [...entries.values()].sort((a, b) => a.name.localeCompare(b.name));

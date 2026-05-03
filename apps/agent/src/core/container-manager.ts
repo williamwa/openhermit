@@ -296,9 +296,6 @@ export class DockerContainerManager {
     if (config.cpu_shares) {
       dockerArgs.push('--cpu-shares', String(config.cpu_shares));
     }
-    if (config.skillMountsDir) {
-      dockerArgs.push('-v', `${config.skillMountsDir}:/skills:ro`);
-    }
 
     dockerArgs.push(config.image, 'sleep', 'infinity');
 
