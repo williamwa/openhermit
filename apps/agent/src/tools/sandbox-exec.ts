@@ -13,9 +13,9 @@ const SandboxExecParams = Type.Object({
   command: Type.String({
     description: 'Shell command to execute.',
   }),
-  backend: Type.Optional(
+  alias: Type.Optional(
     Type.String({
-      description: 'Execution backend id. Omit to use the default backend.',
+      description: 'Sandbox alias. Omit to use the default sandbox.',
     }),
   ),
 });
@@ -41,7 +41,7 @@ export const createSandboxExecTool = (
       };
     }
 
-    const backend = context.execBackendManager.get(args.backend);
+    const backend = context.execBackendManager.get(args.alias);
     await backend.ensure();
     context.onExec?.();
     const result = await backend.exec(args.command);
@@ -75,7 +75,7 @@ function buildExecDescription(context: ToolContext): string {
   const backendList = backends
     .map((b) => `- \`${b.id}\`: ${b.label} (workspace at \`${b.agentHome}\`)`)
     .join('\n');
-  return `Execute a shell command. Use the \`backend\` parameter to choose an execution environment.\n\nAvailable backends:\n${backendList}\n\nUse this for all file operations, build tools, language runtimes, tests, and any other shell task.`;
+  return `Execute a shell command. Use the \`alias\` parameter to choose a sandbox.\n\nAvailable sandboxes:\n${backendList}\n\nUse this for all file operations, build tools, language runtimes, tests, and any other shell task.`;
 }
 
 // ── Toolset ────────────────────────────────────────────────────────
