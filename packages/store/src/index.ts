@@ -11,6 +11,7 @@ export type {
   SkillStore,
   UserStore,
   InternalStateStore,
+  SandboxStore,
 } from './interfaces.js';
 
 export type {
@@ -40,6 +41,10 @@ export type {
   UserRecord,
   UserIdentity,
   MessageRow,
+  SandboxRecord,
+  SandboxCreateInput,
+  SandboxStatus,
+  SandboxType,
 } from './types.js';
 
 export { STANDALONE_AGENT_ID, standaloneScope } from './types.js';
@@ -59,6 +64,7 @@ export {
   FileSecretStore,
   DbSecretStore,
   DbAgentChannelStore,
+  DbSandboxStore,
   generateSecretsKey,
   runMigrations,
 } from './impl/index.js';

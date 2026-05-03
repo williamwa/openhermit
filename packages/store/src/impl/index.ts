@@ -64,6 +64,7 @@ export { DbSkillStore } from './skill-store.js';
 export { DbScheduleStore } from './schedule-store.js';
 export { DbMcpServerStore } from './mcp-server-store.js';
 export { DbAgentConfigStore } from './agent-config-store.js';
+export { DbSandboxStore } from './sandbox-store.js';
 export { FileSecretStore, type ConfigDirResolver } from './file-secret-store.js';
 export { DbSecretStore, generateSecretsKey } from './db-secret-store.js';
 export {

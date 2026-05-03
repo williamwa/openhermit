@@ -11,7 +11,7 @@ import {
   agentSecrets,
   agentSkills,
   agentMcpServers,
-  containers,
+  sandboxes,
   instructions,
   memories,
   schedules,
@@ -269,7 +269,7 @@ export class DbAgentStore implements AgentStore {
     await this.db.delete(agentSkills).where(eq(agentSkills.agentId, agentId));
     await this.db.delete(agentMcpServers).where(eq(agentMcpServers.agentId, agentId));
     await this.db.delete(memories).where(eq(memories.agentId, agentId));
-    await this.db.delete(containers).where(eq(containers.agentId, agentId));
+    await this.db.delete(sandboxes).where(eq(sandboxes.agentId, agentId));
     await this.db.delete(instructions).where(eq(instructions.agentId, agentId));
     // user_agents has ON DELETE CASCADE — it goes away with the agents row.
     await this.db.delete(agents).where(eq(agents.agentId, agentId));

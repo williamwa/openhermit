@@ -12,6 +12,9 @@ import type {
   MemorySearchOptions,
   MemoryUpdateInput,
   PersistedSessionIndexEntry,
+  SandboxCreateInput,
+  SandboxRecord,
+  SandboxStatus,
   ScheduleCreateInput,
   ScheduleRecord,
   ScheduleRunRecord,
@@ -203,6 +206,27 @@ export interface ScheduleStore {
   startRun(scope: StoreScope, scheduleId: string, sessionId: string, prompt: string): Promise<ScheduleRunRecord>;
   finishRun(scope: StoreScope, runId: number, status: 'completed' | 'failed', error?: string): Promise<ScheduleRunRecord>;
   listRuns(scope: StoreScope, scheduleId: string, limit?: number): Promise<ScheduleRunRecord[]>;
+}
+
+export interface SandboxStore {
+  create(input: SandboxCreateInput): Promise<SandboxRecord>;
+  get(id: string): Promise<SandboxRecord | undefined>;
+  getByAlias(agentId: string, alias: string): Promise<SandboxRecord | undefined>;
+  listByAgent(agentId: string): Promise<SandboxRecord[]>;
+  /** Update mutable fields. Bumps updatedAt automatically. */
+  update(
+    id: string,
+    patch: Partial<{
+      status: SandboxStatus;
+      externalId: string | null;
+      config: Record<string, unknown>;
+      runtimeState: Record<string, unknown>;
+      lastSeenAt: string | null;
+    }>,
+  ): Promise<SandboxRecord | undefined>;
+  delete(id: string): Promise<void>;
+  /** Find the agent (if any) that already has a sandbox of the given type. */
+  findAgentByType(type: string, excludeAgentId?: string): Promise<string | null>;
 }
 
 export interface InternalStateStore {

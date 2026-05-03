@@ -19,6 +19,42 @@ export interface AgentRecord {
   updatedAt: string;
 }
 
+export type SandboxType = 'host' | 'docker' | 'e2b' | 'daytona';
+
+export type SandboxStatus =
+  | 'provisioning'
+  | 'running'
+  | 'paused'
+  | 'stopped'
+  | 'gone';
+
+export interface SandboxRecord {
+  id: string;
+  agentId: string;
+  alias: string;
+  type: SandboxType;
+  externalId: string | null;
+  status: SandboxStatus;
+  /** Backend creation params: image/template, agent_home, username, lifecycle/timeouts. */
+  config: Record<string, unknown>;
+  /** Mutable per-backend state (e.g. e2b pendingSkillManifest). */
+  runtimeState: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  lastSeenAt: string | null;
+}
+
+export interface SandboxCreateInput {
+  id?: string;
+  agentId: string;
+  alias: string;
+  type: SandboxType;
+  externalId?: string | null;
+  status?: SandboxStatus;
+  config?: Record<string, unknown>;
+  runtimeState?: Record<string, unknown>;
+}
+
 export const STANDALONE_AGENT_ID = '__standalone__';
 
 export const standaloneScope: StoreScope = { agentId: STANDALONE_AGENT_ID };

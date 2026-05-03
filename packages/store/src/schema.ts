@@ -133,18 +133,37 @@ export const memories = pgTable('memories', {
   index('idx_memories_agent').on(table.agentId, table.updatedAt),
 ]);
 
-export const containers = pgTable('containers', {
+/**
+ * One row per agent sandbox. Replaces the old `containers` table and
+ * subsumes the per-agent `agents.backend_state` blob. The DB is now the
+ * source of truth for "what sandboxes exist for this agent" — agent boot
+ * reads this table, no exec.backends[] in agent config anymore.
+ *
+ * Each row is identified by a uuid `id`. Within an agent, sandboxes have
+ * a unique `alias` (default `default`) used by exec callers to pick a
+ * target. `external_id` holds the backend-specific handle (docker
+ * container name, e2b sandbox id; null for host).
+ */
+export const sandboxes = pgTable('sandboxes', {
+  id: text('id').primaryKey(),
   agentId: text('agent_id').notNull(),
-  containerName: text('container_name').notNull(),
-  containerType: text('container_type').notNull(),
-  image: text('image').notNull(),
-  status: text('status').notNull(),
-  description: text('description'),
-  metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull(),
+  alias: text('alias').notNull(),
+  /** 'host' | 'docker' | 'e2b' | 'daytona' (future) */
+  type: text('type').notNull(),
+  externalId: text('external_id'),
+  /** 'provisioning' | 'running' | 'paused' | 'stopped' | 'gone' */
+  status: text('status').default('stopped').notNull(),
+  /** Backend creation params: image/template, agent_home, username, lifecycle/timeouts. */
+  config: jsonb('config').$type<Record<string, unknown>>().default({}).notNull(),
+  /** Mutable runtime state (e.g. e2b pendingSkillManifest). Updated as needed. */
+  runtimeState: jsonb('runtime_state').$type<Record<string, unknown>>().default({}).notNull(),
+  createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
+  lastSeenAt: text('last_seen_at'),
 }, (table) => [
-  primaryKey({ columns: [table.agentId, table.containerName] }),
-  index('idx_containers_agent').on(table.agentId, table.containerName),
+  index('idx_sandboxes_agent').on(table.agentId),
+  index('idx_sandboxes_agent_alias').on(table.agentId, table.alias),
+  index('idx_sandboxes_type_external').on(table.type, table.externalId),
 ]);
 
 export const instructions = pgTable('instructions', {
