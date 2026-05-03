@@ -27,7 +27,9 @@ import type {
   DbSkillStore,
   DbUserStore,
   DbAgentChannelStore,
+  SandboxStore,
 } from '@openhermit/store';
+import type { AutoProvisionSandboxConfig } from './config.js';
 import type { ChannelRegistry } from './auth.js';
 import {
   ConflictError,
@@ -205,6 +207,8 @@ export interface GatewayAppOptions {
   configStore?: DbAgentConfigStore | undefined;
   agentChannelStore?: DbAgentChannelStore | undefined;
   instructionStore?: import('@openhermit/store').DbInstructionStore | undefined;
+  sandboxStore?: SandboxStore | undefined;
+  autoProvisionSandbox?: AutoProvisionSandboxConfig | undefined;
   /** Live ChannelRegistry — handlers mutate this when channels are created/revoked. */
   channelRegistry?: ChannelRegistry | undefined;
   auth?: AuthResolverOptions | undefined;
@@ -727,8 +731,29 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
       require_approval_for: [],
     };
 
-    await configStore.setConfig(record.agentId, templateConfig as unknown as Record<string, unknown>);
+    // Sandboxes are now first-class DB rows. When the sandbox store is wired,
+    // strip the legacy exec.backends[] block from the template config and
+    // auto-provision a default sandbox row instead (when configured).
+    const configToWrite = options.sandboxStore
+      ? (() => {
+          const { exec: _exec, ...rest } = templateConfig as unknown as Record<string, unknown>;
+          void _exec;
+          return rest;
+        })()
+      : (templateConfig as unknown as Record<string, unknown>);
+
+    await configStore.setConfig(record.agentId, configToWrite);
     await configStore.setSecurity(record.agentId, templateSecurity);
+
+    if (options.sandboxStore && options.autoProvisionSandbox?.enabled) {
+      const auto = options.autoProvisionSandbox;
+      await options.sandboxStore.create({
+        agentId: record.agentId,
+        alias: 'default',
+        type: auto.type,
+        config: auto.config,
+      });
+    }
 
     // Pre-seed one row per supported builtin channel (all disabled). Owner
     // can flip them on later from the admin / web UI without having to

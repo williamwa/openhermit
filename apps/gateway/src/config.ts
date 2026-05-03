@@ -1,15 +1,27 @@
 import fs from 'node:fs/promises';
 
+export interface AutoProvisionSandboxConfig {
+  enabled: boolean;
+  type: 'host' | 'docker' | 'e2b';
+  config: Record<string, unknown>;
+}
+
 export interface GatewayConfig {
   ui: boolean;
   cors: { origin: string };
   autoStartAgents: boolean;
+  autoProvisionSandbox: AutoProvisionSandboxConfig;
 }
 
 const DEFAULT_CONFIG: GatewayConfig = {
   ui: true,
   cors: { origin: '*' },
   autoStartAgents: true,
+  autoProvisionSandbox: {
+    enabled: true,
+    type: 'docker',
+    config: { image: 'ubuntu:24.04' },
+  },
 };
 
 const getCorsOrigin = (raw: Record<string, unknown>): string | undefined => {
@@ -44,5 +56,23 @@ export const loadGatewayConfig = async (filePath: string): Promise<GatewayConfig
     autoStartAgents: typeof raw.autoStartAgents === 'boolean'
       ? raw.autoStartAgents
       : DEFAULT_CONFIG.autoStartAgents,
+    autoProvisionSandbox: getAutoProvisionSandbox(raw) ?? DEFAULT_CONFIG.autoProvisionSandbox,
   };
+};
+
+const getAutoProvisionSandbox = (
+  raw: Record<string, unknown>,
+): AutoProvisionSandboxConfig | undefined => {
+  const value = raw['autoProvisionSandbox'];
+  if (!value || typeof value !== 'object') return undefined;
+  const v = value as Record<string, unknown>;
+  const enabled = typeof v['enabled'] === 'boolean' ? v['enabled'] : DEFAULT_CONFIG.autoProvisionSandbox.enabled;
+  const type = typeof v['type'] === 'string' ? v['type'] : DEFAULT_CONFIG.autoProvisionSandbox.type;
+  if (type !== 'host' && type !== 'docker' && type !== 'e2b') {
+    throw new Error(`Invalid autoProvisionSandbox.type: ${type}`);
+  }
+  const config = (v['config'] && typeof v['config'] === 'object')
+    ? (v['config'] as Record<string, unknown>)
+    : {};
+  return { enabled, type, config };
 };

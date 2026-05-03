@@ -308,6 +308,8 @@ export const main = async (): Promise<void> => {
     ...(configStore ? { configStore } : {}),
     ...(agentChannelStore ? { agentChannelStore } : {}),
     ...(instructionStore ? { instructionStore } : {}),
+    ...(sandboxStore ? { sandboxStore } : {}),
+    autoProvisionSandbox: config.autoProvisionSandbox,
     channelRegistry: channels,
     auth,
     adminToken,
