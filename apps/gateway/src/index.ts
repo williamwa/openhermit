@@ -33,7 +33,6 @@ import {
 
 import { AgentInstanceManager } from './agent-instance.js';
 import { syncSkillMounts } from './skill-mounts.js';
-import { findConflictingHostAgent } from './host-backend-policy.js';
 import { backfillSandboxes } from './sandbox-backfill.js';
 import { createGatewayApp } from './app.js';
 import { loadGatewayConfig } from './config.js';
@@ -349,21 +348,20 @@ export const main = async (): Promise<void> => {
   // Start agents from database after server is listening (channels need the gateway URL).
   if (agentStore && config.autoStartAgents) {
     const dbAgents = await agentStore.list();
-    const hostBackendStarted = new Set<string>();
+    // Defensive: if DB tampering produced multiple host sandboxes, only the
+    // first agent encountered claims the host backend in this pass. The
+    // create-time check (POST /sandboxes) is the primary guard.
+    let hostClaimed: string | undefined;
     for (const agent of dbAgents) {
       try {
-        if (configStore) {
-          const cfg = await configStore.getConfig(agent.agentId);
-          const conflict = await findConflictingHostAgent(agent.agentId, cfg ?? {}, agentStore, configStore);
-          // Skip duplicates by checking against agents we've already started in this pass.
-          if (conflict && hostBackendStarted.has(conflict)) {
-            logStartup(`skipping agent ${agent.agentId}: host backend already in use by ${conflict}`);
+        if (sandboxStore) {
+          const rows = await sandboxStore.listByAgent(agent.agentId);
+          const wantsHost = rows.some((r) => r.type === 'host');
+          if (wantsHost && hostClaimed && hostClaimed !== agent.agentId) {
+            logStartup(`skipping agent ${agent.agentId}: host backend already in use by ${hostClaimed}`);
             continue;
           }
-          const exec = (cfg?.['exec'] as { backends?: Array<{ type?: string }> } | undefined);
-          if ((exec?.backends ?? []).some((b) => b?.type === 'host')) {
-            hostBackendStarted.add(agent.agentId);
-          }
+          if (wantsHost) hostClaimed = agent.agentId;
         }
         await instances.start(agent.agentId, agent.workspaceDir);
         logStartup(`started agent: ${agent.agentId}`);
