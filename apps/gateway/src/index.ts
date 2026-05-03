@@ -32,6 +32,7 @@ import {
 
 import { AgentInstanceManager } from './agent-instance.js';
 import { syncSkillMounts } from './skill-mounts.js';
+import { findConflictingHostAgent } from './host-backend-policy.js';
 import { createGatewayApp } from './app.js';
 import { loadGatewayConfig } from './config.js';
 import { attachGatewayWs } from './ws-handler.js';
@@ -331,18 +332,35 @@ export const main = async (): Promise<void> => {
   // Start agents from database after server is listening (channels need the gateway URL).
   if (agentStore && config.autoStartAgents) {
     const dbAgents = await agentStore.list();
+    const hostBackendStarted = new Set<string>();
     for (const agent of dbAgents) {
       try {
+        if (configStore) {
+          const cfg = await configStore.getConfig(agent.agentId);
+          const conflict = await findConflictingHostAgent(agent.agentId, cfg ?? {}, agentStore, configStore);
+          // Skip duplicates by checking against agents we've already started in this pass.
+          if (conflict && hostBackendStarted.has(conflict)) {
+            logStartup(`skipping agent ${agent.agentId}: host backend already in use by ${conflict}`);
+            continue;
+          }
+          const exec = (cfg?.['exec'] as { backends?: Array<{ type?: string }> } | undefined);
+          if ((exec?.backends ?? []).some((b) => b?.type === 'host')) {
+            hostBackendStarted.add(agent.agentId);
+          }
+        }
         await instances.start(agent.agentId, agent.workspaceDir);
         logStartup(`started agent: ${agent.agentId}`);
       } catch (error) {
         logStartup(`failed to start agent ${agent.agentId}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-    // Sync platform skills into each agent's workspace.
+    // Sync platform skills into each agent's exec backends.
     if (skillStore) {
       for (const agent of dbAgents) {
-        await syncSkillMounts(agent.agentId, agent.workspaceDir, skillStore);
+        const runner = instances.getRunner(agent.agentId);
+        if (runner) {
+          await syncSkillMounts(agent.agentId, runner, skillStore);
+        }
       }
     }
     logStartup(`${dbAgents.length} agent(s) loaded`);

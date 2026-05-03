@@ -3,77 +3,96 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 
-import { syncSkillMounts } from '../../gateway/src/skill-mounts.js';
+import {
+  createExecBackend,
+  type BackendFactoryContext,
+} from '../src/core/exec-backend.js';
+import type { DockerContainerManager } from '../src/core/container-manager.js';
 import { createTempDir } from './helpers.js';
 
-const createFakeSkillStore = (skills: Array<{ id: string; path: string }>) => ({
-  listEnabled: async () => skills.map((s) => ({ ...s, name: s.id, description: '' })),
+const fakeContext = (workspaceDir: string): BackendFactoryContext => ({
+  containerManager: {} as DockerContainerManager,
+  agentId: 'agent-1',
+  workspaceDir,
 });
 
-const systemDir = (workspaceDir: string): string =>
-  path.join(workspaceDir, '.openhermit', 'skills', 'system');
+const systemDir = (agentHome: string): string =>
+  path.join(agentHome, '.openhermit', 'skills', 'system');
 
-test('syncSkillMounts copies skill directories into workspace system dir', async (t) => {
-  const workspaceDir = await createTempDir(t, 'workspace-');
+// HostExecBackend writes skills to <cwd>/.openhermit/skills/system. Use the
+// `cwd` override to point at a temp dir so we don't touch $HOME.
+
+test('host backend syncSkills copies skill directories into agentHome', async (t) => {
+  const home = await createTempDir(t, 'home-');
   const sourceDir = await createTempDir(t, 'source-');
-
   const skillSrc = path.join(sourceDir, 'skill-a');
   await fs.mkdir(skillSrc);
   await fs.writeFile(path.join(skillSrc, 'SKILL.md'), 'content');
 
-  const store = createFakeSkillStore([{ id: 'skill-a', path: skillSrc }]);
-  await syncSkillMounts('agent-1', workspaceDir, store as any);
+  const backend = createExecBackend({ type: 'host', id: 'host', cwd: home }, fakeContext(home));
+  await backend.syncSkills([{ id: 'skill-a', sourcePath: skillSrc }]);
 
-  const copied = await fs.readFile(
-    path.join(systemDir(workspaceDir), 'skill-a', 'SKILL.md'),
-    'utf8',
-  );
+  const copied = await fs.readFile(path.join(systemDir(home), 'skill-a', 'SKILL.md'), 'utf8');
   assert.equal(copied, 'content');
 });
 
-test('syncSkillMounts removes stale entries', async (t) => {
-  const workspaceDir = await createTempDir(t, 'workspace-');
-
-  const dir = systemDir(workspaceDir);
+test('host backend syncSkills removes stale entries', async (t) => {
+  const home = await createTempDir(t, 'home-');
+  const dir = systemDir(home);
   await fs.mkdir(dir, { recursive: true });
-  const staleDir = path.join(dir, 'old-skill');
-  await fs.mkdir(staleDir);
-  await fs.writeFile(path.join(staleDir, 'SKILL.md'), 'stale');
+  await fs.mkdir(path.join(dir, 'old-skill'));
+  await fs.writeFile(path.join(dir, 'old-skill', 'SKILL.md'), 'stale');
 
-  const store = createFakeSkillStore([]);
-  await syncSkillMounts('agent-1', workspaceDir, store as any);
+  const backend = createExecBackend({ type: 'host', id: 'host', cwd: home }, fakeContext(home));
+  await backend.syncSkills([]);
 
   const entries = await fs.readdir(dir);
   assert.equal(entries.length, 0);
 });
 
-test('syncSkillMounts creates system dir if missing', async (t) => {
-  const workspaceDir = await createTempDir(t, 'workspace-');
+test('host backend syncSkills creates system dir if missing', async (t) => {
+  const home = await createTempDir(t, 'home-');
 
-  const store = createFakeSkillStore([]);
-  await syncSkillMounts('agent-1', workspaceDir, store as any);
+  const backend = createExecBackend({ type: 'host', id: 'host', cwd: home }, fakeContext(home));
+  await backend.syncSkills([]);
 
-  const stat = await fs.stat(systemDir(workspaceDir));
+  const stat = await fs.stat(systemDir(home));
   assert.ok(stat.isDirectory());
 });
 
-test('syncSkillMounts replaces existing copy with updated content', async (t) => {
-  const workspaceDir = await createTempDir(t, 'workspace-');
+test('host backend syncSkills replaces existing copy with updated content', async (t) => {
+  const home = await createTempDir(t, 'home-');
   const sourceDir = await createTempDir(t, 'source-');
-
   const skillSrc = path.join(sourceDir, 'skill-b');
   await fs.mkdir(skillSrc);
   await fs.writeFile(path.join(skillSrc, 'SKILL.md'), 'v1');
 
-  const store = createFakeSkillStore([{ id: 'skill-b', path: skillSrc }]);
-  await syncSkillMounts('agent-1', workspaceDir, store as any);
+  const backend = createExecBackend({ type: 'host', id: 'host', cwd: home }, fakeContext(home));
+  await backend.syncSkills([{ id: 'skill-b', sourcePath: skillSrc }]);
 
   await fs.writeFile(path.join(skillSrc, 'SKILL.md'), 'v2');
-  await syncSkillMounts('agent-1', workspaceDir, store as any);
+  await backend.syncSkills([{ id: 'skill-b', sourcePath: skillSrc }]);
 
-  const content = await fs.readFile(
-    path.join(systemDir(workspaceDir), 'skill-b', 'SKILL.md'),
+  const content = await fs.readFile(path.join(systemDir(home), 'skill-b', 'SKILL.md'), 'utf8');
+  assert.equal(content, 'v2');
+});
+
+test('docker backend syncSkills writes to workspaceDir/.openhermit/skills/system', async (t) => {
+  const workspaceDir = await createTempDir(t, 'workspace-');
+  const sourceDir = await createTempDir(t, 'source-');
+  const skillSrc = path.join(sourceDir, 'skill-c');
+  await fs.mkdir(skillSrc);
+  await fs.writeFile(path.join(skillSrc, 'SKILL.md'), 'docker-content');
+
+  const backend = createExecBackend(
+    { type: 'docker', id: 'docker', image: 'ubuntu:24.04' },
+    fakeContext(workspaceDir),
+  );
+  await backend.syncSkills([{ id: 'skill-c', sourcePath: skillSrc }]);
+
+  const copied = await fs.readFile(
+    path.join(systemDir(workspaceDir), 'skill-c', 'SKILL.md'),
     'utf8',
   );
-  assert.equal(content, 'v2');
+  assert.equal(copied, 'docker-content');
 });

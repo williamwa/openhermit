@@ -1,4 +1,6 @@
 import { spawn } from 'node:child_process';
+import { cp, mkdir, readdir, readFile, rm } from 'node:fs/promises';
+import path from 'node:path';
 
 import { NotFoundError, ValidationError } from '@openhermit/shared';
 
@@ -24,6 +26,13 @@ export type ExecResult = ContainerProcessResult;
 
 // ── Backend interface ─────────────────────────────────────────────────────
 
+export interface SyncSkillEntry {
+  /** Skill folder name; becomes the basename of the synced directory. */
+  id: string;
+  /** Absolute path on the gateway host to copy from. */
+  sourcePath: string;
+}
+
 export interface ExecBackend {
   readonly id: string;
   readonly type: string;
@@ -36,9 +45,43 @@ export interface ExecBackend {
   ensure(): Promise<void>;
   /** Execute a shell command and return the result. */
   exec(command: string): Promise<ExecResult>;
+  /**
+   * Make `<agentHome>/.openhermit/skills/system/` reflect exactly the given
+   * skill set inside the exec env: copies in, removes stale entries.
+   */
+  syncSkills(skills: SyncSkillEntry[]): Promise<void>;
   /** Teardown (stop container, etc.). No-op if nothing to clean up. */
   shutdown(): Promise<void>;
 }
+
+/** Copy enabled skills into a host-side directory, removing stale entries. */
+const syncSkillsToHostDir = async (
+  systemSkillsDir: string,
+  skills: SyncSkillEntry[],
+): Promise<void> => {
+  await mkdir(systemSkillsDir, { recursive: true });
+
+  const desired = new Map(skills.map((s) => [s.id, s.sourcePath]));
+
+  let existing: string[];
+  try {
+    existing = await readdir(systemSkillsDir);
+  } catch {
+    existing = [];
+  }
+
+  for (const name of existing) {
+    if (!desired.has(name)) {
+      await rm(path.join(systemSkillsDir, name), { recursive: true, force: true });
+    }
+  }
+
+  for (const [id, sourcePath] of desired) {
+    const destPath = path.join(systemSkillsDir, id);
+    await rm(destPath, { recursive: true, force: true });
+    await cp(sourcePath, destPath, { recursive: true });
+  }
+};
 
 // ── Config types ──────────────────────────────────────────────────────────
 
@@ -132,6 +175,7 @@ class DockerExecBackend implements ExecBackend {
     config: DockerExecBackendConfig,
     private readonly containerManager: DockerContainerManager,
     private readonly agentId: string,
+    private readonly workspaceDir: string,
   ) {
     this.id = config.id ?? 'docker';
     this.label = config.label ?? `Docker (${config.image})`;
@@ -155,6 +199,16 @@ class DockerExecBackend implements ExecBackend {
     return this.containerManager.execInWorkspace(this.agentId, command);
   }
 
+  async syncSkills(skills: SyncSkillEntry[]): Promise<void> {
+    // Workspace dir is bind-mounted into the container at agentHome,
+    // so writing to <workspaceDir>/.openhermit/skills/system makes the
+    // skills visible inside the container at <agentHome>/.openhermit/skills/system.
+    await syncSkillsToHostDir(
+      path.join(this.workspaceDir, '.openhermit', 'skills', 'system'),
+      skills,
+    );
+  }
+
   async shutdown(): Promise<void> {
     await this.containerManager.stopWorkspaceContainer(this.agentId);
   }
@@ -174,13 +228,18 @@ class HostExecBackend implements ExecBackend {
   private readonly env: Record<string, string> | undefined;
   private readonly timeoutMs: number;
 
-  constructor(config: HostExecBackendConfig, workspaceDir: string) {
+  constructor(config: HostExecBackendConfig, _workspaceDir: string) {
     this.id = config.id ?? 'host';
     this.label = config.label ?? 'Host shell';
     this.username = process.env['USER'] ?? 'unknown';
-    // Host backend has no container — the workspace dir IS the agent's home
-    // from its perspective (no path translation needed).
-    this.agentHome = config.cwd ?? workspaceDir;
+    // Host backend treats the entire gateway machine as the sandbox: the
+    // agent's home is the running user's $HOME. At most one host-backend
+    // agent can exist per gateway (enforced at the gateway layer).
+    const home = process.env['HOME'];
+    if (!home) {
+      throw new ValidationError('HOME environment variable is not set; cannot use host exec backend.');
+    }
+    this.agentHome = config.cwd ?? home;
     this.shell = config.shell ?? 'sh';
     this.env = config.env;
     this.timeoutMs = config.timeout_ms ?? DEFAULT_TIMEOUT_MS;
@@ -188,6 +247,13 @@ class HostExecBackend implements ExecBackend {
 
   async ensure(): Promise<void> {
     // No-op — host shell is always ready.
+  }
+
+  async syncSkills(skills: SyncSkillEntry[]): Promise<void> {
+    await syncSkillsToHostDir(
+      path.join(this.agentHome, '.openhermit', 'skills', 'system'),
+      skills,
+    );
   }
 
   async exec(command: string): Promise<ExecResult> {
@@ -238,6 +304,32 @@ class HostExecBackend implements ExecBackend {
 }
 
 // ── E2B backend ──────────────────────────────────────────────────────────
+
+/**
+ * Recursively upload a host directory to an e2b sandbox path.
+ * Reads each file with node:fs and pushes via the e2b SDK.
+ */
+const uploadDirToE2B = async (
+  sandbox: import('e2b').Sandbox,
+  localDir: string,
+  remoteDir: string,
+): Promise<void> => {
+  const entries = await readdir(localDir, { withFileTypes: true });
+  for (const entry of entries) {
+    const localPath = path.join(localDir, entry.name);
+    const remotePath = `${remoteDir}/${entry.name}`;
+    if (entry.isDirectory()) {
+      await sandbox.files.makeDir(remotePath);
+      await uploadDirToE2B(sandbox, localPath, remotePath);
+    } else if (entry.isFile()) {
+      const data = await readFile(localPath);
+      // e2b SDK accepts ArrayBuffer | string | Blob | ReadableStream — not Node Buffer.
+      const buf = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+      await sandbox.files.write(remotePath, buf);
+    }
+    // Symlinks and other types are skipped.
+  }
+};
 
 const E2B_DEFAULT_TIMEOUT_MS = 300_000;
 const E2B_DEFAULT_SANDBOX_TIMEOUT_MS = 600_000; // 10 minutes idle before auto-pause
@@ -354,6 +446,32 @@ class E2BExecBackend implements ExecBackend {
     }
   }
 
+  async syncSkills(skills: SyncSkillEntry[]): Promise<void> {
+    // E2B has no host-side mount — files must be pushed through the SDK.
+    // If the sandbox is not connected, skip: the dirty state needs to be
+    // persisted (TODO: store on the sandboxes table once Step E lands) so
+    // the next ensure() can replay the sync. For now, callers who change
+    // skills while the sandbox is paused will need to trigger an exec to
+    // re-sync. Logged so the gap is visible.
+    if (!this.sandbox) {
+      console.warn(
+        `[exec-backend][e2b][${this.id}] syncSkills called while sandbox not connected — skipping. ` +
+          `TODO(step-e): persist dirty manifest on sandboxes table and replay on ensure().`,
+      );
+      return;
+    }
+
+    const remoteSystemDir = `${this.agentHome}/.openhermit/skills/system`;
+    // Wipe and recreate. Cheap on e2b given small skill sizes.
+    await this.sandbox.commands.run(`rm -rf ${remoteSystemDir} && mkdir -p ${remoteSystemDir}`);
+
+    for (const skill of skills) {
+      const remoteSkillDir = `${remoteSystemDir}/${skill.id}`;
+      await this.sandbox.files.makeDir(remoteSkillDir);
+      await uploadDirToE2B(this.sandbox, skill.sourcePath, remoteSkillDir);
+    }
+  }
+
   async shutdown(): Promise<void> {
     if (!this.sandbox) return;
     try {
@@ -380,7 +498,12 @@ class E2BExecBackend implements ExecBackend {
 // ── Register built-in backends ────────────────────────────────────────────
 
 registerExecBackend('docker', (config, context) =>
-  new DockerExecBackend(config as DockerExecBackendConfig, context.containerManager, context.agentId),
+  new DockerExecBackend(
+    config as DockerExecBackendConfig,
+    context.containerManager,
+    context.agentId,
+    context.workspaceDir,
+  ),
 );
 
 registerExecBackend('host', (config, context) =>
@@ -463,5 +586,12 @@ export class ExecBackendManager {
     await Promise.allSettled(
       [...this.backends.values()].map((b) => b.shutdown()),
     );
+  }
+
+  /** Fan out skill sync to every backend. Backends decide how to apply. */
+  async syncSkills(skills: SyncSkillEntry[]): Promise<void> {
+    for (const backend of this.backends.values()) {
+      await backend.syncSkills(skills);
+    }
   }
 }

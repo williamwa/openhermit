@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { syncSkillMounts } from './skill-mounts.js';
+import { assertHostBackendIsUnique } from './host-backend-policy.js';
 
 import { Hono } from 'hono';
 import { streamSSE, type SSEStreamingApi } from 'hono/streaming';
@@ -1411,6 +1412,9 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     const agentId = c.req.param('agentId') ?? '';
     await requireOwnerOrAdmin(c, agentId);
     const body = await c.req.json();
+    if (agentStore && configStore) {
+      await assertHostBackendIsUnique(agentId, body, agentStore, configStore);
+    }
     const runner = instances.getRunner(agentId);
     if (runner) {
       await runner.security.writeConfig(body);
@@ -1609,7 +1613,7 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     for (const id of ids) {
       const runner = instances.getRunner(id);
       if (runner) {
-        await syncSkillMounts(id, runner.workspace.root, store);
+        await syncSkillMounts(id, runner, store);
       }
     }
   };

@@ -296,6 +296,17 @@ export class AgentRunner implements SessionRuntime {
     }, timeoutMs);
   }
 
+  /**
+   * Push the agent's enabled skill set into every configured exec backend.
+   * For docker the skills land in the bind-mount; for host they go to $HOME;
+   * for e2b they're streamed via the SDK if the sandbox is connected.
+   */
+  async syncSkills(skills: import('./core/exec-backend.js').SyncSkillEntry[]): Promise<void> {
+    const config = await this.options.security.readConfig();
+    const manager = this.getOrCreateExecBackendManager(config);
+    await manager.syncSkills(skills);
+  }
+
   async stopWorkspaceContainerIfSessionPolicy(): Promise<void> {
     const config = await this.options.security.readConfig();
 
