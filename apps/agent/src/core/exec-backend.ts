@@ -346,6 +346,11 @@ interface E2BBackendPersisted {
   updatedAt: string;
 }
 
+interface E2BPendingSkillSync {
+  skills: Array<{ id: string; sourcePath: string }>;
+  queuedAt: string;
+}
+
 class E2BExecBackend implements ExecBackend {
   readonly id: string;
   readonly type = 'e2b';
@@ -412,6 +417,9 @@ class E2BExecBackend implements ExecBackend {
       cwd: this.agentHome,
       updatedAt: new Date().toISOString(),
     });
+
+    // Replay any skill sync that was queued while the sandbox was disconnected.
+    await this.replayPendingSkillSync();
   }
 
   async exec(command: string): Promise<ExecResult> {
@@ -452,28 +460,55 @@ class E2BExecBackend implements ExecBackend {
   }
 
   async syncSkills(skills: SyncSkillEntry[]): Promise<void> {
-    // E2B has no host-side mount — files must be pushed through the SDK.
-    // If the sandbox is not connected, skip: the dirty state needs to be
-    // persisted (TODO: store on the sandboxes table once Step E lands) so
-    // the next ensure() can replay the sync. For now, callers who change
-    // skills while the sandbox is paused will need to trigger an exec to
-    // re-sync. Logged so the gap is visible.
     if (!this.sandbox) {
-      console.warn(
-        `[exec-backend][e2b][${this.id}] syncSkills called while sandbox not connected — skipping. ` +
-          `TODO(step-e): persist dirty manifest on sandboxes table and replay on ensure().`,
-      );
+      // Persist as pending; replayed by ensure() once the sandbox reconnects.
+      await this.savePendingSkillSync({
+        skills: skills.map((s) => ({ id: s.id, sourcePath: s.sourcePath })),
+        queuedAt: new Date().toISOString(),
+      });
       return;
     }
 
-    const remoteSystemDir = `${this.agentHome}/.openhermit/skills/system`;
-    // Wipe and recreate. Cheap on e2b given small skill sizes.
-    await this.sandbox.commands.run(`rm -rf ${remoteSystemDir} && mkdir -p ${remoteSystemDir}`);
+    await this.applySkillSync(skills);
+    await this.savePendingSkillSync(null);
+  }
 
+  private async applySkillSync(skills: SyncSkillEntry[]): Promise<void> {
+    if (!this.sandbox) return;
+    const remoteSystemDir = `${this.agentHome}/.openhermit/skills/system`;
+    await this.sandbox.commands.run(`rm -rf ${remoteSystemDir} && mkdir -p ${remoteSystemDir}`);
     for (const skill of skills) {
       const remoteSkillDir = `${remoteSystemDir}/${skill.id}`;
       await this.sandbox.files.makeDir(remoteSkillDir);
       await uploadDirToE2B(this.sandbox, skill.sourcePath, remoteSkillDir);
+    }
+  }
+
+  private async replayPendingSkillSync(): Promise<void> {
+    if (!this.context.getRuntimeState) return;
+    const state = await this.context.getRuntimeState();
+    const pending = state?.['e2b_pending_skills'] as E2BPendingSkillSync | undefined;
+    if (!pending || !pending.skills?.length) return;
+    try {
+      await this.applySkillSync(pending.skills.map((s) => ({ id: s.id, sourcePath: s.sourcePath })));
+      await this.savePendingSkillSync(null);
+    } catch (error) {
+      console.warn(
+        `[exec-backend][e2b][${this.id}] failed to replay pending skill sync: ` +
+          (error instanceof Error ? error.message : String(error)),
+      );
+    }
+  }
+
+  private async savePendingSkillSync(pending: E2BPendingSkillSync | null): Promise<void> {
+    if (!this.context.setRuntimeState || !this.context.getRuntimeState) return;
+    const current = (await this.context.getRuntimeState()) ?? {};
+    if (pending === null) {
+      const { e2b_pending_skills: _drop, ...rest } = current;
+      void _drop;
+      await this.context.setRuntimeState(rest);
+    } else {
+      await this.context.setRuntimeState({ ...current, e2b_pending_skills: pending });
     }
   }
 
