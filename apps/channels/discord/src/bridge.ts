@@ -21,6 +21,7 @@ export class DiscordBridge implements ChannelOutbound {
   private readonly log: (message: string) => void;
   private readonly lastEventIds = new Map<string, number>();
   private readonly channelSessions = new Map<string, string>();
+  private readonly turnQueues = new Map<string, Promise<void>>();
 
   constructor(
     private readonly discord: DiscordApi,
@@ -83,7 +84,34 @@ export class DiscordBridge implements ChannelOutbound {
     if (!text) return;
 
     const sessionId = await this.getSessionId(event.channelId);
-    await this.sendToAgent(event, sessionId, text);
+    await this.runInChannelQueue(event.channelId, () => this.sendToAgent(event, sessionId, text));
+  }
+
+  private async runInChannelQueue(channelId: string, task: () => Promise<void>): Promise<void> {
+    const previousTurn = this.turnQueues.get(channelId);
+    const currentTurn = this.runAfterPreviousTurn(previousTurn, task).finally(() => {
+      if (this.turnQueues.get(channelId) === currentTurn) {
+        this.turnQueues.delete(channelId);
+      }
+    });
+
+    this.turnQueues.set(channelId, currentTurn);
+    await currentTurn;
+  }
+
+  private async runAfterPreviousTurn(
+    previousTurn: Promise<void> | undefined,
+    task: () => Promise<void>,
+  ): Promise<void> {
+    if (previousTurn) {
+      try {
+        await previousTurn;
+      } catch {
+        // Keep later Discord messages flowing after a failed turn.
+      }
+    }
+
+    await task();
   }
 
   async handleNewSession(channelId: string): Promise<void> {
