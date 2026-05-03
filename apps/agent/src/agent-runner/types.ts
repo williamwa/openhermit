@@ -1,6 +1,6 @@
 import type { Agent, StreamFn } from '@mariozechner/pi-agent-core';
 import type { SessionStatus } from '@openhermit/protocol';
-import type { InternalStateStore, McpServerStore, SkillStore, UserRole } from '@openhermit/store';
+import type { InternalStateStore, McpServerStore, SandboxStore, SkillStore, UserRole } from '@openhermit/store';
 
 import type { LangfuseClientLike, LangfuseTurnContext } from '../langfuse.js';
 import type { SessionDescriptor } from '../runtime.js';
@@ -43,6 +43,10 @@ export interface AgentRunnerOptions {
   contextCompactionMaxTokens?: number;
   contextCompactionRecentMessageCount?: number;
   contextCompactionSummaryMaxChars?: number;
-  getBackendState?: () => Promise<Record<string, unknown> | null>;
-  setBackendState?: (state: Record<string, unknown>) => Promise<void>;
+  /**
+   * Sandbox store — when provided, ExecBackendManager loads backends from
+   * sandbox rows (one per agent). Without it, AgentRunner falls back to
+   * the legacy `config.exec.backends[]` path until backfill completes.
+   */
+  sandboxStore?: SandboxStore;
 }

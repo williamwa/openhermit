@@ -140,9 +140,14 @@ export interface BackendFactoryContext {
   containerManager: DockerContainerManager;
   agentId: string;
   workspaceDir: string;
-  /** Persist backend state across restarts. */
-  getBackendState?: () => Promise<Record<string, unknown> | null>;
-  setBackendState?: (state: Record<string, unknown>) => Promise<void>;
+  /**
+   * Persist runtime state for THIS backend's sandbox row. When backends
+   * are constructed from sandbox-store rows, these helpers read/write the
+   * row's `runtime_state` JSONB; legacy fromConfig path leaves them
+   * undefined (no persistence).
+   */
+  getRuntimeState?: () => Promise<Record<string, unknown> | null>;
+  setRuntimeState?: (state: Record<string, unknown>) => Promise<void>;
 }
 
 type BackendFactory = (config: ExecBackendConfig, context: BackendFactoryContext) => ExecBackend;
@@ -483,15 +488,15 @@ class E2BExecBackend implements ExecBackend {
   }
 
   private async loadState(): Promise<E2BBackendPersisted | null> {
-    if (!this.context.getBackendState) return null;
-    const state = await this.context.getBackendState();
-    return (state?.e2b as E2BBackendPersisted) ?? null;
+    if (!this.context.getRuntimeState) return null;
+    const state = await this.context.getRuntimeState();
+    return (state?.['e2b'] as E2BBackendPersisted) ?? null;
   }
 
   private async saveState(persisted: E2BBackendPersisted): Promise<void> {
-    if (!this.context.setBackendState || !this.context.getBackendState) return;
-    const current = (await this.context.getBackendState()) ?? {};
-    await this.context.setBackendState({ ...current, e2b: persisted });
+    if (!this.context.setRuntimeState || !this.context.getRuntimeState) return;
+    const current = (await this.context.getRuntimeState()) ?? {};
+    await this.context.setRuntimeState({ ...current, e2b: persisted });
   }
 }
 
@@ -562,6 +567,41 @@ export class ExecBackendManager {
     }
 
     const backends = configs.map((c) => createExecBackend(c, context));
+    return new ExecBackendManager(backends, defaultId);
+  }
+
+  /**
+   * Build from sandbox-store rows. Each row's `alias` becomes the backend
+   * id; `config` JSONB becomes the per-backend config (cast to its
+   * type-specific shape). The default backend is the row aliased
+   * `default`, falling back to the first row.
+   */
+  static fromSandboxRows(
+    rows: ReadonlyArray<{
+      id: string;
+      alias: string;
+      type: string;
+      config: Record<string, unknown>;
+    }>,
+    context: Omit<BackendFactoryContext, 'getRuntimeState' | 'setRuntimeState'>,
+    runtimeStateAccess: {
+      get: (sandboxId: string) => Promise<Record<string, unknown> | null>;
+      set: (sandboxId: string, state: Record<string, unknown>) => Promise<void>;
+    },
+  ): ExecBackendManager {
+    if (rows.length === 0) {
+      throw new ValidationError('No sandboxes configured for this agent.');
+    }
+    const backends = rows.map((row) => {
+      const ctx: BackendFactoryContext = {
+        ...context,
+        getRuntimeState: () => runtimeStateAccess.get(row.id),
+        setRuntimeState: (state) => runtimeStateAccess.set(row.id, state),
+      };
+      const cfg = { ...row.config, type: row.type, id: row.alias } as ExecBackendConfig;
+      return createExecBackend(cfg, ctx);
+    });
+    const defaultId = rows.find((r) => r.alias === 'default')?.alias ?? rows[0]!.alias;
     return new ExecBackendManager(backends, defaultId);
   }
 

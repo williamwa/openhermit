@@ -8,7 +8,7 @@ import {
   type LangfuseClientLike,
 } from '@openhermit/agent/langfuse';
 import { startChannels, startSingleChannel, stopChannels, type ChannelStatus, type WebhookRequest, type WebhookResponse } from '@openhermit/agent/channels';
-import type { AgentConfigStore, AgentStore, McpServerStore, SecretStore, SkillStore } from '@openhermit/store';
+import type { AgentConfigStore, AgentStore, McpServerStore, SandboxStore, SecretStore, SkillStore } from '@openhermit/store';
 
 import type { ChannelRegistry } from './auth.js';
 
@@ -44,6 +44,8 @@ export class AgentInstanceManager {
   private secretStore: SecretStore | undefined;
   /** DB-backed agent store (for backend state persistence). */
   private agentStore: AgentStore | undefined;
+  /** DB-backed sandbox store (one row per agent sandbox). */
+  private sandboxStore: SandboxStore | undefined;
   /** DB-backed channel store (builtin + external rows, encrypted tokens). */
   private channelStore: import('@openhermit/store').DbAgentChannelStore | undefined;
 
@@ -77,6 +79,14 @@ export class AgentInstanceManager {
 
   setAgentStore(store: AgentStore): void {
     this.agentStore = store;
+  }
+
+  setSandboxStore(store: SandboxStore): void {
+    this.sandboxStore = store;
+  }
+
+  getSandboxStore(): SandboxStore | undefined {
+    return this.sandboxStore;
   }
 
   setChannelStore(store: import('@openhermit/store').DbAgentChannelStore): void {
@@ -142,17 +152,13 @@ export class AgentInstanceManager {
     }
 
     // 5. Create the runner
-    const agentStoreRef = this.agentStore;
     const runner = await AgentRunner.create({
       workspace,
       security,
       ...(langfuse ? { langfuse } : {}),
       ...(this.skillStore ? { skillStore: this.skillStore } : {}),
       ...(this.mcpServerStore ? { mcpServerStore: this.mcpServerStore } : {}),
-      ...(agentStoreRef ? {
-        getBackendState: () => agentStoreRef.getBackendState(agentId),
-        setBackendState: (state: Record<string, unknown>) => agentStoreRef.setBackendState(agentId, state),
-      } : {}),
+      ...(this.sandboxStore ? { sandboxStore: this.sandboxStore } : {}),
     });
 
     this.runners.set(agentId, runner);

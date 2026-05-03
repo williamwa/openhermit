@@ -257,19 +257,38 @@ export class AgentRunner implements SessionRuntime {
     return this.channelOutbound;
   }
 
-  private getOrCreateExecBackendManager(config: AgentConfig): ExecBackendManager {
-    if (!this.execBackendManager) {
-      this.execBackendManager = ExecBackendManager.fromConfig(
-        config.exec,
-        {
-          containerManager: this.containerManager,
-          agentId: this.scope.agentId,
-          workspaceDir: this.options.workspace.root,
-          ...(this.options.getBackendState ? { getBackendState: this.options.getBackendState } : {}),
-          ...(this.options.setBackendState ? { setBackendState: this.options.setBackendState } : {}),
-        },
-      );
+  /**
+   * Load sandbox rows from the store and build the manager from them.
+   * Falls back to legacy `config.exec.backends[]` when no rows exist
+   * (e.g. mid-backfill or sandbox store unavailable).
+   */
+  private async ensureExecBackendManager(config: AgentConfig): Promise<ExecBackendManager> {
+    if (this.execBackendManager) return this.execBackendManager;
+
+    const ctxBase = {
+      containerManager: this.containerManager,
+      agentId: this.scope.agentId,
+      workspaceDir: this.options.workspace.root,
+    };
+
+    if (this.options.sandboxStore) {
+      const rows = await this.options.sandboxStore.listByAgent(this.scope.agentId);
+      if (rows.length > 0) {
+        const store = this.options.sandboxStore;
+        this.execBackendManager = ExecBackendManager.fromSandboxRows(rows, ctxBase, {
+          get: async (sandboxId) => {
+            const row = await store.get(sandboxId);
+            return row?.runtimeState ?? null;
+          },
+          set: async (sandboxId, state) => {
+            await store.update(sandboxId, { runtimeState: state });
+          },
+        });
+        return this.execBackendManager;
+      }
     }
+
+    this.execBackendManager = ExecBackendManager.fromConfig(config.exec, ctxBase);
     return this.execBackendManager;
   }
 
@@ -303,7 +322,7 @@ export class AgentRunner implements SessionRuntime {
    */
   async syncSkills(skills: import('./core/exec-backend.js').SyncSkillEntry[]): Promise<void> {
     const config = await this.options.security.readConfig();
-    const manager = this.getOrCreateExecBackendManager(config);
+    const manager = await this.ensureExecBackendManager(config);
     await manager.syncSkills(skills);
   }
 
@@ -475,7 +494,7 @@ export class AgentRunner implements SessionRuntime {
     if (
       (config.exec?.lifecycle?.start ?? 'ondemand') === 'session'
     ) {
-      const manager = this.getOrCreateExecBackendManager(config);
+      const manager = await this.ensureExecBackendManager(config);
       await manager.getDefault().ensure();
       this.logRuntime(`exec backend ensured for agent ${this.scope.agentId}`);
     }
@@ -1402,6 +1421,10 @@ export class AgentRunner implements SessionRuntime {
   }): Promise<Agent> {
     const webProvider = this.resolveWebProvider(input.config);
 
+    // Load exec backends once for this build — both the skill scanner and
+    // the exec toolset reference the same manager.
+    const execManager = await this.ensureExecBackendManager(input.config);
+
     // Role-based tool filtering:
     // - owner: all tools (memory, instructions, exec, web, sessions, user management)
     // - user: memory, exec, web, sessions (no instructions, no user management)
@@ -1421,7 +1444,7 @@ export class AgentRunner implements SessionRuntime {
           this.scope.agentId,
           this.options.workspace.root,
           this.options.skillStore,
-          this.getOrCreateExecBackendManager(input.config).getDefault().agentHome,
+          execManager.getDefault().agentHome,
         );
 
     if (input.tools) {
@@ -1442,7 +1465,7 @@ export class AgentRunner implements SessionRuntime {
         storeScope: this.scope,
         ...(!isGuestRole ? {
           agentId: this.scope.agentId,
-          execBackendManager: this.getOrCreateExecBackendManager(input.config),
+          execBackendManager: execManager,
           onExec: () => this.resetWorkspaceIdleTimer(input.config.exec?.lifecycle),
         } : {}),
         ...(this.channelOutbound.size > 0 ? { channelOutbound: this.channelOutbound } : {}),
