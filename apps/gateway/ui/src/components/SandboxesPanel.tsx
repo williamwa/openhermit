@@ -137,9 +137,7 @@ export function SandboxesPanel() {
                           </div>
                         </>
                       ) : (
-                        <span className="fleet-cell-relative">
-                          {s.type === 'docker' ? 'not on this host' : '—'}
-                        </span>
+                        <span className="fleet-cell-relative">—</span>
                       )}
                     </td>
                     <td className="fleet-cell-relative" style={{ fontFamily: 'var(--mono)' }}>
@@ -170,7 +168,7 @@ export function SandboxesPanel() {
                           {s.runtime.status}
                         </span>
                       ) : (
-                        s.type === 'docker' ? 'not on this host' : '—'
+                        '—'
                       )}
                     </dd>
                   </div>
