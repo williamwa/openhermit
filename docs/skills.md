@@ -45,10 +45,12 @@ The gateway scans repository `skills/` at startup and upserts those built-ins in
 At agent startup:
 
 1. DB-managed enabled skills are resolved for the agent, including global `*` assignments.
-2. The gateway syncs `configDir/skill-mounts` symlinks.
-3. Docker exec backends mount skill symlinks read-only at `/skills`.
-4. The agent scans DB skills and workspace skills.
-5. Prompt assembly includes the skill index.
+2. The gateway calls `runner.syncSkills`, which dispatches to each `ExecBackend`:
+   - **docker** — bind-mounts the workspace's `.openhermit/skills/system/` into the container
+   - **host** — writes into `$HOME/.openhermit/skills/system/`
+   - **e2b** / **daytona** — uploads files via SDK to `<agent_home>/.openhermit/skills/system/`
+3. The agent scans DB skills and workspace skills.
+4. Prompt assembly includes the skill index.
 
 DB skills take precedence over workspace-installed skills with the same name.
 

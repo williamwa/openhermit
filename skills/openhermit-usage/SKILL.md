@@ -137,9 +137,9 @@ curl -X POST 'http://127.0.0.1:4000/api/agents/main/sessions/cli%3Adefault/messa
 
 ## Internal State
 
-PostgreSQL stores agents, sessions, events, memories, instructions, users, containers, skills, MCP servers, schedules, and schedule runs.
+PostgreSQL stores agents, sessions, events, memories, instructions, users, sandboxes, skills, MCP servers, schedules, and schedule runs.
 
-Per-agent files contain config, security policy, secrets, and generated skill mounts. Workspace files are external task state, not conversation storage.
+The only per-agent files on disk are the workspace under `~/.openhermit/workspaces/{agentId}/`; enabled skills are synced into each backend's own `<agent_home>/.openhermit/skills/system/`.
 
 ## Development
 

@@ -64,14 +64,15 @@ OpenHermit keeps internal runtime state separate from external task state.
 
 Runtime config, security policy, and per-agent secrets are stored in PostgreSQL (`agents.config_json`, `agents.security_json`, `agent_secrets`) and managed through the admin UI, REST API, or `hermit config ... / hermit security ...`. Channels live in `agent_channels` with encrypted tokens, managed through `/api/agents/{agentId}/channels/...`. Secrets are encrypted at rest with `OPENHERMIT_SECRETS_KEY`; if no key is configured the gateway falls back to a plaintext `secrets.json` per agent (local-dev only — `hermit setup` enables the encrypted DB store).
 
-Per-agent files under `~/.openhermit/agents/{agentId}/` are runtime/local state only:
+Per-agent state lives in Postgres; the only per-agent artifact on disk is the workspace:
 
 ```text
 ~/.openhermit/
-├── agents/{agentId}/
-│   └── skill-mounts/    # generated symlinks to enabled skills
+├── gateway/             # gateway.json, .env, registry/, logs
 └── workspaces/{agentId}/
 ```
+
+Enabled skills are synced into each backend's own sandbox at `<agent_home>/.openhermit/skills/system/` rather than living under a gateway-side per-agent dir.
 
 `config_json` controls model, exec backend, web provider, and memory introspection. `security_json` controls autonomy level, approval policy, access level, and access token. Secrets are referenced from config values with `${{SECRET_NAME}}` and resolved through `SecretStore` at adapter-start time.
 
@@ -87,7 +88,7 @@ On startup, the gateway:
 4. scans and registers built-in skills from `skills/`
 5. starts the Hono server and WebSocket handler
 6. auto-starts registered agents when `autoStartAgents` is true
-7. syncs skill mount symlinks for each started agent
+7. syncs enabled skills into each started agent's sandbox via `runner.syncSkills`
 
 Each started agent initializes workspace/security, creates an `AgentRunner`, registers channel tokens, starts enabled built-in channels, starts the scheduler, and connects enabled MCP servers lazily through the runner.
 

@@ -173,7 +173,7 @@ All durable internal state is scoped by `agent_id` where applicable:
 | Secrets | Per-agent provider/integration secrets, encrypted at rest |
 | Schedules | Cron/once jobs and run history |
 
-Secrets are encrypted with `OPENHERMIT_SECRETS_KEY` (AES-256-GCM); without that key the gateway falls back to per-agent `secrets.json` for local dev. The only per-agent files on disk are `~/.openhermit/agents/{agentId}/skill-mounts/` (symlinks to enabled skills) and the workspace at `~/.openhermit/workspaces/{agentId}/`.
+Secrets are encrypted with `OPENHERMIT_SECRETS_KEY` (AES-256-GCM); without that key the gateway falls back to per-agent `secrets.json` for local dev. The only per-agent files on disk are the workspace at `~/.openhermit/workspaces/{agentId}/`; enabled skills are synced into each backend's own `<agent_home>/.openhermit/skills/system/` (bind-mounted for docker, uploaded via SDK for e2b/daytona).
 
 ---
 

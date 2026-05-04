@@ -130,16 +130,19 @@ returned to clients in plaintext after they are written.
 
 ## Per-Agent Files
 
-Files under `~/.openhermit/agents/{agentId}/` are runtime/local state,
-not configuration:
+Per-agent state lives in PostgreSQL. The only on-disk per-agent
+artifact is the workspace at `~/.openhermit/workspaces/{agentId}/`,
+which holds external task state.
 
-| File / Dir | Purpose |
-|------------|---------|
-| `skill-mounts/` | generated symlinks to enabled DB-managed skills |
-| `secrets.json` | only present in the file-fallback dev mode (no `OPENHERMIT_SECRETS_KEY`); otherwise unused |
+Enabled skills are not stored under a gateway-side per-agent dir —
+each `ExecBackend` syncs them into its own sandbox at
+`<agent_home>/.openhermit/skills/system/` via `runner.syncSkills`
+(docker bind-mounts the workspace skill dir; host writes to
+`$HOME/.openhermit/skills/system/`; e2b/daytona upload via SDK).
 
-Workspace files under `~/.openhermit/workspaces/{agentId}/` are external
-task state, unchanged.
+In file-fallback dev mode (no `OPENHERMIT_SECRETS_KEY`), a per-agent
+`secrets.json` may appear under `~/.openhermit/agents/{agentId}/`;
+otherwise that directory is unused.
 
 ## Migrations
 
