@@ -220,8 +220,11 @@ class DockerExecBackend implements ExecBackend {
 
   async ensure(): Promise<void> {
     const entry = await this.containerManager.ensureWorkspaceContainer(this.agentId, this.config);
+    // `entry.id` is the registry's internal UUID; `runtime_container_id`
+    // is the actual docker container ID — that's what we want as the
+    // sandbox row's external_id.
     await this.context.markActive?.({
-      externalId: entry.id,
+      externalId: entry.runtime_container_id ?? null,
       lastSeenAt: new Date().toISOString(),
     });
   }

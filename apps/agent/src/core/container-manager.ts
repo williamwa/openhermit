@@ -271,7 +271,21 @@ export class DockerContainerManager {
     if (liveStatus === 'exited' || (this.workspaceEntry?.status === 'stopped' && liveStatus)) {
       const startResult = await this.docker.run(['start', name]);
       if (startResult.exitCode === 0) {
-        this.workspaceEntry = { ...this.workspaceEntry!, status: 'running' };
+        // After gateway restart `this.workspaceEntry` is undefined; rebuild
+        // from the docker-side info we just looked up so the returned entry
+        // always carries the runtime container id (used as external_id).
+        this.workspaceEntry = {
+          id: this.workspaceEntry?.id ?? live!.id,
+          name,
+          image: this.workspaceEntry?.image ?? config.image,
+          type: 'workspace',
+          mount: this.workspaceEntry?.mount ?? '.',
+          mount_target: this.workspaceEntry?.mount_target ?? mountTarget,
+          created: this.workspaceEntry?.created ?? new Date().toISOString(),
+          ...this.workspaceEntry,
+          status: 'running',
+          runtime_container_id: live!.id,
+        };
         return this.workspaceEntry;
       }
     }
