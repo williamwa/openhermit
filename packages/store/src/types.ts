@@ -25,13 +25,13 @@ export type SandboxType = 'host' | 'docker' | 'e2b' | 'daytona';
  * Lifecycle state of a sandbox row — intent, not live runtime status.
  *
  * - `pending`: row exists, backend resource has never been provisioned.
- *   Provisioning is lazy; first `ensure()` flips this to `active`.
- * - `active`: backend resource has been provisioned at least once. Stays
- *   `active` even if the upstream sandbox is paused / reaped — `ensure()`
- *   re-provisions transparently and refreshes `external_id`.
+ *   Provisioning is lazy; first `ensure()` flips this to `provisioned`.
+ * - `provisioned`: backend resource has been provisioned at least once.
+ *   Stays `provisioned` even if the upstream sandbox is paused / reaped —
+ *   `ensure()` re-provisions transparently and refreshes `external_id`.
  * - `deleted`: soft-deleted; row kept for audit, never selected for use.
  */
-export type SandboxStatus = 'pending' | 'active' | 'deleted';
+export type SandboxStatus = 'pending' | 'provisioned' | 'deleted';
 
 export interface SandboxRecord {
   id: string;

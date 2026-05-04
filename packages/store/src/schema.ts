@@ -151,7 +151,7 @@ export const sandboxes = pgTable('sandboxes', {
   /** 'host' | 'docker' | 'e2b' | 'daytona' (future) */
   type: text('type').notNull(),
   externalId: text('external_id'),
-  /** 'pending' | 'active' | 'deleted' — see SandboxStatus type. */
+  /** 'pending' | 'provisioned' | 'deleted' — see SandboxStatus type. */
   status: text('status').default('pending').notNull(),
   /** Backend creation params: image/template, agent_home, username, lifecycle/timeouts. */
   config: jsonb('config').$type<Record<string, unknown>>().default({}).notNull(),

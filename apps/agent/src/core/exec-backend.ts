@@ -152,7 +152,7 @@ export interface BackendFactoryContext {
    * Mark the sandbox row as having been provisioned at least once.
    * Backends call this from `ensure()` after successfully bringing up
    * (or reconnecting to) the underlying resource: it flips
-   * `status: pending → active` (idempotent if already active), refreshes
+   * `status: pending → provisioned` (idempotent if already provisioned), refreshes
    * `external_id` and `last_seen_at`. Live runtime state (running vs
    * paused vs stopped) is intentionally NOT tracked in the row — the
    * source of truth for that is the backend itself.
