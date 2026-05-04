@@ -497,6 +497,14 @@ export class AgentRunner implements SessionRuntime {
       throw new NotFoundError(`Session not found: ${spec.sessionId}`);
     }
 
+    // Access control on new session: protected/private agents reject any
+    // sender that didn't resolve to a known user with a membership row.
+    // resolveSessionUser already logged the reason; here we turn that into
+    // a hard reject so no session/message is processed for them.
+    if (!resolvedUserId && this.options.security.getAccessLevel() !== 'public') {
+      throw new NotFoundError(`Session not found: ${spec.sessionId}`);
+    }
+
     if (
       (config.exec?.lifecycle?.start ?? 'ondemand') === 'session'
     ) {
