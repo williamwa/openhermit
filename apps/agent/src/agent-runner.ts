@@ -315,9 +315,14 @@ export class AgentRunner implements SessionRuntime {
 
     this.workspaceIdleTimer = setTimeout(() => {
       this.workspaceIdleTimer = undefined;
-      void this.containerManager
-        .stopWorkspaceContainer(this.scope.agentId)
-        .then(() => this.logRuntime('workspace container stopped (idle timeout)'))
+      // Route through ExecBackendManager so each backend's shutdown() runs
+      // (sandbox row status flips to 'stopped', etc.). When the manager
+      // hasn't been constructed yet, there's nothing running to stop.
+      const manager = this.execBackendManager;
+      if (!manager) return;
+      void manager
+        .shutdownAll()
+        .then(() => this.logRuntime('exec backends shut down (idle timeout)'))
         .catch(() => {});
     }, timeoutMs);
   }
@@ -347,9 +352,6 @@ export class AgentRunner implements SessionRuntime {
       if (this.execBackendManager) {
         await this.execBackendManager.shutdownAll();
         this.logRuntime('exec backends shut down (session end)');
-      } else {
-        await this.containerManager.stopWorkspaceContainer(this.scope.agentId);
-        this.logRuntime('workspace container stopped (session end)');
       }
     }
   }
@@ -393,8 +395,6 @@ export class AgentRunner implements SessionRuntime {
     if (this.execBackendManager) {
       await this.execBackendManager.shutdownAll();
       this.execBackendManager = undefined;
-    } else {
-      await this.containerManager.stopWorkspaceContainer(this.scope.agentId).catch(() => {});
     }
 
     await this.bus.emit('agent.stopped@v1', {
