@@ -26,7 +26,7 @@ const statusBadge = (status: ContainerInfo['status']): string => {
   }
 };
 
-export function ContainersPanel() {
+export function SandboxesPanel() {
   const [containers, setContainers] = useState<ContainerInfo[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -58,7 +58,7 @@ export function ContainersPanel() {
     <div className="panel">
       <div className="panel__header">
         <h2>
-          Containers
+          Sandboxes
           <span className="fleet__sub">
             &nbsp;· {totals.running}/{totals.total} running
           </span>
@@ -77,7 +77,7 @@ export function ContainersPanel() {
       {error && <p className="agent-list__empty">{error}</p>}
 
       {!loading && !error && containers.length === 0 && (
-        <p className="agent-list__empty">No openhermit containers found.</p>
+        <p className="agent-list__empty">No openhermit sandboxes found.</p>
       )}
 
       {containers.length > 0 && (

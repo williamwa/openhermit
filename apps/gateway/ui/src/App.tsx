@@ -8,7 +8,7 @@ import { SkillsPanel } from './components/SkillsPanel';
 import { McpServersPanel } from './components/McpServersPanel';
 import { SchedulesPanel } from './components/SchedulesPanel';
 import { ChannelsPanel } from './components/ChannelsPanel';
-import { ContainersPanel } from './components/ContainersPanel';
+import { SandboxesPanel } from './components/SandboxesPanel';
 import { UsersPanel } from './components/UsersPanel';
 import { StatsPanel } from './components/StatsPanel';
 import { LogsPanel } from './components/LogsPanel';
@@ -54,7 +54,7 @@ export function App() {
       {tab === 'mcp-servers' && <McpServersPanel />}
       {tab === 'schedules' && <SchedulesPanel />}
       {tab === 'channels' && <ChannelsPanel />}
-      {tab === 'containers' && <ContainersPanel />}
+      {tab === 'sandboxes' && <SandboxesPanel />}
       {tab === 'users' && <UsersPanel />}
       {tab === 'stats' && <StatsPanel />}
       {tab === 'logs' && <LogsPanel />}
