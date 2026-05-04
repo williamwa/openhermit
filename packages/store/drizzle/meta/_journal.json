@@ -64,6 +64,13 @@
       "when": 1777600000000,
       "tag": "0008_sandbox_status_rename_active",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1777700000000,
+      "tag": "0009_sandbox_unique_partial",
+      "breakpoints": true
     }
   ]
 }
