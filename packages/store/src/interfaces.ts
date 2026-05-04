@@ -213,6 +213,8 @@ export interface SandboxStore {
   get(id: string): Promise<SandboxRecord | undefined>;
   getByAlias(agentId: string, alias: string): Promise<SandboxRecord | undefined>;
   listByAgent(agentId: string): Promise<SandboxRecord[]>;
+  /** List every non-deleted sandbox across all agents. Admin-only. */
+  listAll(): Promise<SandboxRecord[]>;
   /** Update mutable fields. Bumps updatedAt automatically. */
   update(
     id: string,

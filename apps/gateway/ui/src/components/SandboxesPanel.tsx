@@ -1,40 +1,56 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
 
-interface ContainerInfo {
+type RuntimeStatus = 'running' | 'exited' | 'created' | 'removed' | 'unknown';
+
+interface SandboxInfo {
   id: string;
-  name: string;
   agentId: string;
   agentName?: string;
-  type: string;
-  image: string;
-  status: 'running' | 'exited' | 'created' | 'removed' | 'unknown';
-  statusText: string;
+  alias: string;
+  type: 'host' | 'docker' | 'e2b' | 'daytona';
+  status: 'pending' | 'provisioned' | 'deleted';
+  externalId: string | null;
+  lastSeenAt: string | null;
+  createdAt: string;
+  runtime: {
+    status: RuntimeStatus;
+    statusText: string;
+    image: string;
+  } | null;
 }
 
 const REFRESH_MS = 10_000;
 
-const statusBadge = (status: ContainerInfo['status']): string => {
+const lifecycleBadge = (status: SandboxInfo['status']): string => {
+  switch (status) {
+    case 'provisioned': return 'badge--running';
+    case 'pending': return 'badge--paused';
+    case 'deleted':
+    default: return 'badge--stopped';
+  }
+};
+
+const runtimeBadge = (status: RuntimeStatus): string => {
   switch (status) {
     case 'running': return 'badge--running';
     case 'created': return 'badge--paused';
     case 'exited':
     case 'removed':
     case 'unknown':
-    default:
-      return 'badge--stopped';
+    default: return 'badge--stopped';
   }
 };
 
 export function SandboxesPanel() {
-  const [containers, setContainers] = useState<ContainerInfo[]>([]);
+  const [sandboxes, setSandboxes] = useState<SandboxInfo[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     try {
-      const data = await api<ContainerInfo[]>('/api/admin/containers');
-      setContainers(data);
+      const data = await api<SandboxInfo[]>('/api/admin/sandboxes');
+      setSandboxes(data);
       setError('');
     } catch (err) {
       setError((err as Error).message);
@@ -50,8 +66,8 @@ export function SandboxesPanel() {
   }, [load]);
 
   const totals = {
-    running: containers.filter((c) => c.status === 'running').length,
-    total: containers.length,
+    provisioned: sandboxes.filter((s) => s.status === 'provisioned').length,
+    total: sandboxes.length,
   };
 
   return (
@@ -60,7 +76,7 @@ export function SandboxesPanel() {
         <h2>
           Sandboxes
           <span className="fleet__sub">
-            &nbsp;· {totals.running}/{totals.total} running
+            &nbsp;· {totals.provisioned}/{totals.total} provisioned
           </span>
         </h2>
         <div className="panel__header-actions">
@@ -70,52 +86,65 @@ export function SandboxesPanel() {
         </div>
       </div>
 
-      {loading && containers.length === 0 && (
-        <p className="agent-list__empty">Loading containers…</p>
+      {loading && sandboxes.length === 0 && (
+        <p className="agent-list__empty">Loading sandboxes…</p>
       )}
 
       {error && <p className="agent-list__empty">{error}</p>}
 
-      {!loading && !error && containers.length === 0 && (
-        <p className="agent-list__empty">No openhermit sandboxes found.</p>
+      {!loading && !error && sandboxes.length === 0 && (
+        <p className="agent-list__empty">No sandboxes found.</p>
       )}
 
-      {containers.length > 0 && (
+      {sandboxes.length > 0 && (
         <>
           <div className="fleet-table-wrap">
             <table className="fleet-table">
               <thead>
                 <tr>
-                  <th>Name</th>
+                  <th>Agent</th>
+                  <th>Alias</th>
                   <th>Type</th>
-                  <th>Owner</th>
-                  <th>Status</th>
-                  <th>Image</th>
+                  <th>Lifecycle</th>
+                  <th>Runtime</th>
+                  <th>External ID</th>
                 </tr>
               </thead>
               <tbody>
-                {containers.map((c) => (
-                  <tr key={c.id || c.name}>
+                {sandboxes.map((s) => (
+                  <tr key={s.id}>
                     <td>
                       <div className="fleet-cell-agent">
-                        <span className="fleet-cell-agent__id">{c.name}</span>
-                        <span className="fleet-cell-agent__name">{c.id.slice(0, 12)}</span>
-                      </div>
-                    </td>
-                    <td>{c.type}</td>
-                    <td>
-                      <div className="fleet-cell-agent">
-                        <span className="fleet-cell-agent__id">{c.agentId}</span>
-                        {c.agentName && (
-                          <span className="fleet-cell-agent__name">{c.agentName}</span>
+                        <span className="fleet-cell-agent__id">{s.agentId}</span>
+                        {s.agentName && (
+                          <span className="fleet-cell-agent__name">{s.agentName}</span>
                         )}
                       </div>
                     </td>
+                    <td>{s.alias}</td>
+                    <td>{s.type}</td>
                     <td>
-                      <span className={`badge ${statusBadge(c.status)}`}>{c.status}</span>
-                      <div className="fleet-cell-relative" style={{ marginTop: 2 }}>{c.statusText}</div>
+                      <span className={`badge ${lifecycleBadge(s.status)}`}>{s.status}</span>
                     </td>
-                    <td className="fleet-cell-relative" style={{ fontFamily: 'var(--mono)' }}>{c.image}</td>
+                    <td>
+                      {s.runtime ? (
+                        <>
+                          <span className={`badge ${runtimeBadge(s.runtime.status)}`}>
+                            {s.runtime.status}
+                          </span>
+                          <div className="fleet-cell-relative" style={{ marginTop: 2 }}>
+                            {s.runtime.statusText}
+                          </div>
+                        </>
+                      ) : (
+                        <span className="fleet-cell-relative">
+                          {s.type === 'docker' ? 'not on this host' : '—'}
+                        </span>
+                      )}
+                    </td>
+                    <td className="fleet-cell-relative" style={{ fontFamily: 'var(--mono)' }}>
+                      {s.externalId ?? '—'}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -123,27 +152,33 @@ export function SandboxesPanel() {
           </div>
 
           <div className="fleet-cards">
-            {containers.map((c) => (
-              <div key={c.id || c.name} className="fleet-card">
+            {sandboxes.map((s) => (
+              <div key={s.id} className="fleet-card">
                 <div className="fleet-card__top">
                   <div className="fleet-card__heading">
-                    <span className="fleet-card__id">{c.name}</span>
-                    <span className="fleet-card__name">{c.image}</span>
+                    <span className="fleet-card__id">{s.agentId}</span>
+                    <span className="fleet-card__name">{s.alias} · {s.type}</span>
                   </div>
-                  <span className={`badge ${statusBadge(c.status)}`}>{c.status}</span>
+                  <span className={`badge ${lifecycleBadge(s.status)}`}>{s.status}</span>
                 </div>
                 <dl className="fleet-card__stats">
                   <div>
-                    <dt>Type</dt>
-                    <dd>{c.type}</dd>
+                    <dt>Runtime</dt>
+                    <dd>
+                      {s.runtime ? (
+                        <span className={`badge ${runtimeBadge(s.runtime.status)}`}>
+                          {s.runtime.status}
+                        </span>
+                      ) : (
+                        s.type === 'docker' ? 'not on this host' : '—'
+                      )}
+                    </dd>
                   </div>
                   <div>
-                    <dt>Owner</dt>
-                    <dd>{c.agentId}</dd>
-                  </div>
-                  <div>
-                    <dt>Detail</dt>
-                    <dd style={{ fontSize: '0.75rem' }}>{c.statusText}</dd>
+                    <dt>External ID</dt>
+                    <dd style={{ fontFamily: 'var(--mono)', fontSize: '0.75rem' }}>
+                      {s.externalId ?? '—'}
+                    </dd>
                   </div>
                 </dl>
               </div>

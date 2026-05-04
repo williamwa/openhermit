@@ -1257,26 +1257,59 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     return c.json(fleet);
   });
 
-  app.get('/api/admin/containers', async (c) => {
+  app.get('/api/admin/sandboxes', async (c) => {
     requireAdmin(c.req.header('authorization'));
-    try {
-      const containers = await listAllOpenHermitContainers();
-      // Resolve agent display name where possible.
-      const nameByAgent = new Map<string, string | undefined>();
-      if (agentStore) {
-        const records = await agentStore.list();
-        for (const r of records) nameByAgent.set(r.agentId, r.name);
-      }
-      return c.json(containers.map((ct) => ({
-        ...ct,
-        ...(nameByAgent.has(ct.agentId)
-          ? { agentName: nameByAgent.get(ct.agentId) }
-          : {}),
-      })));
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return c.json({ error: { code: 'docker_unavailable', message } }, 503);
+    const store = options.sandboxStore;
+    if (!store) {
+      return c.json({ error: { code: 'not_configured', message: 'Sandbox store is not configured.' } }, 500);
     }
+    const rows = await store.listAll();
+
+    // Resolve agent display names.
+    const nameByAgent = new Map<string, string | undefined>();
+    if (agentStore) {
+      const records = await agentStore.list();
+      for (const r of records) nameByAgent.set(r.agentId, r.name);
+    }
+
+    // Best-effort overlay of local docker daemon state. Lets the UI show
+    // "is the container actually running on this host right now" alongside
+    // the DB lifecycle status. Failures are non-fatal — we still return the
+    // DB rows so e2b/host sandboxes remain visible when docker is down.
+    const dockerByName = new Map<string, { id: string; status: string; statusText: string; image: string }>();
+    try {
+      const live = await listAllOpenHermitContainers();
+      for (const ct of live) {
+        dockerByName.set(ct.name, {
+          id: ct.id,
+          status: ct.status,
+          statusText: ct.statusText,
+          image: ct.image,
+        });
+      }
+    } catch {
+      // docker unavailable — leave dockerByName empty
+    }
+
+    return c.json(rows.map((row) => {
+      const dockerInfo = row.type === 'docker' && row.externalId
+        ? dockerByName.get(row.externalId)
+        : undefined;
+      return {
+        id: row.id,
+        agentId: row.agentId,
+        agentName: nameByAgent.get(row.agentId),
+        alias: row.alias,
+        type: row.type,
+        status: row.status,
+        externalId: row.externalId,
+        lastSeenAt: row.lastSeenAt,
+        createdAt: row.createdAt,
+        runtime: dockerInfo
+          ? { status: dockerInfo.status, statusText: dockerInfo.statusText, image: dockerInfo.image }
+          : null,
+      };
+    }));
   });
 
   app.get('/api/admin/users', async (c) => {

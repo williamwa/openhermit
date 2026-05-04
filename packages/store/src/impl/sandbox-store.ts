@@ -83,6 +83,15 @@ export class DbSandboxStore implements SandboxStore {
     return rows.map((r) => this.rowToRecord(r));
   }
 
+  async listAll(): Promise<SandboxRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(sandboxes)
+      .where(ne(sandboxes.status, 'deleted'))
+      .orderBy(asc(sandboxes.agentId), asc(sandboxes.alias));
+    return rows.map((r) => this.rowToRecord(r));
+  }
+
   async update(
     id: string,
     patch: Partial<{
