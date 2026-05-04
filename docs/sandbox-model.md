@@ -46,6 +46,8 @@ All fields optional:
 
 The host backend treats the gateway machine as the sandbox; only one agent per gateway can hold the host sandbox (enforced at the API layer).
 
+> ⚠️ **Reserved for the devops agent.** The `host` backend gives the agent unsandboxed shell access to the gateway machine itself — every command runs as the gateway process user, on the same filesystem and network as the gateway. It is intended for a single privileged operator agent that manages the host (the "devops" agent) and **must** be paired with `access: "private"` so only the owner / explicitly added admins can talk to it. Do not use `host` for general-purpose agents; pick `docker`, `e2b`, or `daytona` instead.
+
 ### `docker`
 
 ```json
