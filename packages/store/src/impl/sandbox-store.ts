@@ -44,7 +44,7 @@ export class DbSandboxStore implements SandboxStore {
       alias: input.alias,
       type: input.type,
       externalId: input.externalId ?? null,
-      status: input.status ?? 'stopped',
+      status: input.status ?? 'pending',
       config: input.config ?? {},
       runtimeState: input.runtimeState ?? {},
       createdAt: now,
@@ -64,7 +64,13 @@ export class DbSandboxStore implements SandboxStore {
     const [row] = await this.db
       .select()
       .from(sandboxes)
-      .where(and(eq(sandboxes.agentId, agentId), eq(sandboxes.alias, alias)));
+      .where(
+        and(
+          eq(sandboxes.agentId, agentId),
+          eq(sandboxes.alias, alias),
+          ne(sandboxes.status, 'deleted'),
+        ),
+      );
     return row ? this.rowToRecord(row) : undefined;
   }
 
@@ -72,7 +78,7 @@ export class DbSandboxStore implements SandboxStore {
     const rows = await this.db
       .select()
       .from(sandboxes)
-      .where(eq(sandboxes.agentId, agentId))
+      .where(and(eq(sandboxes.agentId, agentId), ne(sandboxes.status, 'deleted')))
       .orderBy(asc(sandboxes.alias));
     return rows.map((r) => this.rowToRecord(r));
   }
@@ -103,13 +109,18 @@ export class DbSandboxStore implements SandboxStore {
   }
 
   async delete(id: string): Promise<void> {
-    await this.db.delete(sandboxes).where(eq(sandboxes.id, id));
+    // Soft delete: keep the row for audit, but it stops being selected by
+    // listByAgent / getByAlias / findAgentByType.
+    await this.db
+      .update(sandboxes)
+      .set({ status: 'deleted', updatedAt: new Date().toISOString() })
+      .where(eq(sandboxes.id, id));
   }
 
   async findAgentByType(type: string, excludeAgentId?: string): Promise<string | null> {
     const where = excludeAgentId
-      ? and(eq(sandboxes.type, type), ne(sandboxes.agentId, excludeAgentId))
-      : eq(sandboxes.type, type);
+      ? and(eq(sandboxes.type, type), ne(sandboxes.agentId, excludeAgentId), ne(sandboxes.status, 'deleted'))
+      : and(eq(sandboxes.type, type), ne(sandboxes.status, 'deleted'));
     const [row] = await this.db.select({ agentId: sandboxes.agentId }).from(sandboxes).where(where).limit(1);
     return row?.agentId ?? null;
   }

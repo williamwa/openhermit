@@ -21,12 +21,17 @@ export interface AgentRecord {
 
 export type SandboxType = 'host' | 'docker' | 'e2b' | 'daytona';
 
-export type SandboxStatus =
-  | 'provisioning'
-  | 'running'
-  | 'paused'
-  | 'stopped'
-  | 'gone';
+/**
+ * Lifecycle state of a sandbox row — intent, not live runtime status.
+ *
+ * - `pending`: row exists, backend resource has never been provisioned.
+ *   Provisioning is lazy; first `ensure()` flips this to `active`.
+ * - `active`: backend resource has been provisioned at least once. Stays
+ *   `active` even if the upstream sandbox is paused / reaped — `ensure()`
+ *   re-provisions transparently and refreshes `external_id`.
+ * - `deleted`: soft-deleted; row kept for audit, never selected for use.
+ */
+export type SandboxStatus = 'pending' | 'active' | 'deleted';
 
 export interface SandboxRecord {
   id: string;

@@ -149,13 +149,17 @@ export interface BackendFactoryContext {
   getRuntimeState?: () => Promise<Record<string, unknown> | null>;
   setRuntimeState?: (state: Record<string, unknown>) => Promise<void>;
   /**
-   * Patch the sandbox row's top-level status / externalId / lastSeenAt
-   * columns. Called by backends on ensure (running + externalId) and
-   * shutdown (stopped). Undefined when running on the legacy fromConfig
-   * path (no DB row to update).
+   * Mark the sandbox row as having been provisioned at least once.
+   * Backends call this from `ensure()` after successfully bringing up
+   * (or reconnecting to) the underlying resource: it flips
+   * `status: pending → active` (idempotent if already active), refreshes
+   * `external_id` and `last_seen_at`. Live runtime state (running vs
+   * paused vs stopped) is intentionally NOT tracked in the row — the
+   * source of truth for that is the backend itself.
+   *
+   * Undefined on the legacy fromConfig path (no DB row to update).
    */
-  setSandboxStatus?: (patch: {
-    status?: 'provisioning' | 'running' | 'paused' | 'stopped' | 'gone';
+  markActive?: (patch: {
     externalId?: string | null;
     lastSeenAt?: string;
   }) => Promise<void>;
@@ -216,8 +220,7 @@ class DockerExecBackend implements ExecBackend {
 
   async ensure(): Promise<void> {
     const entry = await this.containerManager.ensureWorkspaceContainer(this.agentId, this.config);
-    await this.context.setSandboxStatus?.({
-      status: 'running',
+    await this.context.markActive?.({
       externalId: entry.id,
       lastSeenAt: new Date().toISOString(),
     });
@@ -239,7 +242,6 @@ class DockerExecBackend implements ExecBackend {
 
   async shutdown(): Promise<void> {
     await this.containerManager.stopWorkspaceContainer(this.agentId);
-    await this.context.setSandboxStatus?.({ status: 'stopped' });
   }
 }
 
@@ -278,10 +280,9 @@ class HostExecBackend implements ExecBackend {
   }
 
   async ensure(): Promise<void> {
-    // Host shell is always ready; mark the row 'running' (idempotent) so
-    // operators can see it's been claimed at least once.
-    await this.context.setSandboxStatus?.({
-      status: 'running',
+    // Host shell is always ready; record that the row has been claimed
+    // at least once.
+    await this.context.markActive?.({
       lastSeenAt: new Date().toISOString(),
     });
   }
@@ -336,7 +337,7 @@ class HostExecBackend implements ExecBackend {
   }
 
   async shutdown(): Promise<void> {
-    await this.context.setSandboxStatus?.({ status: 'stopped' });
+    // No-op: host shell has no resource to release.
   }
 }
 
@@ -427,8 +428,7 @@ class E2BExecBackend implements ExecBackend {
           apiKey,
           timeoutMs: this.sandboxTimeoutMs,
         });
-        await this.context.setSandboxStatus?.({
-          status: 'running',
+        await this.context.markActive?.({
           externalId: this.sandbox.sandboxId,
           lastSeenAt: new Date().toISOString(),
         });
@@ -455,8 +455,7 @@ class E2BExecBackend implements ExecBackend {
       cwd: this.agentHome,
       updatedAt: new Date().toISOString(),
     });
-    await this.context.setSandboxStatus?.({
-      status: 'running',
+    await this.context.markActive?.({
       externalId: this.sandbox.sandboxId,
       lastSeenAt: new Date().toISOString(),
     });
@@ -563,7 +562,6 @@ class E2BExecBackend implements ExecBackend {
       // Already paused or gone — ignore.
     }
     this.sandbox = null;
-    await this.context.setSandboxStatus?.({ status: 'stopped' });
   }
 
   private async loadState(): Promise<E2BBackendPersisted | null> {
@@ -657,12 +655,11 @@ export class ExecBackendManager {
       type: string;
       config: Record<string, unknown>;
     }>,
-    context: Omit<BackendFactoryContext, 'getRuntimeState' | 'setRuntimeState' | 'setSandboxStatus'>,
+    context: Omit<BackendFactoryContext, 'getRuntimeState' | 'setRuntimeState' | 'markActive'>,
     sandboxAccess: {
       getRuntimeState: (sandboxId: string) => Promise<Record<string, unknown> | null>;
       setRuntimeState: (sandboxId: string, state: Record<string, unknown>) => Promise<void>;
-      setStatus: (sandboxId: string, patch: {
-        status?: 'provisioning' | 'running' | 'paused' | 'stopped' | 'gone';
+      markActive: (sandboxId: string, patch: {
         externalId?: string | null;
         lastSeenAt?: string;
       }) => Promise<void>;
@@ -676,7 +673,7 @@ export class ExecBackendManager {
         ...context,
         getRuntimeState: () => sandboxAccess.getRuntimeState(row.id),
         setRuntimeState: (state) => sandboxAccess.setRuntimeState(row.id, state),
-        setSandboxStatus: (patch) => sandboxAccess.setStatus(row.id, patch),
+        markActive: (patch) => sandboxAccess.markActive(row.id, patch),
       };
       const cfg = { ...row.config, type: row.type, id: row.alias } as ExecBackendConfig;
       return createExecBackend(cfg, ctx);

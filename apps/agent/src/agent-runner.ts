@@ -283,9 +283,8 @@ export class AgentRunner implements SessionRuntime {
           setRuntimeState: async (sandboxId, state) => {
             await store.update(sandboxId, { runtimeState: state });
           },
-          setStatus: async (sandboxId, patch) => {
-            const next: Parameters<typeof store.update>[1] = {};
-            if (patch.status !== undefined) next.status = patch.status;
+          markActive: async (sandboxId, patch) => {
+            const next: Parameters<typeof store.update>[1] = { status: 'active' };
             if (patch.externalId !== undefined) next.externalId = patch.externalId;
             if (patch.lastSeenAt !== undefined) next.lastSeenAt = patch.lastSeenAt;
             await store.update(sandboxId, next);
