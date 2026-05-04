@@ -19,6 +19,10 @@ const DOCKER_DEFAULT_USERNAME = 'root';
 const DOCKER_DEFAULT_AGENT_HOME = '/root';
 const E2B_DEFAULT_USERNAME = 'user';
 const E2B_DEFAULT_AGENT_HOME = '/home/user';
+// Daytona standard snapshots run as `daytona`/`/home/daytona`. Override per
+// snapshot via config.username / config.agent_home.
+const DAYTONA_DEFAULT_USERNAME = 'daytona';
+const DAYTONA_DEFAULT_AGENT_HOME = '/home/daytona';
 
 // ── Result type (re-uses existing ContainerProcessResult) ─────────────────
 
@@ -123,10 +127,33 @@ export interface E2BExecBackendConfig {
   sandbox_timeout_ms?: number;
 }
 
+export interface DaytonaExecBackendConfig {
+  id?: string;
+  type: 'daytona';
+  label?: string;
+  /** Snapshot ID to launch from. Mutually exclusive with `image`. */
+  snapshot?: string;
+  /** Image (e.g. `debian:12`). Used when `snapshot` is not set. */
+  image?: string;
+  /** Linux user inside the sandbox. Defaults to `daytona`. */
+  username?: string;
+  /** Working directory inside the sandbox. Defaults to `/home/daytona`. */
+  agent_home?: string;
+  /** Per-command timeout in milliseconds. */
+  timeout_ms?: number;
+  /** Idle minutes before Daytona auto-stops the sandbox. Daytona default = 15. */
+  auto_stop_interval_minutes?: number;
+  /** Env vars set on the sandbox at create time. */
+  env?: Record<string, string>;
+  /** CPU + memory hints; only honored on image-based create. */
+  resources?: { cpu?: number; memory?: number };
+}
+
 export type ExecBackendConfig =
   | DockerExecBackendConfig
   | HostExecBackendConfig
-  | E2BExecBackendConfig;
+  | E2BExecBackendConfig
+  | DaytonaExecBackendConfig;
 
 export interface ExecConfig {
   backends: ExecBackendConfig[];
@@ -580,6 +607,278 @@ class E2BExecBackend implements ExecBackend {
   }
 }
 
+// ── Daytona backend ───────────────────────────────────────────────────────
+
+/**
+ * Recursively upload a host directory to a Daytona sandbox path. Walks
+ * the local tree, then issues a single `uploadFiles` batch (atomic-ish on
+ * the Daytona side). Skill bundles are typically small enough that one
+ * batch is fine; if a skill is huge, the SDK chunks internally.
+ */
+const uploadDirToDaytona = async (
+  sandbox: import('@daytonaio/sdk').Sandbox,
+  localDir: string,
+  remoteDir: string,
+): Promise<void> => {
+  const files: { source: Buffer; destination: string }[] = [];
+  const dirs: string[] = [];
+
+  const walk = async (local: string, remote: string): Promise<void> => {
+    const entries = await readdir(local, { withFileTypes: true });
+    for (const entry of entries) {
+      const localPath = path.join(local, entry.name);
+      const remotePath = `${remote}/${entry.name}`;
+      if (entry.isDirectory()) {
+        dirs.push(remotePath);
+        await walk(localPath, remotePath);
+      } else if (entry.isFile()) {
+        files.push({ source: await readFile(localPath), destination: remotePath });
+      }
+      // Symlinks and other types skipped — same policy as the e2b path.
+    }
+  };
+  await walk(localDir, remoteDir);
+
+  for (const dir of dirs) {
+    await sandbox.fs.createFolder(dir, '755');
+  }
+  if (files.length > 0) {
+    await sandbox.fs.uploadFiles(files);
+  }
+};
+
+const DAYTONA_DEFAULT_TIMEOUT_MS = 300_000;
+const DAYTONA_DEFAULT_AUTO_STOP_MINUTES = 15;
+
+interface DaytonaBackendPersisted {
+  sandboxId: string;
+  source: { snapshot?: string; image?: string };
+  cwd: string;
+  updatedAt: string;
+}
+
+interface DaytonaPendingSkillSync {
+  skills: Array<{ id: string; sourcePath: string }>;
+  queuedAt: string;
+}
+
+class DaytonaExecBackend implements ExecBackend {
+  readonly id: string;
+  readonly type = 'daytona';
+  readonly label: string;
+  readonly username: string;
+  readonly agentHome: string;
+  private readonly snapshot: string | undefined;
+  private readonly image: string | undefined;
+  private readonly timeoutMs: number;
+  private readonly autoStopMinutes: number;
+  private readonly envVars: Record<string, string> | undefined;
+  private readonly resources: { cpu?: number; memory?: number } | undefined;
+
+  private sandbox: import('@daytonaio/sdk').Sandbox | null = null;
+
+  constructor(
+    config: DaytonaExecBackendConfig,
+    private readonly context: BackendFactoryContext,
+  ) {
+    this.id = config.id ?? 'daytona';
+    this.label = config.label ?? `Daytona (${config.snapshot ?? config.image ?? 'default'})`;
+    this.snapshot = config.snapshot;
+    this.image = config.image;
+    if (!this.snapshot && !this.image) {
+      // Either is fine; if both are absent Daytona falls back to its
+      // platform default snapshot.
+    }
+    this.timeoutMs = config.timeout_ms ?? DAYTONA_DEFAULT_TIMEOUT_MS;
+    this.autoStopMinutes = config.auto_stop_interval_minutes ?? DAYTONA_DEFAULT_AUTO_STOP_MINUTES;
+    this.envVars = config.env;
+    this.resources = config.resources;
+    this.username = config.username ?? DAYTONA_DEFAULT_USERNAME;
+    this.agentHome = config.agent_home ?? DAYTONA_DEFAULT_AGENT_HOME;
+  }
+
+  async ensure(): Promise<void> {
+    if (this.sandbox) return;
+
+    const { Daytona } = await import('@daytonaio/sdk');
+    const apiKey = process.env['DAYTONA_API_KEY'];
+    if (!apiKey) {
+      throw new ValidationError(
+        'DAYTONA_API_KEY environment variable is not set. Add it to ~/.openhermit/gateway/.env to use the daytona backend.',
+      );
+    }
+    const daytona = new Daytona({ apiKey });
+
+    // Try to reconnect to a previously persisted sandbox.
+    const persisted = await this.loadState();
+    if (persisted?.sandboxId) {
+      try {
+        const existing = await daytona.get(persisted.sandboxId);
+        // Daytona sandboxes auto-stop after idle; bring it back if needed.
+        if (existing.state !== 'started') {
+          await existing.start();
+        }
+        this.sandbox = existing;
+        await this.context.markActive?.({
+          externalId: existing.id,
+          lastSeenAt: new Date().toISOString(),
+        });
+        await this.replayPendingSkillSync();
+        return;
+      } catch {
+        // Sandbox gone (deleted / archived past recovery) — create a new one.
+      }
+    }
+
+    // Create a new sandbox. Daytona accepts either snapshot or image; if both
+    // are absent it uses its platform default.
+    const createParams: Record<string, unknown> = {
+      autoStopInterval: this.autoStopMinutes,
+      ...(this.snapshot ? { snapshot: this.snapshot } : {}),
+      ...(this.image ? { image: this.image } : {}),
+      ...(this.envVars ? { envVars: this.envVars } : {}),
+      ...(this.resources ? { resources: this.resources } : {}),
+    };
+    this.sandbox = await daytona.create(
+      createParams as Parameters<typeof daytona.create>[0],
+    );
+
+    // Ensure workspace directory exists.
+    await this.sandbox.process.executeCommand(`mkdir -p ${this.agentHome}`);
+
+    await this.saveState({
+      sandboxId: this.sandbox.id,
+      source: {
+        ...(this.snapshot ? { snapshot: this.snapshot } : {}),
+        ...(this.image ? { image: this.image } : {}),
+      },
+      cwd: this.agentHome,
+      updatedAt: new Date().toISOString(),
+    });
+    await this.context.markActive?.({
+      externalId: this.sandbox.id,
+      lastSeenAt: new Date().toISOString(),
+    });
+
+    await this.replayPendingSkillSync();
+  }
+
+  async exec(command: string): Promise<ExecResult> {
+    if (!this.sandbox) {
+      await this.ensure();
+    }
+
+    const startedAt = Date.now();
+    try {
+      // Daytona's executeCommand timeout is in seconds. Round up so
+      // sub-second waits don't collapse to 0.
+      const timeoutSec = Math.max(1, Math.ceil(this.timeoutMs / 1000));
+      const response = await this.sandbox!.process.executeCommand(
+        command,
+        this.agentHome,
+        undefined,
+        timeoutSec,
+      );
+      // Daytona returns the combined stream as `result`. There's no
+      // separate stderr, so map the whole thing to stdout when the command
+      // succeeds and to stderr when it fails — operators reading logs care
+      // primarily about exit code + the bytes that came back.
+      const output = response.result ?? '';
+      const exitCode = response.exitCode ?? 0;
+      return {
+        stdout: exitCode === 0 ? output : '',
+        stderr: exitCode === 0 ? '' : output,
+        exitCode,
+        durationMs: Date.now() - startedAt,
+      };
+    } catch (error: unknown) {
+      return {
+        stdout: '',
+        stderr: error instanceof Error ? error.message : String(error),
+        exitCode: 1,
+        durationMs: Date.now() - startedAt,
+      };
+    }
+  }
+
+  async syncSkills(skills: SyncSkillEntry[]): Promise<void> {
+    if (!this.sandbox) {
+      await this.savePendingSkillSync({
+        skills: skills.map((s) => ({ id: s.id, sourcePath: s.sourcePath })),
+        queuedAt: new Date().toISOString(),
+      });
+      return;
+    }
+
+    await this.applySkillSync(skills);
+    await this.savePendingSkillSync(null);
+  }
+
+  private async applySkillSync(skills: SyncSkillEntry[]): Promise<void> {
+    if (!this.sandbox) return;
+    const remoteSystemDir = `${this.agentHome}/.openhermit/skills/system`;
+    await this.sandbox.process.executeCommand(`rm -rf ${remoteSystemDir} && mkdir -p ${remoteSystemDir}`);
+    for (const skill of skills) {
+      const remoteSkillDir = `${remoteSystemDir}/${skill.id}`;
+      await this.sandbox.fs.createFolder(remoteSkillDir, '755');
+      await uploadDirToDaytona(this.sandbox, skill.sourcePath, remoteSkillDir);
+    }
+  }
+
+  private async replayPendingSkillSync(): Promise<void> {
+    if (!this.context.getRuntimeState) return;
+    const state = await this.context.getRuntimeState();
+    const pending = state?.['daytona_pending_skills'] as DaytonaPendingSkillSync | undefined;
+    if (!pending || !pending.skills?.length) return;
+    try {
+      await this.applySkillSync(pending.skills.map((s) => ({ id: s.id, sourcePath: s.sourcePath })));
+      await this.savePendingSkillSync(null);
+    } catch (error) {
+      console.warn(
+        `[exec-backend][daytona][${this.id}] failed to replay pending skill sync: ` +
+          (error instanceof Error ? error.message : String(error)),
+      );
+    }
+  }
+
+  private async savePendingSkillSync(pending: DaytonaPendingSkillSync | null): Promise<void> {
+    if (!this.context.setRuntimeState || !this.context.getRuntimeState) return;
+    const current = (await this.context.getRuntimeState()) ?? {};
+    if (pending === null) {
+      const { daytona_pending_skills: _drop, ...rest } = current;
+      void _drop;
+      await this.context.setRuntimeState(rest);
+    } else {
+      await this.context.setRuntimeState({ ...current, daytona_pending_skills: pending });
+    }
+  }
+
+  async shutdown(): Promise<void> {
+    if (!this.sandbox) return;
+    try {
+      // Stop, don't delete — preserves persisted state for next ensure().
+      // Daytona will auto-stop via autoStopInterval anyway, but stopping
+      // explicitly on shutdown frees the slot faster.
+      await this.sandbox.stop();
+    } catch {
+      // Already stopped or gone — ignore.
+    }
+    this.sandbox = null;
+  }
+
+  private async loadState(): Promise<DaytonaBackendPersisted | null> {
+    if (!this.context.getRuntimeState) return null;
+    const state = await this.context.getRuntimeState();
+    return (state?.['daytona'] as DaytonaBackendPersisted) ?? null;
+  }
+
+  private async saveState(persisted: DaytonaBackendPersisted): Promise<void> {
+    if (!this.context.setRuntimeState || !this.context.getRuntimeState) return;
+    const current = (await this.context.getRuntimeState()) ?? {};
+    await this.context.setRuntimeState({ ...current, daytona: persisted });
+  }
+}
+
 // ── Register built-in backends ────────────────────────────────────────────
 
 registerExecBackend('docker', (config, context) =>
@@ -592,6 +891,10 @@ registerExecBackend('host', (config, context) =>
 
 registerExecBackend('e2b', (config, context) =>
   new E2BExecBackend(config as E2BExecBackendConfig, context),
+);
+
+registerExecBackend('daytona', (config, context) =>
+  new DaytonaExecBackend(config as DaytonaExecBackendConfig, context),
 );
 
 // ── ExecBackendManager ────────────────────────────────────────────────────

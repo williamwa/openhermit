@@ -43,6 +43,7 @@
     "test": "npm run build && node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
+    "@daytonaio/sdk": "^0.171.0",
     "@mariozechner/pi-agent-core": "^0.70.6",
     "@mariozechner/pi-ai": "^0.70.6",
     "@modelcontextprotocol/sdk": "^1.29.0",
