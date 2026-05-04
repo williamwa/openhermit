@@ -27,7 +27,7 @@ Most CLI-based agents (Claude Code, OpenClaw, Hermes, …) keep their state in f
 OpenHermit makes one core design choice: **separate internal state from external state.**
 
 - **Internal state** — sessions, memories, instructions, skills, MCP servers, schedules, secrets, users — lives in shared **PostgreSQL**, scoped by `agent_id`.
-- **External state** — the workspace files an agent is currently working on — lives in a sandboxed **Docker container** per agent.
+- **External state** — the workspace files an agent is currently working on — lives in a per-agent **sandbox**. Pick the backend that fits your deployment: a self-hosted Docker container, or a cloud sandbox provider like [E2B](https://e2b.dev) or [Daytona](https://www.daytona.io).
 
 Once internal state is centralized, fleet operations become trivial:
 
@@ -46,7 +46,7 @@ hermit config secrets set OPENROUTER_API_KEY sk-... --agent main  # rotate a sec
 
 - 🚪 **Gateway control plane** — single Hono server. Agents start, attach, detach without orchestration. Admin UI at `/admin/`.
 - 🐘 **Postgres-backed state** — sessions, memories, instructions, skills, MCP, schedules, secrets — durable behind Drizzle.
-- 🐳 **Sandboxed execution** — per-agent Docker workspace, host shell, or E2B sandbox backend. Code runs isolated from the host.
+- 🐳 **Sandboxed execution** — per-agent sandbox: self-hosted Docker, E2B, or Daytona. Code runs isolated from the gateway, with the same exec interface across backends.
 - 💬 **Channels included** — Telegram, Discord, Slack adapters, plus CLI and Web UI. Enable, disable, reconfigure at runtime.
 - 🛠 **Skills & MCP servers** — install centrally, enable per-agent or fleet-wide, audit from one place.
 - ⏱ **Schedules & automation** — cron and one-shot jobs with timeout, concurrency policy, and error backoff.
@@ -63,7 +63,7 @@ hermit config secrets set OPENROUTER_API_KEY sk-... --agent main  # rotate a sec
 - **Client** — Web and CLI for end-users to chat with agents.
 - **Channels** — Telegram, Discord, Slack adapters wired into any agent.
 - **Gateway** — API, auth, routing, agent lifecycle, schedules.
-- **Agent** — Model loop, tools / skills / MCP, sandboxed Docker workspace.
+- **Agent** — Model loop, tools / skills / MCP, sandboxed workspace (Docker / E2B / Daytona).
 - **Storage** — PostgreSQL for every kind of internal state.
 
 ---
@@ -166,7 +166,7 @@ All durable internal state is scoped by `agent_id` where applicable:
 | Memories | Long-term memory with PostgreSQL FTS plus ILIKE fallback |
 | Instructions | Agent identity, behavior, and rules included in prompts |
 | Users | Users, identities, roles, and merge links |
-| Containers | Workspace container inventory |
+| Sandboxes | Per-agent sandbox rows (docker / e2b / daytona) with lifecycle and runtime state |
 | Skills | Skill library and per-agent/global assignments |
 | MCP servers | External MCP server definitions and assignments |
 | Channels | Built-in and external channel rows with encrypted tokens |
