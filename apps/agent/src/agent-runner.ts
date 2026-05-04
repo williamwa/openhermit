@@ -1174,9 +1174,26 @@ export class AgentRunner implements SessionRuntime {
     const existingUserId = await this.store.users.resolve(channel, channelUserId);
     if (existingUserId) {
       const user = await this.store.users.get(existingUserId);
-      const role = await this.store.users.getAgentRole(this.scope, existingUserId) ?? 'guest';
+      const explicitRole = await this.store.users.getAgentRole(this.scope, existingUserId);
       if (user) {
-        return { userId: user.userId, role, ...(user.name ? { userName: user.name } : {}) };
+        // A globally-known user with no role on THIS agent is treated the
+        // same as an unknown sender: gated by the agent's access level so
+        // a 'protected' / 'private' agent cannot be entered just because
+        // the caller signed up elsewhere on the gateway.
+        if (!explicitRole) {
+          const accessLevel = this.options.security.getAccessLevel();
+          if (accessLevel !== 'public') {
+            this.logRuntime(
+              `denied known user ${existingUserId} on ${accessLevel} agent ${this.scope.agentId} — no membership row`,
+            );
+            return {};
+          }
+          // Public agent: auto-claim guest membership for the existing user
+          // (no new user row, just a role on this agent).
+          await this.store.users.assignAgent(this.scope, existingUserId, 'guest', now);
+          return { userId: user.userId, role: 'guest', ...(user.name ? { userName: user.name } : {}) };
+        }
+        return { userId: user.userId, role: explicitRole, ...(user.name ? { userName: user.name } : {}) };
       }
     }
 
