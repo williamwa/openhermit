@@ -220,11 +220,11 @@ class DockerExecBackend implements ExecBackend {
 
   async ensure(): Promise<void> {
     const entry = await this.containerManager.ensureWorkspaceContainer(this.agentId, this.config);
-    // `entry.id` is the registry's internal UUID; `runtime_container_id`
-    // is the actual docker container ID — that's what we want as the
-    // sandbox row's external_id.
+    // Store the deterministic container name (e.g. openhermit-<agent>-workspace)
+    // rather than the runtime container ID. The name is stable across
+    // recreates and is what operators type into `docker logs / exec`.
     await this.context.markActive?.({
-      externalId: entry.runtime_container_id ?? null,
+      externalId: entry.name ?? null,
       lastSeenAt: new Date().toISOString(),
     });
   }
