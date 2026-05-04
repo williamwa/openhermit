@@ -28,7 +28,7 @@ import type {
   DbAgentChannelStore,
   SandboxStore,
 } from '@openhermit/store';
-import type { AutoProvisionSandboxConfig } from './config.js';
+import type { SandboxPreset } from './config.js';
 import type { ChannelRegistry } from './auth.js';
 import {
   ConflictError,
@@ -207,7 +207,10 @@ export interface GatewayAppOptions {
   agentChannelStore?: DbAgentChannelStore | undefined;
   instructionStore?: import('@openhermit/store').DbInstructionStore | undefined;
   sandboxStore?: SandboxStore | undefined;
-  autoProvisionSandbox?: AutoProvisionSandboxConfig | undefined;
+  /** Named sandbox presets, keyed by preset name. */
+  sandboxPresets?: Record<string, SandboxPreset> | undefined;
+  /** Default preset to use when an agent is created without an explicit `sandbox` field. Null disables auto-provisioning. */
+  autoProvisionSandbox?: string | null | undefined;
   /** Live ChannelRegistry — handlers mutate this when channels are created/revoked. */
   channelRegistry?: ChannelRegistry | undefined;
   auth?: AuthResolverOptions | undefined;
@@ -725,9 +728,20 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
       );
     }
     const templateConfig = buildDefaultAgentConfig(record.workspaceDir);
-    const templateSecurity = {
+    if (
+      body.access !== undefined &&
+      body.access !== 'public' &&
+      body.access !== 'protected' &&
+      body.access !== 'private'
+    ) {
+      throw new ValidationError(
+        `access must be 'public', 'protected', or 'private' (got ${JSON.stringify(body.access)}).`,
+      );
+    }
+    const templateSecurity: Record<string, unknown> = {
       autonomy_level: 'full',
       require_approval_for: [],
+      ...(body.access ? { access: body.access } : {}),
     };
 
     // Sandboxes are now first-class DB rows. When the sandbox store is wired,
@@ -744,14 +758,41 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
     await configStore.setConfig(record.agentId, configToWrite);
     await configStore.setSecurity(record.agentId, templateSecurity);
 
-    if (options.sandboxStore && options.autoProvisionSandbox?.enabled) {
-      const auto = options.autoProvisionSandbox;
-      await options.sandboxStore.create({
-        agentId: record.agentId,
-        alias: 'default',
-        type: auto.type,
-        config: auto.config,
-      });
+    // Resolve which sandbox preset (if any) to provision. The body's
+    // `sandbox` field selects: a named preset, null (skip), or omitted
+    // (fall back to the gateway-level autoProvisionSandbox preset).
+    if (options.sandboxStore) {
+      const presets = options.sandboxPresets ?? {};
+      let presetName: string | null;
+      if (body.sandbox === null) {
+        presetName = null;
+      } else if (typeof body.sandbox === 'string') {
+        if (!presets[body.sandbox]) {
+          throw new ValidationError(
+            `Unknown sandbox preset "${body.sandbox}". Known: ${Object.keys(presets).join(', ') || '(none)'}`,
+          );
+        }
+        presetName = body.sandbox;
+      } else {
+        presetName = options.autoProvisionSandbox ?? null;
+      }
+      if (presetName) {
+        const preset = presets[presetName];
+        if (!preset) {
+          // Auto-provision points at a missing preset — operator misconfiguration.
+          throw new OpenHermitError(
+            `autoProvisionSandbox references unknown preset "${presetName}".`,
+            'config_invalid',
+            500,
+          );
+        }
+        await options.sandboxStore.create({
+          agentId: record.agentId,
+          alias: 'default',
+          type: preset.type,
+          config: preset.config,
+        });
+      }
     }
 
     // Pre-seed one row per supported builtin channel (all disabled). Owner
@@ -2310,6 +2351,17 @@ export const createGatewayApp = (options: GatewayAppOptions): Hono => {
   });
 
   // Per-agent schedule management is at /api/agents/:agentId/schedules (owner or admin auth)
+
+  // --- sandbox presets (read-only, available to any authenticated caller) ---
+
+  app.get('/api/sandbox-presets', async (c) => {
+    requireAuth(c);
+    const presets = options.sandboxPresets ?? {};
+    return c.json({
+      presets,
+      autoProvisionSandbox: options.autoProvisionSandbox ?? null,
+    });
+  });
 
   // --- per-agent sandbox management ---
 

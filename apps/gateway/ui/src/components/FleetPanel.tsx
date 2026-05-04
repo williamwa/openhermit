@@ -500,17 +500,40 @@ function BulkSkillDialog({
   );
 }
 
+interface SandboxPresetsResponse {
+  presets: Record<string, { type: string; config: Record<string, unknown> }>;
+  autoProvisionSandbox: string | null;
+}
+
+const SANDBOX_DEFAULT = '__default__';
+const SANDBOX_NONE = '__none__';
+
 function CreateAgentDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [agentId, setAgentId] = useState('');
   const [name, setName] = useState('');
   const [owner, setOwner] = useState('');
+  const [sandbox, setSandbox] = useState<string>(SANDBOX_DEFAULT);
+  const [access, setAccess] = useState<'public' | 'protected' | 'private'>('public');
+  const [presetsInfo, setPresetsInfo] = useState<SandboxPresetsResponse | null>(null);
 
   useEffect(() => { dialogRef.current?.showModal(); }, []);
+
+  useEffect(() => {
+    api<SandboxPresetsResponse>('/api/sandbox-presets')
+      .then((data) => setPresetsInfo(data))
+      .catch(() => setPresetsInfo({ presets: {}, autoProvisionSandbox: null }));
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!agentId.trim()) return;
+    let sandboxField: { sandbox?: string | null } = {};
+    if (sandbox === SANDBOX_NONE) {
+      sandboxField = { sandbox: null };
+    } else if (sandbox !== SANDBOX_DEFAULT) {
+      sandboxField = { sandbox };
+    }
     try {
       await api('/api/agents', {
         method: 'POST',
@@ -518,6 +541,8 @@ function CreateAgentDialog({ onClose, onCreated }: { onClose: () => void; onCrea
           agentId: agentId.trim(),
           ...(name.trim() ? { name: name.trim() } : {}),
           ...(owner.trim() ? { ownerUserId: owner.trim() } : {}),
+          access,
+          ...sandboxField,
         },
       });
       onClose();
@@ -526,6 +551,11 @@ function CreateAgentDialog({ onClose, onCreated }: { onClose: () => void; onCrea
       alert(`Failed to create agent: ${(err as Error).message}`);
     }
   };
+
+  const presetNames = presetsInfo ? Object.keys(presetsInfo.presets) : [];
+  const defaultLabel = presetsInfo?.autoProvisionSandbox
+    ? `Default (${presetsInfo.autoProvisionSandbox})`
+    : 'Default (none)';
 
   return (
     <dialog ref={dialogRef} className="dialog" onClose={onClose}>
@@ -542,6 +572,30 @@ function CreateAgentDialog({ onClose, onCreated }: { onClose: () => void; onCrea
         <label className="field">
           <span className="field__label">Owner User ID (optional)</span>
           <input className="field__input" placeholder="e.g. usr-owner" value={owner} onChange={(e) => setOwner(e.target.value)} />
+        </label>
+        <label className="field">
+          <span className="field__label">Access</span>
+          <select
+            className="field__input"
+            value={access}
+            onChange={(e) => setAccess(e.target.value as 'public' | 'protected' | 'private')}
+          >
+            <option value="public">Public — anyone can join</option>
+            <option value="protected">Protected — token required (set via Security after create)</option>
+            <option value="private">Private — invite only</option>
+          </select>
+        </label>
+        <label className="field">
+          <span className="field__label">Sandbox</span>
+          <select className="field__input" value={sandbox} onChange={(e) => setSandbox(e.target.value)}>
+            <option value={SANDBOX_DEFAULT}>{defaultLabel}</option>
+            {presetNames.map((p) => (
+              <option key={p} value={p}>
+                {p} ({presetsInfo?.presets[p].type})
+              </option>
+            ))}
+            <option value={SANDBOX_NONE}>None (skip provisioning)</option>
+          </select>
         </label>
         <div className="dialog__actions">
           <button className="btn btn--ghost" type="button" onClick={onClose}>Cancel</button>

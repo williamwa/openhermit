@@ -217,6 +217,19 @@ export interface CreateAgentRequest {
   name?: string;
   workspaceDir?: string;
   ownerUserId?: string;
+  /**
+   * Sandbox provisioning at create time:
+   * - omitted: auto-provision using the gateway's configured default preset
+   * - string : provision using the named preset
+   * - null   : do not provision any sandbox
+   */
+  sandbox?: string | null;
+  /**
+   * Initial access level written into the agent's security policy.
+   * Defaults to 'public' if omitted. For 'protected', set the
+   * access_token afterwards via the security policy endpoint.
+   */
+  access?: 'public' | 'protected' | 'private';
 }
 
 export const gatewayRoutes = {

@@ -47,18 +47,30 @@ export const registerAgentsCommand = (program: Command): void => {
     .option('--name <name>', 'Display name for the agent')
     .option('--workspace-dir <path>', 'Custom workspace directory')
     .option('--owner <userId>', 'Owner user ID')
+    .option('--sandbox <preset>', 'Sandbox preset to provision (defaults to gateway autoProvisionSandbox)')
+    .option('--no-sandbox', 'Skip sandbox provisioning entirely')
     .action(async (agentId: string, opts: {
       name?: string;
       workspaceDir?: string;
       owner?: string;
+      sandbox?: string | false;
     }) => {
       try {
         const gateway = createGateway();
+        // Commander turns `--no-sandbox` into `sandbox: false`; map both
+        // forms onto the API's `sandbox: string | null` field.
+        const sandboxField: { sandbox: string | null } | object =
+          opts.sandbox === false
+            ? { sandbox: null }
+            : typeof opts.sandbox === 'string'
+              ? { sandbox: opts.sandbox }
+              : {};
         const result = await gateway.createAgent({
           agentId,
           ...(opts.name ? { name: opts.name } : {}),
           ...(opts.workspaceDir ? { workspaceDir: opts.workspaceDir } : {}),
           ...(opts.owner ? { ownerUserId: opts.owner } : {}),
+          ...sandboxField,
         });
         console.log(`Agent created: ${result.agentId} (${result.status})`);
       } catch (error) {

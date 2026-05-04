@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises';
 
-export interface AutoProvisionSandboxConfig {
-  enabled: boolean;
-  type: 'host' | 'docker' | 'e2b';
+export interface SandboxPreset {
+  type: 'host' | 'docker' | 'e2b' | 'daytona';
+  /** Backend-specific config (image/snapshot/template, agent_home, etc.). */
   config: Record<string, unknown>;
 }
 
@@ -10,19 +10,31 @@ export interface GatewayConfig {
   ui: boolean;
   cors: { origin: string };
   autoStartAgents: boolean;
-  autoProvisionSandbox: AutoProvisionSandboxConfig;
+  /** Named sandbox presets, keyed by preset name. */
+  sandboxPresets: Record<string, SandboxPreset>;
+  /**
+   * Name of the preset to auto-provision when an agent is created without an
+   * explicit `sandbox` field. `null` (or missing) disables auto-provisioning.
+   */
+  autoProvisionSandbox: string | null;
 }
+
+const DEFAULT_PRESETS: Record<string, SandboxPreset> = {
+  'docker-ubuntu': {
+    type: 'docker',
+    config: { image: 'ubuntu:24.04', username: 'root', agent_home: '/root' },
+  },
+};
 
 const DEFAULT_CONFIG: GatewayConfig = {
   ui: true,
   cors: { origin: '*' },
   autoStartAgents: true,
-  autoProvisionSandbox: {
-    enabled: true,
-    type: 'docker',
-    config: { image: 'ubuntu:24.04' },
-  },
+  sandboxPresets: DEFAULT_PRESETS,
+  autoProvisionSandbox: 'docker-ubuntu',
 };
+
+const SUPPORTED_TYPES = new Set(['host', 'docker', 'e2b', 'daytona']);
 
 const getCorsOrigin = (raw: Record<string, unknown>): string | undefined => {
   if (raw.cors && typeof raw.cors === 'object') {
@@ -30,6 +42,47 @@ const getCorsOrigin = (raw: Record<string, unknown>): string | undefined => {
     if (typeof origin === 'string') return origin;
   }
   return undefined;
+};
+
+const parsePresets = (raw: unknown): Record<string, SandboxPreset> | undefined => {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const out: Record<string, SandboxPreset> = {};
+  for (const [name, val] of Object.entries(raw as Record<string, unknown>)) {
+    if (!val || typeof val !== 'object') {
+      throw new Error(`Invalid sandboxPresets["${name}"]: must be an object`);
+    }
+    const v = val as Record<string, unknown>;
+    const type = v['type'];
+    if (typeof type !== 'string' || !SUPPORTED_TYPES.has(type)) {
+      throw new Error(`Invalid sandboxPresets["${name}"].type: ${String(type)}`);
+    }
+    const config = v['config'] && typeof v['config'] === 'object' && !Array.isArray(v['config'])
+      ? (v['config'] as Record<string, unknown>)
+      : {};
+    out[name] = { type: type as SandboxPreset['type'], config };
+  }
+  return out;
+};
+
+const parseAutoProvision = (
+  raw: unknown,
+  presets: Record<string, SandboxPreset>,
+): string | null => {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw !== 'string') {
+    throw new Error(
+      'autoProvisionSandbox must be a string preset name (or null). ' +
+        'The legacy { enabled, type, config } shape is no longer supported — ' +
+        'move the config into `sandboxPresets` and reference it by name.',
+    );
+  }
+  if (!presets[raw]) {
+    throw new Error(
+      `autoProvisionSandbox references unknown preset "${raw}". ` +
+        `Known presets: ${Object.keys(presets).join(', ') || '(none)'}`,
+    );
+  }
+  return raw;
 };
 
 /**
@@ -48,6 +101,11 @@ export const loadGatewayConfig = async (filePath: string): Promise<GatewayConfig
     // File doesn't exist — use defaults
   }
 
+  const presets = parsePresets(raw['sandboxPresets']) ?? DEFAULT_CONFIG.sandboxPresets;
+  const autoProvision = 'autoProvisionSandbox' in raw
+    ? parseAutoProvision(raw['autoProvisionSandbox'], presets)
+    : DEFAULT_CONFIG.autoProvisionSandbox;
+
   return {
     ui: typeof raw.ui === 'boolean' ? raw.ui : DEFAULT_CONFIG.ui,
     cors: {
@@ -56,23 +114,7 @@ export const loadGatewayConfig = async (filePath: string): Promise<GatewayConfig
     autoStartAgents: typeof raw.autoStartAgents === 'boolean'
       ? raw.autoStartAgents
       : DEFAULT_CONFIG.autoStartAgents,
-    autoProvisionSandbox: getAutoProvisionSandbox(raw) ?? DEFAULT_CONFIG.autoProvisionSandbox,
+    sandboxPresets: presets,
+    autoProvisionSandbox: autoProvision,
   };
-};
-
-const getAutoProvisionSandbox = (
-  raw: Record<string, unknown>,
-): AutoProvisionSandboxConfig | undefined => {
-  const value = raw['autoProvisionSandbox'];
-  if (!value || typeof value !== 'object') return undefined;
-  const v = value as Record<string, unknown>;
-  const enabled = typeof v['enabled'] === 'boolean' ? v['enabled'] : DEFAULT_CONFIG.autoProvisionSandbox.enabled;
-  const type = typeof v['type'] === 'string' ? v['type'] : DEFAULT_CONFIG.autoProvisionSandbox.type;
-  if (type !== 'host' && type !== 'docker' && type !== 'e2b') {
-    throw new Error(`Invalid autoProvisionSandbox.type: ${type}`);
-  }
-  const config = (v['config'] && typeof v['config'] === 'object')
-    ? (v['config'] as Record<string, unknown>)
-    : {};
-  return { enabled, type, config };
 };
