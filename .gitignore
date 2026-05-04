@@ -9,3 +9,4 @@ dist/
 .DS_Store
 TODO.md
 apps/cli/public/
+pnpm-lock.yaml
